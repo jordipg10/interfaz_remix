@@ -5,6 +5,15 @@
     {
       "AbsoluteMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|c:\\users\\user2319\\source\\repos\\jordipg10\\interfaz_remix\\main_interfaz.f90||{8B382828-6202-11D1-8870-0000F87579D2}",
       "RelativeMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|solutionrelative:main_interfaz.f90||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|c:\\users\\user2319\\source\\repos\\jordipg10\\remix\\src\\reaction_iteration_ee_eq_kin_aq_chem_lump.f90||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|c:\\users\\user2319\\source\\repos\\jordipg10\\remix\\src\\interfaz_comps_arch.f90||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|c:\\users\\user2319\\source\\repos\\jordipg10\\remix\\src\\chemistry_lagr_m.f90||{8B382828-6202-11D1-8870-0000F87579D2}"
     }
   ],
   "DocumentGroupContainers": [
@@ -24,9 +33,51 @@
               "RelativeDocumentMoniker": "main_interfaz.f90",
               "ToolTip": "C:\\Users\\user2319\\source\\repos\\jordipg10\\interfaz_remix\\main_interfaz.f90",
               "RelativeToolTip": "main_interfaz.f90",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAYAAAAzAAAAAAAAAA==",
+              "ViewState": "AgIAAEUAAAAAAAAAAAAAAE4AAAAWAAAAAAAAAA==",
               "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVFhH7ZZRDsIgDIaLb\u002BNcezIcQj0BR9kJ1EMQnzgXPM6BJZnbahqDYoQvIWvJAn/\u002BloAYxxHmCCEweh/n3POiBLLrYIdxEZz3sHLAe89ST3CVUh6TAzd5jpNb7N0pfnM7cJg2v2DMgnRAKRVzLn3fg9YaswccB7IJCCxFzAWkDZdkLYG1FoZhwIwHywFjDEY0W/9TJUhuTA0rih7DQD0Cgu1pzCnuQLYm5BIaD8PIf/dAcDENinpOAUUT0AQ0AU1A1jfhK9KFVtdlxIEswaf4uRKsHPg2hR0AuAMT1nAQPZIpKAAAAABJRU5ErkJggg==",
               "WhenOpened": "2025-06-17T16:22:56.035Z",
+              "IsPinned": true,
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "interfaz_comps_arch.f90",
+              "DocumentMoniker": "C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\interfaz_comps_arch.f90",
+              "RelativeDocumentMoniker": "..\\REMIX\\src\\interfaz_comps_arch.f90",
+              "ToolTip": "C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\interfaz_comps_arch.f90",
+              "RelativeToolTip": "..\\REMIX\\src\\interfaz_comps_arch.f90",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACMAAABAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVFhH7ZZRDsIgDIaLb\u002BNcezIcQj0BR9kJ1EMQnzgXPM6BJZnbahqDYoQvIWvJAn/\u002BloAYxxHmCCEweh/n3POiBLLrYIdxEZz3sHLAe89ST3CVUh6TAzd5jpNb7N0pfnM7cJg2v2DMgnRAKRVzLn3fg9YaswccB7IJCCxFzAWkDZdkLYG1FoZhwIwHywFjDEY0W/9TJUhuTA0rih7DQD0Cgu1pzCnuQLYm5BIaD8PIf/dAcDENinpOAUUT0AQ0AU1A1jfhK9KFVtdlxIEswaf4uRKsHPg2hR0AuAMT1nAQPZIpKAAAAABJRU5ErkJggg==",
+              "WhenOpened": "2025-06-17T16:31:53.193Z",
+              "IsPinned": true,
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "chemistry_Lagr_m.f90",
+              "DocumentMoniker": "C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\chemistry_Lagr_m.f90",
+              "RelativeDocumentMoniker": "..\\REMIX\\src\\chemistry_Lagr_m.f90",
+              "ToolTip": "C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\chemistry_Lagr_m.f90",
+              "RelativeToolTip": "..\\REMIX\\src\\chemistry_Lagr_m.f90",
+              "ViewState": "AgIAABYCAAAAAAAAAAAEwCICAAAmAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVFhH7ZZRDsIgDIaLb\u002BNcezIcQj0BR9kJ1EMQnzgXPM6BJZnbahqDYoQvIWvJAn/\u002BloAYxxHmCCEweh/n3POiBLLrYIdxEZz3sHLAe89ST3CVUh6TAzd5jpNb7N0pfnM7cJg2v2DMgnRAKRVzLn3fg9YaswccB7IJCCxFzAWkDZdkLYG1FoZhwIwHywFjDEY0W/9TJUhuTA0rih7DQD0Cgu1pzCnuQLYm5BIaD8PIf/dAcDENinpOAUUT0AQ0AU1A1jfhK9KFVtdlxIEswaf4uRKsHPg2hR0AuAMT1nAQPZIpKAAAAABJRU5ErkJggg==",
+              "WhenOpened": "2025-06-17T16:31:50.673Z",
+              "IsPinned": true,
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "reaction_iteration_EE_eq_kin_aq_chem_lump.f90",
+              "DocumentMoniker": "C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\reaction_iteration_EE_eq_kin_aq_chem_lump.f90",
+              "RelativeDocumentMoniker": "..\\REMIX\\src\\reaction_iteration_EE_eq_kin_aq_chem_lump.f90",
+              "ToolTip": "C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\reaction_iteration_EE_eq_kin_aq_chem_lump.f90",
+              "RelativeToolTip": "..\\REMIX\\src\\reaction_iteration_EE_eq_kin_aq_chem_lump.f90",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAKAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVFhH7ZZRDsIgDIaLb\u002BNcezIcQj0BR9kJ1EMQnzgXPM6BJZnbahqDYoQvIWvJAn/\u002BloAYxxHmCCEweh/n3POiBLLrYIdxEZz3sHLAe89ST3CVUh6TAzd5jpNb7N0pfnM7cJg2v2DMgnRAKRVzLn3fg9YaswccB7IJCCxFzAWkDZdkLYG1FoZhwIwHywFjDEY0W/9TJUhuTA0rih7DQD0Cgu1pzCnuQLYm5BIaD8PIf/dAcDENinpOAUUT0AQ0AU1A1jfhK9KFVtdlxIEswaf4uRKsHPg2hR0AuAMT1nAQPZIpKAAAAABJRU5ErkJggg==",
+              "WhenOpened": "2025-06-17T16:52:45.413Z",
               "IsPinned": true,
               "EditorCaption": ""
             },

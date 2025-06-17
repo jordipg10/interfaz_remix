@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:24:28 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:49:43 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE COMPUTE_RECH_MAT_PDE__genmod

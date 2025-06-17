@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:23:59 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:49:39 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE WRITE_TRANSPORT_DATA_WMA__genmod

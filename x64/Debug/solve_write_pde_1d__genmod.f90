@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:24:39 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:50:14 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE SOLVE_WRITE_PDE_1D__genmod

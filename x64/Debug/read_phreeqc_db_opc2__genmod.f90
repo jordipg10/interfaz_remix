@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:24:31 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:50:27 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE READ_PHREEQC_DB_OPC2__genmod

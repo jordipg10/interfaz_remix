@@ -17,25 +17,30 @@ program main_interfaz
     character(len=:), allocatable :: path_inp_trim !> path for input files trimmed
     character(len=256) :: path_DB !> path for databases
     character(len=:), allocatable :: path_DB_trim !> path for databases trimmed
-    character(len=256) :: root !> root of problem to solve
-    character(len=:), allocatable :: root_trim !> root of problem to solve trimmed
+    character(len=256) :: path_pb !> path of problem to solve
+    character(len=:), allocatable :: path_pb_trim !> path of problem to solve trimmed
+    character(len=256) :: root_pb !> root of problem to solve
+    character(len=:), allocatable :: root_pb_trim !> root of problem to solve trimmed
 !****************************************************************************************************************************
     write(*,*) 'Esta es la interfaz para resolver la mecla reactiva con el WMA'
 !> Name of path containing chemical and transport information
-    write(*,*) "Path bases de datos:"
+    write(*,*) "Directorio bases de datos:"
     read(*,*) path_DB !> must be written by the user
     path_DB_trim = trim(path_DB)
 !> Choose problem
-    write(*,*) "Path con root del problema que se quiere resolver:"
-    read(*,*) root !> must be written by the user
-    root_trim=trim(root)
+    write(*,*) "Directorio del problema que se quiere resolver:"
+    read(*,*) path_pb !> must be written by the user
+    path_pb_trim=trim(path_pb)
+    write(*,*) "Root del problema que se quiere resolver (p.ej. yeso_eq)"
+    read(*,*) root_pb !> must be written by the user
+    root_pb_trim=trim(root_pb)
 !> Initialise transport
     write(*,*) "Elegir opcion transporte (0: calcular lambdas, 1: leer lambdas):"
     read(*,*) option_tpt !> must be written by the user
     if (option_tpt.eq.0) then !> compute lambdas
     !> we read transport data, BCs and discretisations
         !> in the explicit case, we also compute stability parameters
-            call my_tpt_trans%initialise_transport_1D_transient_RT(root_trim)
+            call my_tpt_trans%initialise_transport_1D_transient_RT(path_pb_trim//root_pb_trim)
         !> we allocate transport arrays
             call my_tpt_trans%allocate_arrays_PDE_1D()
             call my_tpt_trans%allocate_conc()
@@ -45,21 +50,22 @@ program main_interfaz
             call my_RT_trans%set_transport_trans(my_tpt_trans)
         !> we choose and set integration method for chemical reactions
             !! 1: Euler explicit, 2: Euler fully implicit, 3: Crank-Nicolson
-            write(*,*) "Elegir metodo integracion temporal para reacciones quimicas (1: Euler explicito, 2: Euler totalmente implicito, 3: Crank-Nicolson):"
-            read(*,*) int_method_chem !> must be written by the user
+            !write(*,*) "Elegir metodo integracion temporal para reacciones quimicas (1: Euler explicito, 2: Euler totalmente implicito, 3: Crank-Nicolson):"
+            !read(*,*) int_method_chem !> must be written by the user
+            int_method_chem = 1 !> we set default method for chemical reactions
             call my_RT_trans%set_int_method_chem_reacts(int_method_chem)
     else if (option_tpt.eq.1) then !> read lambdas
     !> we set transport attribute in reactive transport object
         call my_RT_trans%set_transport_trans(my_tpt_trans) !> esto es un create en realidad
     !> we read temporal discretisation
-        call my_RT_trans%read_time_discretisation(root_trim)
+        call my_RT_trans%read_time_discretisation(path_pb_trim//root_pb_trim)
     !> we read transport data for WMA
-        call my_RT_trans%transport%read_transport_data_WMA(root_trim)
+        call my_RT_trans%transport%read_transport_data_WMA(path_pb_trim//root_pb_trim)
     else
         error stop "Esta opcion no esta implementada todavia"
     end if
 !> we read chemistry
-    call my_chem%read_chemistry(root_trim,path_DB_trim)
+    call my_chem%read_chemistry(path_pb_trim//root_pb_trim,path_DB_trim)
     write(*,*) 'Introduzca los siguientes datos:'
     write(*,*) 'Numero de componentes acuosas:'
     read(*,*) num_comps !> read number of components
@@ -71,9 +77,10 @@ program main_interfaz
     read(*,*) file_out !> read output file name
     flag=1
     do while (flag==1)
-        call my_chem%interfaz_comps_arch(num_comps,file_in,Delta_t,file_out)
-        write(*,*) 'Introduzca 1 para iterar, 0 para salir del bucle:'
+        call my_chem%interfaz_comps_arch(path_pb_trim,num_comps,file_in,Delta_t,file_out)
+        write(*,*) 'Introduzca 1 para iterar, cualquier otra tecla para salir del bucle:'
         read(*,*) flag !> read flag to continue or exit loop
         file_in=file_out !> we set the input file for the next iteration to be the output file of the previous one
+        !print *, file_in, file_out
     end do
 end program main_interfaz

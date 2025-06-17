@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:24:47 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:49:49 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE MASS_BALANCE_ERROR_ADE_STAT_DIRICHLET_DISCHARGE__genmod

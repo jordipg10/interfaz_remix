@@ -1,9 +1,9 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:24:01 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:50:16 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE INTERFAZ_COMPS_ARCH__genmod
           INTERFACE 
-            SUBROUTINE INTERFAZ_COMPS_ARCH(THIS,NUM_COMPS,FILE_IN,      &
+            SUBROUTINE INTERFAZ_COMPS_ARCH(THIS,PATH,NUM_COMPS,FILE_IN, &
      &DELTA_T,FILE_OUT)
               USE CHEM_OUT_OPTIONS_M
               USE VECTORS_M
@@ -42,6 +42,7 @@
               USE CHEMISTRY_LAGR_M, ONLY :                              &
      &          CHEMISTRY_C
               CLASS (CHEMISTRY_C) :: THIS
+              CHARACTER(*), INTENT(IN) :: PATH
               INTEGER(KIND=4), INTENT(IN) :: NUM_COMPS
               CHARACTER(*), INTENT(IN) :: FILE_IN
               REAL(KIND=8), INTENT(IN) :: DELTA_T
