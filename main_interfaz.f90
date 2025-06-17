@@ -80,7 +80,7 @@ program main_interfaz
         call my_chem%interfaz_comps_arch(path_pb_trim,num_comps,file_in,Delta_t,file_out)
         write(*,*) 'Introduzca 1 para iterar, cualquier otra tecla para salir del bucle:'
         read(*,*) flag !> read flag to continue or exit loop
-        file_in=file_out !> we set the input file for the next iteration to be the output file of the previous one
+        !file_in=file_out !> we set the input file for the next iteration to be the output file of the previous one
         !print *, file_in, file_out
     end do
 end program main_interfaz
