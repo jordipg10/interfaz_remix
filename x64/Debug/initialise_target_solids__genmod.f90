@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:50:07 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Wed Jun 18 20:03:26 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE INITIALISE_TARGET_SOLIDS__genmod

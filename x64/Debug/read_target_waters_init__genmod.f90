@@ -1,10 +1,10 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:50:23 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Wed Jun 18 20:04:05 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE READ_TARGET_WATERS_INIT__genmod
           INTERFACE 
-            SUBROUTINE READ_TARGET_WATERS_INIT(THIS,UNIT,WATER_TYPES,   &
-     &INIT_SOL_TYPES,INIT_GAS_TYPES,NSRZ,NGRZ)
+            SUBROUTINE READ_TARGET_WATERS_INIT(THIS,UNIT,INIT_SOL_TYPES,&
+     &INIT_GAS_TYPES,NSRZ,NGRZ)
               USE CHEM_OUT_OPTIONS_M
               USE VECTORS_M
               USE MATRICES_M
@@ -48,7 +48,6 @@
      &          MINERAL_ZONE_C
               CLASS (CHEMISTRY_C) :: THIS
               INTEGER(KIND=4), INTENT(IN) :: UNIT
-              TYPE (AQUEOUS_CHEMISTRY_C), INTENT(IN) :: WATER_TYPES(:)
               TYPE (SOLID_CHEMISTRY_C), INTENT(IN) :: INIT_SOL_TYPES(:)
               TYPE (GAS_CHEMISTRY_C), INTENT(IN) :: INIT_GAS_TYPES(:)
               INTEGER(KIND=4), INTENT(IN) :: NSRZ
