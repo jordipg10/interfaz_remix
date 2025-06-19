@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Wed Jun 18 20:04:07 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Thu Jun 19 17:20:11 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE COMPUTE_C_NC_FROM_U_AQ_NEWTON_IDEAL__genmod

@@ -22,7 +22,7 @@ program main_interfaz
     character(len=256) :: root_pb !> root of problem to solve
     character(len=:), allocatable :: root_pb_trim !> root of problem to solve trimmed
 !****************************************************************************************************************************
-    write(*,*) 'Esta es la interfaz para resolver la mecla reactiva con el WMA'
+    write(*,*) 'Esta es la interfaz para resolver la mecla reactiva con el WMA usando Euler explícito'
 !> Name of path containing chemical and transport information
     write(*,*) "Directorio bases de datos:"
     read(*,*) path_DB !> must be written by the user
@@ -67,7 +67,7 @@ program main_interfaz
 !> we read chemistry
     call my_chem%read_chemistry(path_pb_trim//root_pb_trim,path_DB_trim)
     write(*,*) 'Introduzca los siguientes datos:'
-    write(*,*) 'Numero de componentes acuosas:'
+    write(*,*) 'Número de componentes acuosas:'
     read(*,*) num_comps !> read number of components
     write(*,*) 'Paso de tiempo (asumimos que es uniforme):'
     read(*,*) Delta_t !> read time step
