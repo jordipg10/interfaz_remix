@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jun 17 18:50:31 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Tue Jul  1 14:52:49 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE SOLVE_PDE_EI_DELTA_T_HOMOG_MRMT__genmod
@@ -6,6 +6,8 @@
             SUBROUTINE SOLVE_PDE_EI_DELTA_T_HOMOG_MRMT(THIS,THETA,      &
      &TIME_OUT,OUTPUT)
               USE BCS_M
+              USE SPATIAL_DISCR_M
+              USE PDE_M
               USE PDE_MODEL_M
               USE MRMT_M, ONLY :                                        &
      &          MRMT_C,                                                 &
