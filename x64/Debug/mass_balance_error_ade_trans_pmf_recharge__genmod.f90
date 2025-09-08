@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jul  1 14:53:49 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:38 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE MASS_BALANCE_ERROR_ADE_TRANS_PMF_RECHARGE__genmod
@@ -14,6 +14,7 @@
               USE DIFFUSION_M
               USE CHAR_PARAMS_M
               USE TIME_DISCR_M
+              USE TIME_FCT_M
               USE BCS_M
               USE SPATIAL_DISCR_M
               USE PDE_M

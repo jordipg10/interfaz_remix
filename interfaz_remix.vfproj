@@ -237,7 +237,6 @@
 		<File RelativePath="..\REMIX\src\link_target_waters_target_solid.f90"/>
 		<File RelativePath="..\REMIX\src\link_target_waters_target_solids.f90"/>
 		<File RelativePath="..\REMIX\src\local_chemistry_m.f90"/>
-		<File RelativePath="..\REMIX\src\local_kin_reactions_m.f90"/>
 		<File RelativePath="..\REMIX\src\LU.f90"/>
 		<File RelativePath="..\REMIX\src\LU_lin_syst.f90"/>
 		<File RelativePath="..\REMIX\src\main_PDE.f90"/>
@@ -323,13 +322,10 @@
 		<File RelativePath="..\REMIX\src\read_dissolution_react_PHREEQC.f90"/>
 		<File RelativePath="..\REMIX\src\read_eq_reaction.f90"/>
 		<File RelativePath="..\REMIX\src\read_exchange_react_PHREEQC.f90"/>
-		<File RelativePath="..\REMIX\src\read_gas_bd_zone_CHEPROO.f90"/>
-		<File RelativePath="..\REMIX\src\read_gas_bd_zones_CHEPROO.f90"/>
-		<File RelativePath="..\REMIX\src\read_init_bd_rech_wat_types.f90"/>
-		<File RelativePath="..\REMIX\src\read_init_bd_rech_wat_types_CHEPROO.f90"/>
+		<File RelativePath="..\REMIX\src\read_init_bd_wat_types_CHEPROO.f90"/>
+		<File RelativePath="..\REMIX\src\read_init_cat_exch_zones_CHEPROO.f90"/>
 		<File RelativePath="..\REMIX\src\read_init_gas_zones_CHEPROO.f90"/>
 		<File RelativePath="..\REMIX\src\read_init_min_zones_CHEPROO.f90"/>
-		<File RelativePath="..\REMIX\src\read_init_surf_ads_zones_CHEPROO.f90"/>
 		<File RelativePath="..\REMIX\src\read_kin_lin.f90"/>
 		<File RelativePath="..\REMIX\src\read_kin_mineral.f90"/>
 		<File RelativePath="..\REMIX\src\read_kinetics_DB.f90"/>
@@ -411,6 +407,7 @@
 		<File RelativePath="..\REMIX\src\Thomas.f90"/>
 		<File RelativePath="..\REMIX\src\Thomas_Toeplitz.f90"/>
 		<File RelativePath="..\REMIX\src\time_discr_m.f90"/>
+		<File RelativePath="..\REMIX\src\time_fct_m.f90"/>
 		<File RelativePath="..\REMIX\src\transport_m.f90"/>
 		<File RelativePath="..\REMIX\src\transport_properties_heterog_m.f90"/>
 		<File RelativePath="..\REMIX\src\transport_stab_params_m.f90"/>

@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jul  1 14:53:28 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:50 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE WRITE_TRANSPORT_1D_TRANSIENT__genmod
@@ -15,6 +15,7 @@
               USE CHAR_PARAMS_M
               USE TIME_DISCR_M, ONLY :                                  &
      &          TIME_DISCR_HOMOG_C
+              USE TIME_FCT_M
               USE BCS_M
               USE SPATIAL_DISCR_M
               USE PDE_M

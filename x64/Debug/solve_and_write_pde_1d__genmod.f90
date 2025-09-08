@@ -1,10 +1,11 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jul  1 14:53:48 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:22 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE SOLVE_AND_WRITE_PDE_1D__genmod
           INTERFACE 
             SUBROUTINE SOLVE_AND_WRITE_PDE_1D(THIS,TIME_OUT)
               USE TRANSPORT_TRANSIENT_M
+              USE TIME_FCT_M
               USE BCS_M
               USE SPATIAL_DISCR_M
               USE PDE_M

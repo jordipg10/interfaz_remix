@@ -1,10 +1,11 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Tue Jul  1 15:00:12 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:20 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE SOLVE_DIFF_EI_DELTA_T_HOMOG_MRMT__genmod
           INTERFACE 
             SUBROUTINE SOLVE_DIFF_EI_DELTA_T_HOMOG_MRMT(THIS,THETA,     &
      &TIME_OUT,OUTPUT)
+              USE TIME_FCT_M
               USE BCS_M
               USE SPATIAL_DISCR_M
               USE PDE_M
