@@ -3,11 +3,11 @@
   "WorkspaceRootPath": "C:\\Users\\user2319\\source\\repos\\jordipg10\\interfaz_remix\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\interfaz_comps_arch.f90||{8B382828-6202-11D1-8870-0000F87579D2}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|C:\\Users\\user2319\\source\\repos\\jordipg10\\interfaz_remix\\main_interfaz.f90||{8B382828-6202-11D1-8870-0000F87579D2}",
       "RelativeMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|solutionrelative:main_interfaz.f90||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\interfaz_comps_arch.f90||{8B382828-6202-11D1-8870-0000F87579D2}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{440E0E81-7AAE-2724-A9E7-C4C0FF9E1FF4}|interfaz_remix.vfproj|c:\\users\\user2319\\source\\repos\\jordipg10\\remix\\src\\chemistry_m.f90||{8B382828-6202-11D1-8870-0000F87579D2}"
@@ -137,11 +137,11 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 2,
+          "SelectedChildIndex": 0,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "main_interfaz.f90",
               "DocumentMoniker": "C:\\Users\\user2319\\source\\repos\\jordipg10\\interfaz_remix\\main_interfaz.f90",
               "RelativeDocumentMoniker": "main_interfaz.f90",
@@ -169,7 +169,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "interfaz_comps_arch.f90",
               "DocumentMoniker": "C:\\Users\\user2319\\source\\repos\\jordipg10\\REMIX\\src\\interfaz_comps_arch.f90",
               "RelativeDocumentMoniker": "..\\REMIX\\src\\interfaz_comps_arch.f90",
