@@ -1,13 +1,14 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:36 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:53:44 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE WRITE_CHEMISTRY__genmod
           INTERFACE 
-            SUBROUTINE WRITE_CHEMISTRY(THIS,UNIT)
+            SUBROUTINE WRITE_CHEMISTRY(THIS,UNIT,LAGR_FLAG)
               USE CHEM_OUT_OPTIONS_M
               USE VECTORS_M
               USE MATRICES_M
               USE GAS_CHEMISTRY_M
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE REACTIVE_ZONE_LAGR_M
@@ -38,11 +39,12 @@
               USE PARAMS_ACT_COEFF_M
               USE SPECIES_M
               USE CHEM_SYSTEM_M
-              USE CHEMISTRY_LAGR_M, ONLY :                              &
+              USE CHEMISTRY_M, ONLY :                                   &
      &          CHEMISTRY_C,                                            &
      &          INF_NORM_VEC_REAL
               CLASS (CHEMISTRY_C), INTENT(IN) :: THIS
               INTEGER(KIND=4), INTENT(IN) :: UNIT
+              LOGICAL(KIND=4), INTENT(IN) :: LAGR_FLAG
             END SUBROUTINE WRITE_CHEMISTRY
           END INTERFACE 
         END MODULE WRITE_CHEMISTRY__genmod

@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:13 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:31:59 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE INITIALISE_CONC_INCR_COEFF__genmod
@@ -8,6 +8,7 @@
               USE VECTORS_M
               USE MATRICES_M
               USE GAS_CHEMISTRY_M
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE MONOD_PARAMS_M

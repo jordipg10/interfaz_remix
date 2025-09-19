@@ -71,7 +71,7 @@
 		<File RelativePath="..\REMIX\src\check_new_reactive_zones.f90"/>
 		<File RelativePath="..\REMIX\src\chem_out_options_m.f90"/>
 		<File RelativePath="..\REMIX\src\chem_system_m.f90"/>
-		<File RelativePath="..\REMIX\src\chemistry_Lagr_m.f90"/>
+		<File RelativePath="..\REMIX\src\chemistry_m.f90"/>
 		<File RelativePath="..\REMIX\src\Cholesky.f90"/>
 		<File RelativePath="..\REMIX\src\compare_react_zones.f90"/>
 		<File RelativePath="..\REMIX\src\compare_species_arrays.f90"/>
@@ -177,7 +177,7 @@
 		<File RelativePath="..\REMIX\src\compute_trans_mat_diff_trans.f90"/>
 		<File RelativePath="..\REMIX\src\compute_trans_mat_tpt.f90"/>
 		<File RelativePath="..\REMIX\src\compute_trans_mat_tpt_transient.f90"/>
-		<File RelativePath="..\REMIX\src\compute_u_tilde_aq_chem.f90"/>
+		<File RelativePath="..\REMIX\src\conc_m.f90"/>
 		<File RelativePath="..\REMIX\src\CV_params_m.f90"/>
 		<File RelativePath="..\REMIX\src\det.f90"/>
 		<File RelativePath="..\REMIX\src\diff_props_heterog_m.f90"/>
@@ -239,6 +239,7 @@
 		<File RelativePath="..\REMIX\src\local_chemistry_m.f90"/>
 		<File RelativePath="..\REMIX\src\LU.f90"/>
 		<File RelativePath="..\REMIX\src\LU_lin_syst.f90"/>
+		<File RelativePath=".\main_interfaz.f90"/>
 		<File RelativePath="..\REMIX\src\main_PDE.f90"/>
 		<File RelativePath="..\REMIX\src\main_transport.f90"/>
 		<File RelativePath="..\REMIX\src\main_transport_1D_transient.f90"/>
@@ -341,6 +342,8 @@
 		<File RelativePath="..\REMIX\src\read_reactive_zones_Lagr.f90"/>
 		<File RelativePath="..\REMIX\src\read_solid_chem_init.f90"/>
 		<File RelativePath="..\REMIX\src\read_species.f90"/>
+		<File RelativePath="..\REMIX\src\read_tar_gas.f90"/>
+		<File RelativePath="..\REMIX\src\read_tar_sol.f90"/>
 		<File RelativePath="..\REMIX\src\read_target_waters_init.f90"/>
 		<File RelativePath="..\REMIX\src\read_time_discretisation.f90"/>
 		<File RelativePath="..\REMIX\src\read_transport_data_WMA.f90"/>
@@ -353,7 +356,7 @@
 		<File RelativePath="..\REMIX\src\RKF45_iter_WMA.f90"/>
 		<File RelativePath="..\REMIX\src\RKF45_iter_WMA_kin.f90"/>
 		<File RelativePath="..\REMIX\src\rqdb_Jesus.f90"/>
-		<File RelativePath="..\REMIX\src\RT_1D_Lagr_m.f90"/>
+		<File RelativePath="..\REMIX\src\RT_1D_m.f90"/>
 		<File RelativePath="..\REMIX\src\set_stab_params.f90"/>
 		<File RelativePath="..\REMIX\src\set_stoich_mat.f90"/>
 		<File RelativePath="..\REMIX\src\set_stoich_mat_gas.f90"/>
@@ -361,7 +364,7 @@
 		<File RelativePath="..\REMIX\src\set_stoich_mat_react_zone.f90"/>
 		<File RelativePath="..\REMIX\src\set_stoich_mat_sol.f90"/>
 		<File RelativePath="..\REMIX\src\set_stoich_mat_sol_rz.f90"/>
-		<File RelativePath="..\REMIX\src\solid_chemistry_Lagr_m.f90"/>
+		<File RelativePath="..\REMIX\src\solid_chemistry_m.f90"/>
 		<File RelativePath="..\REMIX\src\solid_m.f90"/>
 		<File RelativePath="..\REMIX\src\solid_zone_m.f90"/>
 		<File RelativePath="..\REMIX\src\solve_and_write_PDE_1D.f90"/>
@@ -381,7 +384,6 @@
 		<File RelativePath="..\REMIX\src\solve_PDE_EI_Delta_t_homog_MRMT.f90"/>
 		<File RelativePath="..\REMIX\src\solve_PDE_RKF45.f90"/>
 		<File RelativePath="..\REMIX\src\solve_reactive_mixing_BCs_dep_t.f90"/>
-		<File RelativePath="..\REMIX\src\solve_reactive_mixing_bis.f90"/>
 		<File RelativePath="..\REMIX\src\solve_reactive_mixing_cons.f90"/>
 		<File RelativePath="..\REMIX\src\solve_reactive_mixing_EE_tpt.f90"/>
 		<File RelativePath="..\REMIX\src\solve_reactive_mixing_EfI_tpt.f90"/>
@@ -390,6 +392,8 @@
 		<File RelativePath="..\REMIX\src\solve_reactive_mixing_iter.f90"/>
 		<File RelativePath="..\REMIX\src\solve_reactive_mixing_lump.f90"/>
 		<File RelativePath="..\REMIX\src\solve_RT_1D.f90"/>
+		<File RelativePath="..\REMIX\src\solve_RT_1D_ideal_lump_Euler.f90"/>
+		<File RelativePath="..\REMIX\src\solve_RT_1D_ideal_lump_Lagr.f90"/>
 		<File RelativePath="..\REMIX\src\solve_tpt_1D_stat.f90"/>
 		<File RelativePath="..\REMIX\src\solve_tpt_EE_Delta_t_homog.f90"/>
 		<File RelativePath="..\REMIX\src\solve_write_PDE_1D.f90"/>
@@ -404,6 +408,7 @@
 		<File RelativePath="..\REMIX\src\str_belongs_to.f90"/>
 		<File RelativePath="..\REMIX\src\strings_m.f90"/>
 		<File RelativePath="..\REMIX\src\surf_compl_m.f90"/>
+		<File RelativePath="..\REMIX\src\target_m.f90"/>
 		<File RelativePath="..\REMIX\src\Thomas.f90"/>
 		<File RelativePath="..\REMIX\src\Thomas_Toeplitz.f90"/>
 		<File RelativePath="..\REMIX\src\time_discr_m.f90"/>
@@ -412,13 +417,13 @@
 		<File RelativePath="..\REMIX\src\transport_properties_heterog_m.f90"/>
 		<File RelativePath="..\REMIX\src\transport_stab_params_m.f90"/>
 		<File RelativePath="..\REMIX\src\transport_transient_m.f90"/>
-		<File RelativePath="..\REMIX\src\Truesdell_Jones.f90"/>
 		<File RelativePath="..\REMIX\src\update_conc_aq_prim_species.f90"/>
 		<File RelativePath="..\REMIX\src\update_conc_aq_species.f90"/>
 		<File RelativePath="..\REMIX\src\update_conc_prim_species.f90"/>
 		<File RelativePath="..\REMIX\src\update_conc_solids.f90"/>
 		<File RelativePath="..\REMIX\src\update_eq_reactions.f90"/>
 		<File RelativePath="..\REMIX\src\update_mineral_zone.f90"/>
+		<File RelativePath="..\REMIX\src\update_mixing_ratios_Delta_t_homog.f90"/>
 		<File RelativePath="..\REMIX\src\update_reactive_zone.f90"/>
 		<File RelativePath="..\REMIX\src\update_time_step_RKF45.f90"/>
 		<File RelativePath="..\REMIX\src\Vanselow_m.f90"/>

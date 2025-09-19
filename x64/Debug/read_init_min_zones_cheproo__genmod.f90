@@ -1,14 +1,15 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:05 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:53:40 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE READ_INIT_MIN_ZONES_CHEPROO__genmod
           INTERFACE 
-            SUBROUTINE READ_INIT_MIN_ZONES_CHEPROO(THIS,UNIT,           &
-     &INIT_MIN_ZONES,NMRZ,SURF_CHEM)
+            SUBROUTINE READ_INIT_MIN_ZONES_CHEPROO(THIS,UNIT,NUM_RZ,    &
+     &SURF_CHEM)
               USE CHEM_OUT_OPTIONS_M
               USE VECTORS_M
               USE MATRICES_M
               USE GAS_CHEMISTRY_M
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE REACTIVE_ZONE_LAGR_M
@@ -43,13 +44,11 @@
               USE PARAMS_ACT_COEFF_M
               USE SPECIES_M
               USE CHEM_SYSTEM_M
-              USE CHEMISTRY_LAGR_M, ONLY :                              &
+              USE CHEMISTRY_M, ONLY :                                   &
      &          CHEMISTRY_C
               CLASS (CHEMISTRY_C) :: THIS
               INTEGER(KIND=4), INTENT(IN) :: UNIT
-              TYPE (SOLID_CHEMISTRY_C) ,ALLOCATABLE, INTENT(OUT) ::     &
-     &INIT_MIN_ZONES(:)
-              INTEGER(KIND=4), INTENT(OUT) :: NMRZ
+              INTEGER(KIND=4), INTENT(OUT) :: NUM_RZ
               TYPE (SOLID_CHEMISTRY_C) ,OPTIONAL, INTENT(IN) ::         &
      &SURF_CHEM
             END SUBROUTINE READ_INIT_MIN_ZONES_CHEPROO

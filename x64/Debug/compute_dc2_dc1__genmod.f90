@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:28 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:31:45 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE COMPUTE_DC2_DC1__genmod
@@ -7,6 +7,7 @@
               USE VECTORS_M
               USE MATRICES_M
               USE GAS_CHEMISTRY_M
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE MONOD_PARAMS_M

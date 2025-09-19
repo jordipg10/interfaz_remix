@@ -1,9 +1,10 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:24 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:12:44 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE UPDATE_CONC_SOLIDS__genmod
           INTERFACE 
             SUBROUTINE UPDATE_CONC_SOLIDS(THIS,DELTA_C_S,CONTROL_FACTOR)
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE MONOD_PARAMS_M

@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:40 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 10:33:48 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE COMPUTE_INVERSE_TRIDIAG_MATRIX__genmod

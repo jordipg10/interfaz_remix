@@ -1,14 +1,15 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:22 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 10:32:15 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE SOLVE_FLOW_TRANSIENT__genmod
           INTERFACE 
             SUBROUTINE SOLVE_FLOW_TRANSIENT(THIS,TIME_OUT,OUTPUT)
+              USE CHAR_PARAMS_M
+              USE CHAR_PARAMS_FLOW_M
               USE STABILITY_PARAMETERS_M
               USE STAB_PARAMS_FLOW_M
               USE PROPERTIES_M
               USE FLOW_PROPS_HETEROG_M
-              USE CHAR_PARAMS_M
               USE TIME_DISCR_M, ONLY :                                  &
      &          TIME_DISCR_HOMOG_C,                                     &
      &          TIME_DISCR_C,                                           &
@@ -18,6 +19,7 @@
      &          TRIDIAG_MATRIX_C
               USE TIME_FCT_M
               USE BCS_M
+              USE TARGET_M
               USE SPATIAL_DISCR_M
               USE PDE_M
               USE PDE_TRANSIENT_M

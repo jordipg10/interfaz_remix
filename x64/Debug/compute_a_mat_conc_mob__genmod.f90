@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:21 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 15:14:56 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE COMPUTE_A_MAT_CONC_MOB__genmod
@@ -8,6 +8,7 @@
      &          TRIDIAG_MATRIX_C
               USE TIME_FCT_M
               USE BCS_M
+              USE TARGET_M
               USE SPATIAL_DISCR_M
               USE PDE_M
               USE PDE_MODEL_M

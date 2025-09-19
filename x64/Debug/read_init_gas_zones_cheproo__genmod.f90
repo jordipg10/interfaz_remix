@@ -1,14 +1,14 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:29 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:53:48 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE READ_INIT_GAS_ZONES_CHEPROO__genmod
           INTERFACE 
-            SUBROUTINE READ_INIT_GAS_ZONES_CHEPROO(THIS,UNIT,GAS_ZONES, &
-     &NGRZ)
+            SUBROUTINE READ_INIT_GAS_ZONES_CHEPROO(THIS,UNIT,NGRZ)
               USE CHEM_OUT_OPTIONS_M
               USE VECTORS_M
               USE MATRICES_M
               USE GAS_CHEMISTRY_M
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE REACTIVE_ZONE_LAGR_M
@@ -40,7 +40,7 @@
               USE PARAMS_ACT_COEFF_M
               USE SPECIES_M
               USE CHEM_SYSTEM_M
-              USE CHEMISTRY_LAGR_M, ONLY :                              &
+              USE CHEMISTRY_M, ONLY :                                   &
      &          CHEMISTRY_C,                                            &
      &          GAS_CHEMISTRY_C,                                        &
      &          REACTIVE_ZONE_C,                                        &
@@ -48,8 +48,6 @@
      &          GAS_PHASE_C
               CLASS (CHEMISTRY_C) :: THIS
               INTEGER(KIND=4), INTENT(IN) :: UNIT
-              TYPE (GAS_CHEMISTRY_C) ,ALLOCATABLE, INTENT(OUT) ::       &
-     &GAS_ZONES(:)
               INTEGER(KIND=4), INTENT(OUT) :: NGRZ
             END SUBROUTINE READ_INIT_GAS_ZONES_CHEPROO
           END INTERFACE 

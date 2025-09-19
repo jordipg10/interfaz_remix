@@ -1,9 +1,10 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:49 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:12:20 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE COMPUTE_MASS_BAL_MINS__genmod
           INTERFACE 
             SUBROUTINE COMPUTE_MASS_BAL_MINS(THIS,DELTA_T)
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE MONOD_PARAMS_M

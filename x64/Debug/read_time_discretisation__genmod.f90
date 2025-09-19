@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:29 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:53:42 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE READ_TIME_DISCRETISATION__genmod
@@ -9,6 +9,7 @@
      &          INF_NORM_VEC_REAL
               USE MATRICES_M
               USE GAS_CHEMISTRY_M
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE REACTIVE_ZONE_LAGR_M
@@ -39,7 +40,6 @@
               USE PARAMS_ACT_COEFF_M
               USE SPECIES_M
               USE CHEM_SYSTEM_M
-              USE CHEMISTRY_LAGR_M
               USE RT_1D_M, ONLY :                                       &
      &          RT_1D_TRANSIENT_C,                                      &
      &          RT_1D_C

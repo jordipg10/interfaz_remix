@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:52:15 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:32:14 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE WATER_MIXING_ITER_EI_KIN_ANAL_IDEAL_OPT2_LUMP__genmod
@@ -8,6 +8,7 @@
               USE VECTORS_M
               USE MATRICES_M
               USE GAS_CHEMISTRY_M
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE MONOD_PARAMS_M

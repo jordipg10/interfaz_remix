@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:49 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 17:53:55 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE INITIALISE_CHEMISTRY__genmod
@@ -10,6 +10,7 @@
               USE VECTORS_M
               USE MATRICES_M
               USE GAS_CHEMISTRY_M
+              USE TARGET_M
               USE MINERAL_ZONE_M
               USE CV_PARAMS_M
               USE REACTIVE_ZONE_LAGR_M
@@ -40,7 +41,7 @@
               USE PARAMS_ACT_COEFF_M
               USE SPECIES_M
               USE CHEM_SYSTEM_M
-              USE CHEMISTRY_LAGR_M, ONLY :                              &
+              USE CHEMISTRY_M, ONLY :                                   &
      &          CHEMISTRY_C
               CLASS (CHEMISTRY_C) :: THIS
               CHARACTER(*), INTENT(IN) :: ROOT

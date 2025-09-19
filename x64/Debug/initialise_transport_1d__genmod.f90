@@ -1,4 +1,4 @@
-        !COMPILER-GENERATED INTERFACE MODULE: Mon Sep  8 16:51:53 2025
+        !COMPILER-GENERATED INTERFACE MODULE: Fri Sep 19 15:24:58 2025
         ! This source file is for reference only and may not completely
         ! represent the generated interface used by the compiler.
         MODULE INITIALISE_TRANSPORT_1D__genmod
@@ -12,6 +12,7 @@
               USE TIME_FCT_M
               USE BCS_M, ONLY :                                         &
      &          BCS_T
+              USE TARGET_M
               USE SPATIAL_DISCR_M
               USE PDE_M
               USE DIFFUSION_M
