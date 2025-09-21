@@ -1,0 +1,4 @@
+.true. 0.0			! recarga/descarga/evaporacion uniforme
+.true. 1d0			! porosity
+.true. 5d-1			! dispersion (m^2 d^-1)
+.true. 2.5d0			! flux (m/d)

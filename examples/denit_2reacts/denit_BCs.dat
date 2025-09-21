@@ -1,0 +1,2 @@
+3 2	! BCs labels (1: Dirichlet, 2: Neumann homog., 3: Robin)
+.false.	! evaporation

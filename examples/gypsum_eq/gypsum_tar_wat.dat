@@ -1,0 +1,26 @@
+'TITLE OF THE PROBLEM: Yeso en equilibrio'
+'----------------------------------------------------------------------------'
+'TARGET WATERS'
+12					! number of target waters
+0					! number of external target waters (recharge, boundary, etc)
+2					! number of boundary target waters (recharge, boundary, etc)
+1	1	1	0	0	! target water index, water type index, solid zone index, gas zone index, flag
+2	2	1	0	1
+3	2	1	0	1
+4	2	1	0	1
+5	2	1	0	1
+6	2	1	0	1
+7	2	1	0	1
+8	2	1	0	1
+9	2	1	0	1
+10	2	1	0 	1
+11	2	1	0	1
+12	2	1	0	0
+'----------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

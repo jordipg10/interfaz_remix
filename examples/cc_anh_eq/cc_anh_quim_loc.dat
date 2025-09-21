@@ -1,0 +1,56 @@
+'TITLE OF THE PROBLEM: Anhidrita y calcita en equilibrio'
+'-----------------------------------------------------------------------------'
+'INITIAL AND BOUNDARY WATER TYPES'
+0						! activity coefficients model
+3						! number of water types
+1     25.0					! iwtype, temp (C)
+'calcita'					! name
+'       icon        guess         ctot          constrain'
+'h2o(p)'		1	1d0	1d0		''
+'ca+2'      1         1d-1      1d-1           ''
+'so4-2'    1         1d-6       1d-6 		''
+'co3-2(p)'		4		1d-9		1d0		'calcite3'
+'*'      0         0.0           0.0              ' '
+2     25.0					!iwtype, temp (C)
+'interfaz'					! name
+'       icon        guess         ctot          constrain'
+'h2o(p)'		1	1d0	1d0		''
+'ca+2'      1         1d-2       1d-2           ''
+'so4-2'    4         1d-5       1d0          'anhydrite'
+'co3-2(p)'		4		1d-9		1d0		'calcite3'
+'*'      0         0.0           0.0              ' '
+3     25.0					!iwtype, temp (C)
+'anhidrita'					! name
+'       icon        guess         ctot          constrain'
+'h2o(p)'		1	1d0	1d0		''
+'ca+2'      1         2d-3      2d-3           ''
+'so4-2'    4         1d-5       1d0          'anhydrite'
+'co3-2(p)'		1		1d-3		1d-3		''
+'*'      0         0.0           0.0              ' '
+'----------------------------------------------------------------------------'
+'INITIAL MINERAL ZONES'
+3					!nmtype= number of mineral zones 
+1	25.0				!imtype, temp (C)
+'calcite'				! name of mineral zone
+'mineral         vol.frac.    area(m2/m3rock)'
+'calcite3'          0.50         0.2d+3 
+'*'                0.00          0.00
+2	25.0				!imtype, temp (C)
+'interface'				! name of mineral zone
+'mineral         vol.frac.    area(m2/m3rock)'
+'anhydrite'		0.25         0.1d+3 
+'calcite3'          0.25         0.2d+3 
+'*'                0.00          0.00
+3	25.0				!imtype, temp (C)
+'anhydrite'				! name of mineral zone
+'mineral         vol.frac.    area(m2/m3rock)'
+'anhydrite'		0.50         0.1d+3 
+'*'                0.00          0.00
+'----------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

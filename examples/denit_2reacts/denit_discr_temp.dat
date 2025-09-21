@@ -1,0 +1,3 @@
+2			! Integration method (1: Euler Explicit, 2: Euler fully Implicit, 3: Crank-Nicolson)
+1d-3			! Time step (days)
+100			! Number of time steps

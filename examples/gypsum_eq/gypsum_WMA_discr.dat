@@ -1,0 +1,13 @@
+'TIME'
+1				! number of time steps
+1d-1				! time step
+2				! time integration method for chemical reactions (1: Euler explicit, 2: Euler fully implicit, 3: Crank-Nicolson)
+'*'
+'-------------------------------------------------------------------------------------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

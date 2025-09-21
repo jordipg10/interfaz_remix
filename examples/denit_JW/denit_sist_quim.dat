@@ -1,0 +1,50 @@
+'TITLE OF THE PROBLEM: Denitrification'
+'-------------------------------------------------------------------------------------------------'
+'DEFINITION OF THE GEOCHEMICAL SYSTEM'
+'PRIMARY AQUEOUS SPECIES'
+'h2o(p)'	
+'h+'  
+'cl-'
+'ch2o(aq)'
+'c5h7o2n(aq)'
+'n2(aq)(p)' 
+'nh4+(p)'
+'no2-(p)'
+'n2o'
+'so4-2'
+'h2s'
+'hco3-'
+'o2(aq)'
+'no3-'					 				
+'*'
+'AQUEOUS COMPLEXES'
+'oh-'
+'co3-2'
+'h2co3'
+'nh3(aq)'
+'*'
+'MINERALS'
+'*' .true. .true.
+'GASES'
+'co2(g)' .true. .true.			! name of gas, flag equilibrium, flag constant activity 
+'o2(g)' .true. .true.
+'n2(g)' .true. .true.
+'*' .false. .false.
+'REDOX REACTIONS'
+'aerobic oxidation of DOC (JW)' .false.	! name of redox reaction, flag equilibrium
+'nitrification (JW)' .false.
+'denitrification 1 (JW)' .false.
+'denitrification 2 (JW)' .false.
+'denitrification 3 (JW)' .false.
+'DNRA (JW)' .false.
+'anammox (JW)' .false.
+'sulfammox (JW)' .false.
+'*' .false.
+'-------------------------------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

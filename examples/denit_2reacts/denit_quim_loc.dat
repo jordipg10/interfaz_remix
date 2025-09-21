@@ -1,0 +1,47 @@
+'TITLE OF THE PROBLEM: Denitrification with 2 reactions'
+'-----------------------------------------------------------------------------'
+'INITIAL AND BOUNDARY WATER TYPES'
+0						! activity coefficients model
+2   	   					! nº water types
+1     25.0					! iwtype initial, temp (C)
+'entrada'					! name
+'       icon        guess         ctot          constrain'
+'h+'		1	1d-8		1d-8		''
+'cl-'		1	1d-3		1d-3		''
+'hco3-'		4	1d-6		3.5d-4		'co2(g)'
+'o2(aq)'	4	1d-4		2d-1		'o2(g)'
+'ch2o(aq)'	1	2d-3		2d-3		''
+'h2o(p)'		1	1d-9		1d-9		''
+'no3-'		1	1d-3		1d-3		''
+'n2(aq)(p)'	1	5d-4		5d-4		''
+'*'      0         0.0           0.0		''
+2     25.0					!iwtype initial, temp (C)
+'dominio'					! name
+'       icon        guess         ctot          constrain'
+'h+'		1	1d-7		1d-7		''
+'cl-'		1	1d-16		1d-16		''
+'hco3-'		1	1d-3		1d-3		''
+'o2(aq)'	1	1d-6		1d-6		''
+'ch2o(aq)'	1	1d-5		1d-5		''
+'h2o(p)'		1	1d-9		1d-9		''
+'no3-'		1	1d-5		1d-5		''
+'n2(aq)(p)'	1	5d-4		5d-4		''
+'*'      0         0.0           0.0              '' 		
+'----------------------------------------------------------------------------'
+'INITIAL AND BOUNDARY GAS ZONES'
+1                       			!ngtype= number of gas zones
+1	25	1d9				!igtype, temp (ºC), volume
+'atmosphere'					! name of gas zone
+'gas	       		partial pressure'	! pressure in atm
+'co2(g)'             	  	3.5d-4
+'o2(g)'				2d-1
+'n2(g)'				7.99965d-1
+'*'				0.00
+'----------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

@@ -1,0 +1,17 @@
+'kinetic data for mineral dissolution/precipitation in mol m-2 s-1'
+'gypsum' 1 0 0.0 1.0 'Barton and Wilde, 1970'
+        1d-9 1.0 1.0
+'anhydrite' 1 0 0.0 1.0 'Barton and Wilde, 1970'
+        1d0 1.0 1.0
+'calcite' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
+        1d-9 1.0 1.0
+'dolomite' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
+        1d-9 1.0 1.0
+'sylvite' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
+        1d0 1.0 1.0
+'halite' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
+        1d-9 1.0 1.0
+'calcite3' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
+        1d0 1.0 1.0
+'null' 0 0 0.0 0.0 ' '
+

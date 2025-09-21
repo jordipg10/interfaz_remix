@@ -1,0 +1,2 @@
+0.2	! flux at inflow
+1.0	! concentration at inflow (not relevant for WMA)
