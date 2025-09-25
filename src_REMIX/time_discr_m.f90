@@ -230,7 +230,8 @@ module time_discr_m
             if (present(k)) then
                 Delta_t=this%Delta_t(k) !> if k is present, return k-th time step
             else
-                Delta_t=maxval(this%Delta_t) !> if k is not present, return max time step
+                !Delta_t=maxval(this%Delta_t) !> if k is not present, return max time step
+                Delta_t=this%Delta_t(1) !> if k is not present, return first time step
             end if
         end function
         

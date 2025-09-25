@@ -44,11 +44,11 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
     ngrz=0 !> number of gas reactive zones by default
     nmrz=0 !> number of mineral reactive zones by default
 !> Chemical system
-    open(unit_chem_syst_file,file=root//'_sist_quim.dat',status='old',action='read')
+    open(unit_chem_syst_file,file=path_pb//root//'_sist_quim.dat',status='old',action='read')
     call this%chem_syst%read_chem_system_CHEPROO(path_DB,unit_chem_syst_file)
     close(unit_chem_syst_file)
 !> Local chemistry
-    open(unit_loc_chem_file,file=root//'_quim_loc.dat',status='old',action='read')
+    open(unit_loc_chem_file,file=path_pb//root//'_quim_loc.dat',status='old',action='read')
     do
         read(unit_loc_chem_file,*) label
         if (label=='end') then
@@ -218,15 +218,14 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
     !call this%set_reactive_zones(reactive_zones)
 !> Target solids
     if (nsrz>0) then
-        call this%read_tar_sol(root,nsrz,ngrz)
+        call this%read_tar_sol(path_pb//root,nsrz,ngrz)
     end if
 !> Target gases
     if (ngrz>0) then
-        call this%read_tar_gas(root,ngrz)
+        call this%read_tar_gas(path_pb//root,ngrz)
     end if
 !> Target waters
-    call this%read_target_waters_init(root,nsrz,ngrz)
+    call this%read_target_waters_init(path_pb//root,nsrz,ngrz)
 !> Output data
-    call this%chem_out_options%read_chem_out_options(root,this%target_waters)
-    !print *, this%chem_out_options%time_steps
+    call this%chem_out_options%read_chem_out_options(path_pb//root,this%target_waters)
 end subroutine

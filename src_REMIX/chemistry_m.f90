@@ -1367,7 +1367,7 @@ module chemistry_m
 
         num_aq_comps=this%get_num_aq_comps() !> we get the number of aqueous components in the chemical system
         allocate(u_aq_init(num_aq_comps,this%num_target_waters)) !> we allocate the aqueous components of initial target waters
-        filename = trim(root) // "_u_aq_init.dat"
+        filename = trim(root) // "_u_aq_init.out"
         open(unit=10, file=filename, status='unknown', action='write', form='formatted')
         !> Deberias usar solo 1 bucle en vez de 2
         do i=1,this%num_target_waters

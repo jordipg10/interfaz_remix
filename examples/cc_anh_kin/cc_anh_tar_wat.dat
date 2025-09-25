@@ -4,9 +4,9 @@
 30					! number of target waters
 0					! number of recharge target waters
 0					! number of boundary target waters
-1-15	1	1	0	1	! target water index, water type index, solid zone index, gas zone index
-16	2	2	0	1
-17-30	3	3	0	1
+1-15	1	1-15	0	1	! target water index, water type index, target solid index, target gas index, flag
+16	2	16	0	1
+17-30	3	17-30	0	1
 '----------------------------------------------------------------------------'
 'end'
 

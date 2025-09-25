@@ -599,5 +599,5 @@ subroutine read_target_waters_init(this,root,nsrz,ngrz)
     !if (allocated(this%target_gases)) then
     !    this%target_gases_init=this%target_gases
     !end if
-    call this%write_aq_comps_init(root) !> write aqueous components of initial target waters
+    !call this%write_aq_comps_init(root) !> write aqueous components of initial target waters
 end subroutine
