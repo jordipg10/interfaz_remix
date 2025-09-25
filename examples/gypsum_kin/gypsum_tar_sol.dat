@@ -1,0 +1,13 @@
+'TITLE OF THE PROBLEM: Gypsum kinetic'
+'----------------------------------------------------------------------------'
+'TARGET SOLIDS'
+11						! number of target solids
+1-11	1					! target solids interval, solid zone index
+'----------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

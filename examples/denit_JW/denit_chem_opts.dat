@@ -3,7 +3,7 @@
 'CHEMICAL OPTIONS'
 1			! Chemical input data option (1: CHEPROO-based, 2: PHREEQC, 3:PFLOTRAN)
 1			! Option to compute Jacobians (0: incremental coefficients, 1: analyticially)
-.false.			! Lumping flag
+.true.			! Lumping flag
 2			! Consistent WMA option (1: explicit, 2: upstream to downstream)
 3			! Estimation of downstream waters rk (3 options, see documentation for details)
 2			! Average rk option (1: concentrations, 2: reaction rates)

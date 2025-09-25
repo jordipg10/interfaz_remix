@@ -1,0 +1,15 @@
+'TITLE OF THE PROBLEM: Calcita y anhidrita cineticas'
+'----------------------------------------------------------------------------'
+'TARGET SOLIDS'
+30					! number of target solids
+1-15	1				! target solids indices, solid zone index
+16	2		
+17-30	3		
+'----------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+
