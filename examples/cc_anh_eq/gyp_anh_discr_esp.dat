@@ -1,5 +1,0 @@
-2			! Scheme (1: Centred finite differences, 2: Esquema Petchamé-Carrera, 3: Upwind)
-1			! Targets flag (0: cells, 1: interfaces)
-1.5			! Domain measure (m)
-31			! Number of targets
-0			! Adaptive refinement (0: NO, 1: YES)

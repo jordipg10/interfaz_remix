@@ -1,4 +1,0 @@
-.true. 0.0			! recarga/descarga/evaporacion uniforme
-.true. 5d-1			! porosity
-.true. 2d-1 .false.		! flux (m/d), transient flag
-.true. 5d-2			! dispersivity (m)
