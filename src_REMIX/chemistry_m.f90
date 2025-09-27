@@ -22,7 +22,7 @@ module chemistry_m
         integer(kind=4) :: num_wat_types=0 !> number of water types
         integer(kind=4) :: num_target_waters=0 !> number of target waters
         integer(kind=4) :: num_target_waters_init=0 !> number of target waters initially
-        type(aqueous_chemistry_c), allocatable :: wat_types(:) !> initial water types
+        type(aqueous_chemistry_c), allocatable :: wat_types(:) !> initial & boundary water types
         type(aqueous_chemistry_c), allocatable :: target_waters(:) !> target waters initial
         type(aqueous_chemistry_c), allocatable :: target_waters_init(:) !> target waters initial
         integer(kind=4) :: num_target_waters_dom=0 !> number of initial target waters
@@ -37,6 +37,7 @@ module chemistry_m
         integer(kind=4) :: num_target_solids_dom=0 !> number of target solids init (<= num_target_waters_dom)
         integer(kind=4) :: num_materials=0 !> number of materials (<= num_target_solids)
         type(solid_chemistry_c), allocatable :: materials(:) !> materials (solid types)
+        type(solid_chemistry_c), allocatable :: sol_types(:) !> solid types associated to initial & boundary water types (chapuza)
         type(solid_chemistry_c), allocatable :: target_solids(:) !> target solids
         type(solid_chemistry_c), allocatable :: target_solids_init(:) !> initial target solids
         integer(kind=4) :: num_target_gases=0 !> number of target gases
@@ -46,6 +47,7 @@ module chemistry_m
         type(gas_chemistry_c), allocatable :: target_gases_init(:) !> target gases init
         integer(kind=4) :: num_reactive_zones=0 !> number of reactive zones (<=num_target_solids)
         type(reactive_zone_c), allocatable :: reactive_zones(:) !> reactive zones
+        type(reactive_zone_c), allocatable :: react_zones_wat_types(:) !> reactive zones associated to water types (chapuza)
         integer(kind=4) :: num_mineral_zones=0 !> number of mineral zones (<=num_target_solids)
         type(mineral_zone_c), allocatable :: mineral_zones(:) !> reactive zones
         integer(kind=4) :: Jac_opt !> model to compute Jacobians (0: incremental coefficnets, 1: analytical)
@@ -75,9 +77,9 @@ module chemistry_m
         procedure, public :: set_Jac_opt
         procedure, public :: set_target_solids_mesh !> chapuza
     !> Get
-        procedure, public :: get_num_aq_comps
+        procedure, public :: get_num_aq_comps_chem_syst
         procedure, public :: get_num_wat_types
-        procedure, public :: get_aq_comps_wat_types
+        procedure, public :: get_conc_comp_wat_types
         procedure, public :: get_num_aq_var_act_species
         procedure, public :: get_tar_sol_ind
         procedure, public :: get_tar_gas_ind
@@ -90,9 +92,11 @@ module chemistry_m
         procedure, public :: allocate_target_solids
         procedure, public :: allocate_target_gases
         procedure, public :: allocate_reactive_zones
+        procedure, public :: allocate_react_zones_wat_types
         procedure, public :: allocate_mineral_zones
         procedure, public :: allocate_materials
         procedure, public :: allocate_wat_types
+        procedure, public :: allocate_sol_types
         procedure, public :: allocate_gas_zones
     !> Read
         procedure, public :: read_target_waters_init
@@ -112,7 +116,7 @@ module chemistry_m
         procedure, public :: initialise_chemistry
     !> Write
         procedure, public :: write_chemistry
-        procedure, public :: write_aq_comps_init
+        procedure, public :: write_conc_comp_wat_types
         procedure, public :: write_u_tilde_init
     !> Solve
         procedure, public :: solve_reactive_mixing_lump !> main solver
@@ -956,7 +960,7 @@ module chemistry_m
        end subroutine
        
 
-       subroutine loop_read_tar_wat_init(this,flag_ext,water_types,init_sol_types,init_gas_types,nsrz,ngrz,tar_wat_ind,wtype,&
+            subroutine loop_read_tar_wat_init(this,flag_ext,water_types,init_sol_types,init_gas_types,nsrz,ngrz,tar_wat_ind,wtype,&
             istype,igzn,aux_istype,aux_igzn,solid_chem_def)
             class(chemistry_c) :: this !> chemistry object
             logical, intent(in) :: flag_ext !> flag to indicate if target water is external
@@ -1053,7 +1057,7 @@ module chemistry_m
             deallocate(swap,aux_swap)
             end subroutine
 
-       subroutine read_tar_wat_line(this,flag_ext,iszn,igzn,tar_wat_ind,wtype,tar_sol_ind,tar_gas_ind,aux_iszn,aux_igzn)
+            subroutine read_tar_wat_line(this,flag_ext,iszn,igzn,tar_wat_ind,wtype,tar_sol_ind,tar_gas_ind,aux_iszn,aux_igzn)
             class(chemistry_c) :: this !> chemistry object
             logical, intent(in) :: flag_ext !> flag to indicate if target water is external
             integer(kind=4), intent(in) :: iszn !> index of solid zone
@@ -1299,22 +1303,12 @@ module chemistry_m
         end do
         end subroutine
         
-        function get_num_aq_comps(this,ind_rz) result(num_aq_comps)
+        function get_num_aq_comps_chem_syst(this) result(num_aq_comps)
         !> Gets the number of aqueous components in the chemical system
         implicit none
-        class(chemistry_c) :: this
-        integer(kind=4), intent(in), optional :: ind_rz !> index of reactive zone
-        integer(kind=4) :: num_aq_comps !> number of aqueous components in reactive zone
-        if (present(ind_rz)) then
-            if (ind_rz>0 .and. ind_rz<=this%num_reactive_zones) then
-                num_aq_comps=this%reactive_zones(ind_rz)%speciation_alg%num_aq_prim_species
-            else
-                error stop "Index of reactive zone out of bounds"
-            end if
-        else
-            !print *, this%reactive_zones(1)%speciation_alg%num_aq_prim_species
-            num_aq_comps=this%reactive_zones(1)%speciation_alg%num_aq_prim_species !> we assume all reactive zones have the same number of aqueous components
-        end if
+        class(chemistry_c) :: this !> chemistry object
+        integer(kind=4) :: num_aq_comps !> number of aqueous components in the chemical system
+        num_aq_comps=this%chem_syst%speciation_alg%num_aq_prim_species !> 
         end function
         
         function get_num_aq_var_act_species(this,ind_tw) result(n_nc_aq)
@@ -1341,41 +1335,46 @@ module chemistry_m
         num_wat_types=this%num_wat_types
         end function
         
-        function get_aq_comps_wat_types(this) result(aq_comps_wat_types)
+        function get_conc_comp_wat_types(this) result(conc_comp_wat_types)
+        !> Gets the concentrations of aqueous components of water types
+        !! We assume all water types have the same number of aqueous components
         implicit none
         class(chemistry_c) :: this
-        real(kind=8), allocatable :: aq_comps_wat_types(:,:) !> aqueous components of water types
+        real(kind=8), allocatable :: conc_comp_wat_types(:,:) !> concentrations of aqueous components of water types
+
         integer(kind=4) :: num_aq_comps !> number of aqueous components in the chemical system
-        
         integer(kind=4) :: i !> loop index
-        num_aq_comps=this%get_num_aq_comps() !> we get the number of aqueous components in the chemical system
-        allocate(aq_comps_wat_types(num_aq_comps,this%num_wat_types))
+
+        num_aq_comps=this%get_num_aq_comps_chem_syst() !> we get the number of aqueous components in the chemical system
+        allocate(conc_comp_wat_types(num_aq_comps,this%num_wat_types))
         do i=1,this%num_wat_types
-            aq_comps_wat_types(:,i)=this%wat_types(i)%get_u_aq() !> we get the aqueous components of each water type
+            conc_comp_wat_types(:,i)=this%wat_types(i)%get_u_aq() !> we get the aqueous components of each water type
         end do
         end function
 
-        subroutine write_aq_comps_init(this,root)
+        subroutine write_conc_comp_wat_types(this,path,filename)
+        !> Writes the concentrations of aqueous components of water types to a file
         implicit none
-        class(chemistry_c) :: this
-        character(len=*), intent(in) :: root !> root of the file name
+        class(chemistry_c) :: this !> chemistry object
+        character(len=*), intent(in) :: path !> path to the file
+        character(len=*), intent(in) :: filename !> file name
 
-        real(kind=8), allocatable :: u_aq_init(:,:) !> aqueous components of initial target waters
-        integer(kind=4) :: i !> loop index
-        integer(kind=4) :: num_aq_comps !> number of aqueous components in the chemical system
-        character(len=256) :: filename !> file name
+        real(kind=8), allocatable :: u_aq_init(:) !> aqueous components of water types
+        integer(kind=4) :: i,j !> loop indices
+        !integer(kind=4) :: num_aq_comps !> number of aqueous components in the chemical system
+        !character(len=256) :: filename !> file name
 
-        num_aq_comps=this%get_num_aq_comps() !> we get the number of aqueous components in the chemical system
-        allocate(u_aq_init(num_aq_comps,this%num_target_waters)) !> we allocate the aqueous components of initial target waters
-        filename = trim(root) // "_u_aq_init.out"
-        open(unit=10, file=filename, status='unknown', action='write', form='formatted')
+        !num_aq_comps=this%get_num_aq_comps_chem_syst() !> we get the number of aqueous components in the chemical system
+        !allocate(u_aq_init(num_aq_comps,this%num_target_waters)) !> we allocate the aqueous components of initial target waters
+        open(unit=10, file=path//filename, status='unknown', action='write', form='formatted')
         !> Deberias usar solo 1 bucle en vez de 2
-        do i=1,this%num_target_waters
-            u_aq_init(:,i)=this%target_waters_init(i)%get_u_aq() !> we get the aqueous components of each water type
-            !write(10,"(2x,*(ES15.5))") u_aq_init(:,i) !> we write the aqueous components of each water type
-        end do
-        do i=1,num_aq_comps
-            write(10,"(*(ES15.5))") u_aq_init(i,:) !> we write the aqueous components of each water type
+        do i=1,this%num_wat_types
+            u_aq_init=this%wat_types(i)%get_u_aq() !> we get the aqueous components of each water type
+            write(10,"(/,2x,A15,/)") trim(this%wat_types(i)%name)//':' !> we write the name of the water type
+            do j=1,this%wat_types(i)%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species
+                write(10,"(10x,ES15.5)") u_aq_init(j) !> we write the aqueous components of each water type
+            end do
+            deallocate(u_aq_init)
         end do
         close(10)
         end subroutine
@@ -1424,7 +1423,7 @@ module chemistry_m
         integer(kind=4) :: i !> loop index
         real(kind=8), allocatable :: c_tilde(:) !> c_tilde of mixing waters
         ! Body of compute_u_tilde_init
-        allocate(u_tilde_init(this%get_num_aq_comps(),this%num_target_waters_dom))
+        allocate(u_tilde_init(this%get_num_aq_comps_chem_syst(),this%num_target_waters_dom))
         do i=1,this%num_target_waters_dom !> we compute c_tilde for each domain target water
             allocate(c_tilde(this%target_waters_init(this%dom_tar_wat_indices(i)&
                 )%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species)) !> we allocate c_tilde
@@ -1522,5 +1521,18 @@ module chemistry_m
         end do
         end function
 
-        
+        subroutine allocate_sol_types(this)
+        implicit none
+        class(chemistry_c) :: this
+        if (allocated(this%sol_types)) deallocate(this%sol_types)
+        allocate(this%sol_types(this%num_wat_types)) !> we assume bijection between water types and solid types
+        end subroutine allocate_sol_types
+
+        subroutine allocate_react_zones_wat_types(this)
+        implicit none
+        class(chemistry_c) :: this
+        if (allocated(this%react_zones_wat_types)) deallocate(this%react_zones_wat_types)
+        allocate(this%react_zones_wat_types(this%num_wat_types)) !> we assume bijection between water types and reactive zones
+        end subroutine allocate_react_zones_wat_types
+
 end module chemistry_m

@@ -121,8 +121,9 @@ module chem_system_m
     !> Rearrange
         procedure, public :: rearrange_eq_reacts
         procedure, public :: rearrange_species
-        !> Compute
+    !> Compute
         procedure, public :: compute_eq_csts_gases_cst_act
+        procedure, public :: change_spec_alg_chem_syst
     end type
 !****************************************************************************************************************************************************
     interface
@@ -1143,4 +1144,29 @@ module chem_system_m
         end if
     end subroutine
 
-end module 
+    subroutine change_spec_alg_chem_syst(this,tol)
+    !< This subroutine changes the speciation algebra object of the chemical system from considering constant activity species in &
+        !! the component matrix to not considering them
+    implicit none
+    class(chem_system_c) :: this !> chemical system
+    real(kind=8), intent(in) :: tol !> tolerance for speciation algorithm
+
+    logical :: flag_Se !> flag for computing Se matrix
+    integer(kind=4), allocatable :: cols(:) !> columns of Se matrix to be swapped
+    real(kind=8), allocatable :: eq_csts(:) !> equilibrium constants of equilibrium reactions
+
+    allocate(cols(2))
+
+    call this%speciation_alg%elim_cst_act_species(this%cat_exch%num_surf_compl,&
+        this%aq_phase%num_species,this%num_minerals_kin,&
+        this%gas_phase%num_species-this%gas_phase%num_gases_eq)
+    call this%rearrange_species()
+    call this%compute_z2()
+    call this%rearrange_eq_reacts()
+    call this%set_stoich_mat()
+    call this%set_stoich_mat_gas()
+    call this%set_stoich_mat_sol()
+    eq_csts=this%get_eq_csts()
+    call this%speciation_alg%compute_arrays(this%Se,eq_csts,tol,flag_Se,cols)
+    end subroutine
+end module

@@ -53,7 +53,7 @@ module aqueous_chemistry_m
         procedure, public :: set_conc_sec_species
         procedure, public :: set_indices_aq_species_aq_chem
         !procedure, public :: set_indices_aq_phase_aq_chem
-        !procedure, public :: set_ind_diss_solids_aq_chem
+        procedure, public :: set_spec_alg_aq_chem
         procedure, public :: set_ind_species
         !procedure, public :: set_ind_wat_aq_chem
         !procedure, public :: set_ind_prot_aq_chem
@@ -208,7 +208,7 @@ module aqueous_chemistry_m
         !procedure, public :: update_conc_sec_species
         !procedure, public :: update_conc_sec_aq_species
         !procedure, public :: update_conc_sec_var_act_species
-        !procedure, public :: update_conc_sec_aq_var_act_species
+        procedure, public :: change_spec_alg_aq_chem
         procedure, public :: update_conc_nc
     !> Check
         procedure, public :: check_conc_aq_var_act_species
@@ -4758,14 +4758,87 @@ end subroutine
     end subroutine
     
     function get_u_aq(this) result(u_aq)
-    !!> This function returns the aqueous component concentrations
+    !> This function returns the aqueous component concentrations
     class(aqueous_chemistry_c) :: this
     real(kind=8), allocatable :: u_aq(:)
+    ! print *, "Getting u_aq"
+    ! print *, "Number of aqueous primary species: ", this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species
+    ! print *, "Indices of variable activity species: ", this%ind_var_act_species
+    ! print *, "Concentrations: ", this%concentrations(this%ind_var_act_species)
+    ! print *, "Comp mat aq: ", this%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq
     allocate(u_aq(this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species))
     u_aq=matmul(this%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq,&
         this%concentrations(this%ind_var_act_species))
     end function get_u_aq
     
+    subroutine set_spec_alg_aq_chem(this,flag_comp,flag_surf,flag_Se,swap)
+    !!> This subroutine sets all necessary variables in the speciation algebra object of the reactive zone pointer
+        class(aqueous_chemistry_c) :: this
+        logical, intent(in) :: flag_comp !> flag to indicate component matrix definition
+        logical, intent(out) :: flag_surf !> flag to indicate if there are surface complexation reactions
+        logical, intent(out) :: flag_Se !> TRUE if stoichiometric matrix has been modified, FALSE otherwise
+        integer(kind=4), intent(out) :: swap(:) !> species or reactions to swap in stoichiometric matrix (already allocated)
 
+        !logical :: flag_surf !> flag to indicate if there are surface complexation reactions
+
+        call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_comp(flag_comp)
+        if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl>0) then
+            flag_surf=.true.
+        else
+            flag_surf=.false.
+            call this%solid_chemistry%allocate_conc_solids()
+            call this%solid_chemistry%allocate_activities()
+            call this%solid_chemistry%allocate_log_act_coeffs_solid_chem()
+        end if
+        call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_cat_exch(flag_surf)
+        call this%solid_chemistry%reactive_zone%set_speciation_alg_dimensions()
+        call this%set_ind_species()
+        call this%solid_chemistry%reactive_zone%set_ind_eq_reacts()
+        call this%solid_chemistry%reactive_zone%set_stoich_mat_react_zone()
+        call this%solid_chemistry%reactive_zone%set_ind_mins_stoich_mat()
+        call this%solid_chemistry%reactive_zone%set_ind_gases_stoich_mat()
+        !allocate(swap(2))
+        if (associated(this%gas_chemistry)) then
+            call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap,this%gas_chemistry%activities)
+        else
+            call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap)
+        end if
+    end subroutine
+
+    subroutine change_spec_alg_aq_chem(this)
+    !!> This subroutine eliminates the constant activity species from the component matrix in the speciation algebra object of the &
+        !! reactive zone pointer
+        class(aqueous_chemistry_c) :: this !> aqueous chemistry object
+        !logical, intent(in) :: flag_comp !> flag to indicate component matrix definition
+        !logical, intent(out) :: flag_surf !> flag to indicate if there are surface complexation reactions
+        !logical, intent(out) :: flag_Se !> TRUE if stoichiometric matrix has been modified, FALSE otherwise
+        !integer(kind=4), intent(out) :: swap(:) !> species or reactions to swap in stoichiometric matrix (already allocated)
+
+        logical :: flag_Se !> flag to indicate if stoichiometric matrix has been modified
+        integer(kind=4), allocatable :: swap(:) !> species or reactions to swap in stoichiometric matrix
+
+        !call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_comp(flag_comp)
+        ! if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl>0) then
+        !     flag_surf=.true.
+        ! else
+        !     flag_surf=.false.
+        !     call this%solid_chemistry%allocate_conc_solids()
+        !     call this%solid_chemistry%allocate_activities()
+        !     call this%solid_chemistry%allocate_log_act_coeffs_solid_chem()
+        ! end if
+        ! call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_cat_exch(flag_surf)
+        call this%solid_chemistry%reactive_zone%set_speciation_alg_dimensions(.true.)
+        call this%set_ind_species()
+        call this%solid_chemistry%reactive_zone%set_ind_eq_reacts()
+        call this%solid_chemistry%reactive_zone%set_stoich_mat_react_zone()
+        call this%solid_chemistry%reactive_zone%set_ind_mins_stoich_mat()
+        call this%solid_chemistry%reactive_zone%set_ind_gases_stoich_mat()
+        allocate(swap(2))
+        if (associated(this%gas_chemistry)) then
+            call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap,this%gas_chemistry%activities)
+        else
+            call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap)
+        end if
+    end subroutine
     
 end module

@@ -226,6 +226,4 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
     end if
 !> Target waters
     call this%read_target_waters_init(path_pb//root,nsrz,ngrz)
-!> Output data
-    call this%chem_out_options%read_chem_out_options(path_pb//root,this%target_waters)
 end subroutine

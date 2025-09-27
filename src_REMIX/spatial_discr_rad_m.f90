@@ -30,25 +30,19 @@ module spatial_discr_rad_m
     end type
     
     interface
+        
+    end interface
+    
+    contains
+        
+        
         subroutine refine_mesh_rad(this,conc,conc_ext,rel_tol)
-            import spatial_discr_rad_c
             implicit none
             class(spatial_discr_rad_c) :: this
             real(kind=8), intent(inout), allocatable :: conc(:,:) !> Num_columns=Num_targets
             real(kind=8), intent(inout), allocatable :: conc_ext(:,:) !> Num_columns=Num_targets
             real(kind=8), intent(in) :: rel_tol !> relative tolerance
         end subroutine
-    end interface
-    
-    contains
-        
-        
-        ! subroutine set_r_max(this,r_max)
-        !     implicit none
-        !     class(spatial_discr_rad_c) :: this
-        !     real(kind=8), intent(in) :: r_max
-        !     this%r_max=r_max
-        ! end subroutine
         
         subroutine set_r_min(this,r_min)
         implicit none

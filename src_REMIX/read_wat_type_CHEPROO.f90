@@ -233,25 +233,28 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,model,Jac_opt,unit,niter,C
     do i=1,this%aq_phase%num_species
         call this%aq_phase%aq_species(i)%params_act_coeff%compute_csts(this%aq_phase%aq_species(i)%valence,this%params_aq_sol,model)
     end do
-!> We set speciation algebra
-    call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_comp(.false.) !> by default
-    if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl>0) then
-        flag_surf=.true.
-    else
-        flag_surf=.false.
-        call this%solid_chemistry%allocate_conc_solids()
-        call this%solid_chemistry%allocate_activities()
-        call this%solid_chemistry%allocate_log_act_coeffs_solid_chem()
-    end if
-    call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_cat_exch(flag_surf)
-    call this%solid_chemistry%reactive_zone%set_speciation_alg_dimensions()
-    call this%set_ind_species()
-    call this%solid_chemistry%reactive_zone%set_ind_eq_reacts()
-    call this%solid_chemistry%reactive_zone%set_stoich_mat_react_zone()
-    call this%solid_chemistry%reactive_zone%set_ind_mins_stoich_mat()
-    call this%solid_chemistry%reactive_zone%set_ind_gases_stoich_mat()
+!> We set speciation algebra attribute in reactive zone
     allocate(swap(2))
-    call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap)
+    flag_comp=.false. !> we use the component matrix with constant activity species
+    call this%set_spec_alg_aq_chem(flag_comp,flag_surf,flag_Se,swap)
+    ! call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_comp(.false.)
+    ! if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl>0) then
+    !     flag_surf=.true.
+    ! else
+    !     flag_surf=.false.
+    !     call this%solid_chemistry%allocate_conc_solids()
+    !     call this%solid_chemistry%allocate_activities()
+    !     call this%solid_chemistry%allocate_log_act_coeffs_solid_chem()
+    ! end if
+    ! call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_cat_exch(flag_surf)
+    ! call this%solid_chemistry%reactive_zone%set_speciation_alg_dimensions()
+    ! call this%set_ind_species()
+    ! call this%solid_chemistry%reactive_zone%set_ind_eq_reacts()
+    ! call this%solid_chemistry%reactive_zone%set_stoich_mat_react_zone()
+    ! call this%solid_chemistry%reactive_zone%set_ind_mins_stoich_mat()
+    ! call this%solid_chemistry%reactive_zone%set_ind_gases_stoich_mat()
+    ! allocate(swap(2))
+    ! call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap)
     if (flag_Se .eqv. .true.) then
         !> We swap indices constrains (chapuza)
         allocate(ind_swap(2))

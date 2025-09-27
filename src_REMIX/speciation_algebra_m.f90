@@ -47,6 +47,8 @@ module speciation_algebra_m
         procedure, public :: compute_logK_tilde
         procedure, public :: compute_inv_Se_nc_2
         procedure, public :: compute_inv_Se_2
+    !> Eliminate
+        procedure, public :: elim_cst_act_species
     end type
     
     contains
@@ -327,5 +329,28 @@ module speciation_algebra_m
         end subroutine
 
     
+        subroutine elim_cst_act_species(this,num_surf_compl,n_aq,num_min_kin,num_gas_kin)
+            implicit none
+            class(speciation_algebra_c) :: this
+            integer(kind=4), intent(in) :: num_surf_compl !> number of surface complexes
+            integer(kind=4), intent(in) :: n_aq !> number of aqueous species
+            integer(kind=4), intent(in), optional :: num_min_kin !> number of mineral kinetics
+            integer(kind=4), intent(in), optional :: num_gas_kin !> number of gas kinetics
+            
+            
+            logical :: flag_surf
+
+            call this%set_flag_comp(.true.)
+            if (num_surf_compl>0) then
+                flag_surf=.true.
+            else
+                flag_surf=.false.
+            end if
+            call this%set_flag_cat_exch(flag_surf)
+            call this%compute_num_prim_species(num_min_kin,num_gas_kin)
+            call this%compute_num_sec_species()
+            call this%compute_num_sec_aq_species(n_aq)
+            call this%compute_num_aq_sec_var_act_species()
+        end subroutine
 
 end module 

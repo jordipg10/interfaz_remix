@@ -15,8 +15,9 @@ program main_interfaz
     integer(kind=4), allocatable :: ind_non_can_vec(:) !> indices of non-canonical vectors in mixing ratios
     real(kind=8), allocatable :: u_tilde_init(:,:) !> u_tilde at initial time step
     real(kind=8) :: Delta_t !> time step
-    character(len=100) :: dir_DB,dir_pb, root_files,file_u_tilde,file_u_new !> directories and file names
-    character(len=:), allocatable :: dir_DB_trimmed, dir_pb_trimmed, root_files_trimmed, file_u_tilde_trimmed, file_u_new_trimmed !> trimmed strings
+    character(len=100) :: dir_DB,dir_pb, root_files,file_u_tilde,file_u_new,file_u_wat_types !> directories and file names
+    character(len=:), allocatable :: dir_DB_trimmed, dir_pb_trimmed, root_files_trimmed, file_u_tilde_trimmed, file_u_new_trimmed,&
+        file_u_wat_types_trimmed !> trimmed strings
     integer :: ios !> I/O status for safe reads
     logical :: has_ieee !> whether IEEE support is available
     !> Pre-Process
@@ -51,37 +52,48 @@ program main_interfaz
     root_files_trimmed = trim(root_files)
     !> we read chemistry
     call my_chem%read_chemistry(root_files_trimmed,dir_pb_trimmed,dir_DB_trimmed)
+    !> write file name
+    write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones de los tipos de agua iniciales y externas?"
+    read(*,*, iostat=ios) file_u_wat_types !> file with initial and external water types
+    if (ios /= 0) then
+        write(*,*) 'Error/EOF leyendo file_u_wat_types. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
+            safe_stop(1)
+    end if
+    file_u_wat_types_trimmed = trim(file_u_wat_types)
+    !> we write concentrations of initial and external water types
+    call my_chem%write_conc_comp_wat_types(dir_pb_trimmed,file_u_wat_types_trimmed)
+    !> write file name 
     write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones despues de la mezcla reactiva?"
     read(*,*, iostat=ios) file_u_new
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo file_u_new. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
     end if
     file_u_new_trimmed = trim(file_u_new)
-    write(*,*) "Nombre del archivo que contiene las concentraciones de componentes despues de resolver una iteracion de transporte conservativo? IMPORTANTE: El archivo debe estar en el directorio del problema, el numero de filas tiene que ser el numero &
+    write(*,*) "Nombre del archivo que contiene las concentraciones despues de resolver una iteracion de transporte conservativo? & 
+        IMPORTANTE: El archivo debe estar en el directorio del problema, el numero de filas tiene que ser el numero &
             de componentes y el numero de columnas el numero de targets."
-        read(*,*, iostat=ios) file_u_tilde !> file with u_tilde
-        if (ios /= 0) then
-            write(*,*) 'Error/EOF leyendo file_u_tilde. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
-                safe_stop(1)
-        end if
-        write(*,*) "Paso de tiempo inicial?"
-        read(*,*, iostat=ios) Delta_t !> initial time step
-        if (ios /= 0) then
-            write(*,*) 'Error/EOF leyendo Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
-        else if (Delta_t <= 0d0) then
-            error stop "El paso de tiempo debe ser mayor que cero"
-        end if
-        write(*,*) "Paso de tiempo constante? (1: si, 0: no)"
-        read(*,*, iostat=ios) flag_Delta_t !> whether time step is constant (1) or variable (0)
-        if (ios /= 0) then
-            write(*,*) 'Error/EOF leyendo flag_Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
-                safe_stop(1)
-        end if
+    read(*,*, iostat=ios) file_u_tilde !> file with u_tilde
+    if (ios /= 0) then
+        write(*,*) 'Error/EOF leyendo file_u_tilde. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
+            safe_stop(1)
+    end if
+    write(*,*) "Paso de tiempo inicial?"
+    read(*,*, iostat=ios) Delta_t !> initial time step
+    if (ios /= 0) then
+        write(*,*) 'Error/EOF leyendo Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+    else if (Delta_t <= 0d0) then
+        error stop "El paso de tiempo debe ser mayor que cero"
+    end if
+    write(*,*) "Paso de tiempo constante? (1: si, 0: no)"
+    read(*,*, iostat=ios) flag_Delta_t !> whether time step is constant (1) or variable (0)
+    if (ios /= 0) then
+        write(*,*) 'Error/EOF leyendo flag_Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
+            safe_stop(1)
     end if
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
-    write(*,*) "Procedemos al bucle de mezcla reactiva. Tendras que actualizar el archivo con las concentraciones de & 
-        componentes obtenidas despues de resolver el transporte conservativo en cada iteracion."
-    num_aq_comps=my_chem%get_num_aq_comps() !> we get number of aqueous components
+    write(*,*) "Procedemos al bucle de mezcla reactiva. Tendras que actualizar el archivo con las concentraciones & 
+        obtenidas despues de resolver el transporte conservativo en cada iteracion."
+    num_aq_comps=my_chem%get_num_aq_comps_chem_syst() !> we get number of aqueous components
     if (flag_Delta_t.eq.1) then !> constant time step
         do
             call my_chem%interfaz_comps_arch(dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)

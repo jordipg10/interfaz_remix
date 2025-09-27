@@ -26,7 +26,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,&
     type(reactive_zone_c), allocatable :: react_zones(:) !> default objects
     type(mineral_zone_c), allocatable :: min_zones(:) !> default objects
     type(solid_chemistry_c) :: solid_chem !> default object
-    type(solid_chemistry_c), allocatable :: solid_chems(:) !> default objects
+    !type(solid_chemistry_c), allocatable :: solid_chems(:) !> default objects
     type(solid_chemistry_c), allocatable :: cat_exch_zones(:) !> 
     type(aq_species_c) :: aq_species
     type(mineral_c) :: mineral
@@ -48,7 +48,9 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,&
     end if
         
     call this%allocate_wat_types(nwtype) !> we allocate water types
-    allocate(react_zones(nwtype),solid_chems(nwtype),min_zones(nwtype))
+    call this%allocate_sol_types() !> we allocate solid types associated to water types
+    call this%allocate_react_zones_wat_types() !> we allocate reactive zones associated to water types
+    allocate(react_zones(nwtype),min_zones(nwtype))
     allocate(cols(2))
     allocate(num_aq_prim_array(nwtype),num_cstr_array(nwtype))
     
@@ -148,21 +150,21 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,&
             do i=1,nwtype
                 read(unit,*) j, temp !> we read index water type and temperature (in Celsius)
                 read(unit,*) name
-                call react_zones(j)%set_CV_params(this%CV_params)
-                call react_zones(j)%set_chem_syst_react_zone(this%chem_syst)
+                call this%react_zones_wat_types(j)%set_CV_params(this%CV_params)
+                call this%react_zones_wat_types(j)%set_chem_syst_react_zone(this%chem_syst)
                 call min_zones(j)%set_chem_syst_min_zone(this%chem_syst)
-                call solid_chems(j)%set_reactive_zone(react_zones(j)) !> we set default reactive zone
-                call solid_chems(j)%set_mineral_zone(min_zones(j)) !> we set default mineral zone
-                !if (present(gas_chem)) then
-                !    call this%wat_types(j)%set_gas_chemistry(gas_chem)
-                !end if
+                call this%sol_types(j)%set_reactive_zone(this%react_zones_wat_types(j)) !> we set default reactive zone
+                call this%sol_types(j)%set_mineral_zone(min_zones(j)) !> we set default mineral zone
+                if (present(gas_chem) .and. size(gas_chem)==1) then
+                   call this%wat_types(j)%set_gas_chemistry(gas_chem(1)) !> chapuza
+                end if
                 if (size(init_cat_exch_zones)>1) then
                     call this%wat_types(j)%set_solid_chemistry(cat_exch_zones(j)) !> chapuza
                     call this%wat_types(j)%read_wat_type_CHEPROO(num_aq_prim_array(j),num_cstr_array(j),this%act_coeffs_model,&
                         this%Jac_opt,unit,niter,CV_flag)
                     call init_cat_exch_zones(j)%assign_solid_chemistry(this%wat_types(j)%solid_chemistry) !> chapuza
                 else
-                    call this%wat_types(j)%set_solid_chemistry(solid_chems(j)) !> chapuza
+                    call this%wat_types(j)%set_solid_chemistry(this%sol_types(j)) !> chapuza
                     call this%wat_types(j)%read_wat_type_CHEPROO(num_aq_prim_array(j),num_cstr_array(j),this%act_coeffs_model,&
                         this%Jac_opt,unit,niter,CV_flag)
                 end if
@@ -172,33 +174,12 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,&
             continue
          end if
     end do
-!> We eliminate constant activity species from component matrix and we rearrange species and equilibrium reactions
-    call this%chem_syst%speciation_alg%set_flag_comp(.true.)
-    if (this%chem_syst%cat_exch%num_surf_compl>0) then
-        flag_surf=.true.
-    else
-        flag_surf=.false.
-    end if
-    call this%chem_syst%speciation_alg%set_flag_cat_exch(flag_surf)
-    call this%chem_syst%speciation_alg%compute_num_prim_species(this%chem_syst%num_minerals_kin,&
-        this%chem_syst%gas_phase%num_species-this%chem_syst%gas_phase%num_gases_eq)
-    call this%chem_syst%speciation_alg%compute_num_sec_species()
-    call this%chem_syst%speciation_alg%compute_num_sec_aq_species(this%chem_syst%aq_phase%num_species)
-    call this%chem_syst%speciation_alg%compute_num_aq_sec_var_act_species()
-    !old_aq_phase=this%chem_syst%aq_phase !> chapuza
-    !call this%chem_syst%aq_phase%rearrange_aq_species()
-    !call this%chem_syst%aq_phase%set_indices_aq_species()
-    call this%chem_syst%rearrange_species()
-    call this%chem_syst%compute_z2() !> chapuza
-    !if (present(gas_chem)) then
-    !    call this%chem_syst%compute_eq_csts_gases_cst_act(gas_chem%activities,gas_chem%ind_gases_eq_cst_act)
-    !end if
-    call this%chem_syst%rearrange_eq_reacts()
-    call this%chem_syst%set_stoich_mat()
-    call this%chem_syst%set_stoich_mat_gas()
-    call this%chem_syst%set_stoich_mat_sol()
-    eq_csts=this%chem_syst%get_eq_csts()
-    call this%chem_syst%speciation_alg%compute_arrays(this%chem_syst%Se,eq_csts,this%CV_params%zero,flag_Se,cols)
+    !> we eliminate constant activity species from component matrix of chemical system
+    call this%chem_syst%change_spec_alg_chem_syst(this%CV_params%zero)
+    !> we eliminate constant activity species from component matrix of water types
+    do i=1,nwtype
+        call this%wat_types(i)%change_spec_alg_aq_chem()
+    end do
 !> Chapuza
     ! do i=1,nwtype
     !     !> rearrange indices
@@ -222,9 +203,4 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,&
         !> indices reactants
         call this%chem_syst%lin_kin_reacts(i)%set_index_aq_phase_lin(this%chem_syst%aq_phase)
     end do
-!> Post-processing
-    do i=1,nwtype
-        !call this%wat_types(i)%set_indices_rk()
-        nullify(this%wat_types(i)%solid_chemistry) !> we deallocate solid chemistry pointer
-     end do
 end subroutine
