@@ -118,8 +118,4 @@ subroutine initialise_conc_anal_ideal(this,icon,n_icon,indices_constrains,ctot,n
     !call this%compute_molarities() !> we change units to molarities
     call this%compute_alkalinity()
     !call this%compute_activities_diss_solids()
-!> Post-process
-    if (associated(this%gas_chemistry)) then
-        nullify(this%gas_chemistry)
-    end if
 end subroutine

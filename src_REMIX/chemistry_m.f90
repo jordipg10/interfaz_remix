@@ -518,7 +518,7 @@ module chemistry_m
             !integer(kind=4), intent(out), allocatable :: num_cstr_array(:)
             type(solid_chemistry_c), intent(inout) :: init_cat_exch_zones(:)
             !type(aqueous_chemistry_c), intent(out), allocatable :: wat_types(:)
-            type(gas_chemistry_c), intent(in),optional :: gas_chem !> chapuza
+            type(gas_chemistry_c), intent(in), optional :: gas_chem !> chapuza
             !logical, intent(out) :: CV_flag !> TRUE if converges, FALSE otherwise 
         end subroutine
         

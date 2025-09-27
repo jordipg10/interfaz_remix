@@ -2166,10 +2166,16 @@ module aqueous_chemistry_m
                 error stop "Solid chemistry not associated to aqueous chemistry"
             end if
             if (associated(this%gas_chemistry)) then
-                allocate(this%gas_chemistry%r_eq(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
-                allocate(this%gas_chemistry%Re_mean(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
-                this%gas_chemistry%r_eq=0d0 !> by default
-                this%gas_chemistry%Re_mean=0d0 !> by default
+                if (.not. allocated(this%gas_chemistry%r_eq)) then
+                    allocate(this%gas_chemistry%r_eq(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
+                    allocate(this%gas_chemistry%Re_mean(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
+                    this%gas_chemistry%r_eq=0d0 !> by default
+                    this%gas_chemistry%Re_mean=0d0 !> by default
+                end if
+                !allocate(this%gas_chemistry%r_eq(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
+                !allocate(this%gas_chemistry%Re_mean(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
+                !this%gas_chemistry%r_eq=0d0 !> by default
+                !this%gas_chemistry%Re_mean=0d0 !> by default
             end if
         end subroutine
         

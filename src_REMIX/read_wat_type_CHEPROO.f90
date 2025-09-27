@@ -226,9 +226,9 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,model,Jac_opt,unit,niter,C
             if (associated(this%solid_chemistry%mineral_zone)) then
                 call this%solid_chemistry%mineral_zone%set_num_mins_kin_min_zone()
             end if
-            if (this%solid_chemistry%reactive_zone%gas_phase%num_species==0) then
-                nullify(this%gas_chemistry)
-            end if
+            ! if (this%solid_chemistry%reactive_zone%gas_phase%num_species==0) then
+            !     nullify(this%gas_chemistry)
+            ! end if
         end if
     do i=1,this%aq_phase%num_species
         call this%aq_phase%aq_species(i)%params_act_coeff%compute_csts(this%aq_phase%aq_species(i)%valence,this%params_aq_sol,model)

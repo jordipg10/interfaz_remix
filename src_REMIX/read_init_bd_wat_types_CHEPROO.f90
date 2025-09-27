@@ -11,7 +11,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,&
     !integer(kind=4), intent(out), allocatable :: num_cstr_array(:)
     type(solid_chemistry_c), intent(inout), allocatable :: init_cat_exch_zones(:)
     !type(aqueous_chemistry_c), intent(out), allocatable :: this%wat_types(:)
-    type(gas_chemistry_c), intent(in), optional :: gas_chem(:) !> chapuza
+    type(gas_chemistry_c), intent(in), optional :: gas_chem !> chapuza
     
     integer(kind=4) :: i,j,k,l,nwtype,icon,n_p_aq,gas_ind,min_ind,model,niter,sp_ind
     integer(kind=4), allocatable :: cols(:)
@@ -155,8 +155,8 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,&
                 call min_zones(j)%set_chem_syst_min_zone(this%chem_syst)
                 call this%sol_types(j)%set_reactive_zone(this%react_zones_wat_types(j)) !> we set default reactive zone
                 call this%sol_types(j)%set_mineral_zone(min_zones(j)) !> we set default mineral zone
-                if (present(gas_chem) .and. size(gas_chem)==1) then
-                   call this%wat_types(j)%set_gas_chemistry(gas_chem(1)) !> chapuza
+                if (present(gas_chem)) then
+                   call this%wat_types(j)%set_gas_chemistry(gas_chem) !> chapuza
                 end if
                 if (size(init_cat_exch_zones)>1) then
                     call this%wat_types(j)%set_solid_chemistry(cat_exch_zones(j)) !> chapuza
