@@ -1,4 +1,4 @@
-!> This subroutine reads chemistry data depending on the selected option
+!> This subroutine reads chemistry data from input files
 subroutine read_chemistry(this,root,path_pb,path_DB)
     use chemistry_m, only: chemistry_c
     implicit none
@@ -18,16 +18,6 @@ subroutine read_chemistry(this,root,path_pb,path_DB)
     unit_chem_opts=51
     unit_loc_chem=2
 
-    !> Read chemical options
-    call this%read_chem_opts(path_pb//root,unit_chem_opts) 
-    !> Read chemistry depending on the selected option
-    if (this%read_opt==1) then !> CHEPROO-based
-        call this%read_chemistry_CHEPROO(root,path_pb,path_DB,unit_chem_syst,unit_loc_chem)
-    else if (this%read_opt==2) then !> PHREEQC
-        error stop "PHREEQC data input not fully implemented yet"
-    else if (this%read_opt==3) then !> PFLOTRAN
-        error stop "PFLOTRAN data input not fully implemented yet"
-    else
-        error stop "This data input option is not implemented yet"
-    end if
+    !> Reads chemistry input files
+    call this%read_chemistry_CHEPROO(root,path_pb,path_DB,unit_chem_syst,unit_loc_chem)
 end subroutine

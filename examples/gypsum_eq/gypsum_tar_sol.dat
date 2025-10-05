@@ -1,8 +1,8 @@
 'TITLE OF THE PROBLEM: Gypsum in equilibrium'
 '----------------------------------------------------------------------------'
 'TARGET SOLIDS'
-10						! number of target solids
-1-10	1					! target solids interval, solid zone index
+2						! number of target solids
+1-2	1					! target solids interval, solid zone index
 '----------------------------------------------------------------------------'
 'end'
 

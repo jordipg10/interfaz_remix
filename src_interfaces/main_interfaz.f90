@@ -93,7 +93,7 @@ program main_interfaz
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
     write(*,*) "Procedemos al bucle de mezcla reactiva. Tendras que actualizar el archivo con las concentraciones & 
         obtenidas despues de resolver el transporte conservativo en cada iteracion."
-    num_aq_comps=my_chem%get_num_aq_comps_chem_syst() !> we get number of aqueous components
+    num_aq_comps=my_chem%get_num_aq_comps_dom() !> we get number of aqueous components
     if (flag_Delta_t.eq.1) then !> constant time step
         do
             call my_chem%interfaz_comps_arch(dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
