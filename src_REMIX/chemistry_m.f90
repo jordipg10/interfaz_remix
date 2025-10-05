@@ -142,12 +142,23 @@ module chemistry_m
     !> Mixing
         procedure, public :: interfaz_comps_arch
         procedure, public :: interfaz_comps_vars
+        procedure, public :: interfaz_esp_arch
         procedure, public :: compute_u_tilde_init
     end type
     
     
     interface
         
+    subroutine interfaz_esp_arch(this,path,num_st_var,file_in,Delta_t,file_out)
+        import chemistry_c
+        implicit none
+        class(chemistry_c) :: this !> chemistry object
+        character(len=*), intent(in) :: path !> path for input and output files
+        integer(kind=4), intent(in) :: num_st_var !> number of state variables (aqueous species)
+        character(len=*), intent(in) :: file_in !> name of file containing aqueous species concentrations after solving conservative transport
+        real(kind=8), intent(in) :: Delta_t !> time step
+        character(len=*), intent(in) :: file_out !> name of file containing aqueous species concentrations after solving reactive mixing
+    end subroutine
         !subroutine solve_reactive_mixing_bis(this,root,mixing_ratios,mixing_waters_indices,F_mat,time_discr,&
         !    int_method_chem_reacts)
         !    import chemistry_c
@@ -569,12 +580,12 @@ module chemistry_m
             !type(reactive_zone_c), intent(out), allocatable, optional :: reactive_zones(:)
             integer(kind=4), intent(out) :: ngrz !> number of gas reactive zones
         end subroutine
-        
-        subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
+
+        subroutine interfaz_comps_arch(this,path,num_st_var,file_in,Delta_t,file_out)
             import chemistry_c
-            class(chemistry_c) :: this
+            class(chemistry_c) :: this !> chemistry object
             character(len=*), intent(in) :: path !> path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps !> number of components
+            integer(kind=4), intent(in) :: num_st_var !> number of state variables (components)
             character(len=*), intent(in) :: file_in !> name of file containing component concentrations after solving conservative transport
             !integer(kind=4), intent(in) :: unit_in !> file unit
             real(kind=8), intent(in) :: Delta_t !> time step

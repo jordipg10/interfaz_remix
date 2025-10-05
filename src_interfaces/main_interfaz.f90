@@ -7,10 +7,9 @@ program main_interfaz
     type(chemistry_c) :: my_chem !> chemistry class
     !> Variables
     integer(kind=4) :: int_method_chem !> integration method for chemical reactions (1: Euler explicit, 2: Euler fully implicit, 3: Crank-Nicolson)
-    integer(kind=4) :: num_aq_comps !> number of aqueous components
+    integer(kind=4) :: num_st_var !> number of state variables (components or species)
     integer(kind=4) :: flag !> loop flag
     integer(kind=4) :: flag_Delta_t !> whether time step is constant (1) or variable (0)
-    integer(kind=4) :: n_nc_aq !> number of variable activity aqueous species
     integer(kind=4), allocatable :: ind_can_vec(:) !> indices of canonical vectors in mixing ratios
     integer(kind=4), allocatable :: ind_non_can_vec(:) !> indices of non-canonical vectors in mixing ratios
     real(kind=8), allocatable :: u_tilde_init(:,:) !> u_tilde at initial time step
@@ -20,6 +19,7 @@ program main_interfaz
         file_u_wat_types_trimmed !> trimmed strings
     integer :: ios !> I/O status for safe reads
     logical :: has_ieee !> whether IEEE support is available
+    procedure(interfaz_comps_arch), pointer :: p_interfaz=>null() !> procedure pointer to the interface subroutine
     !> Pre-Process
     has_ieee = ieee_support_standard()
     if (has_ieee) then
@@ -93,10 +93,17 @@ program main_interfaz
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
     write(*,*) "Procedemos al bucle de mezcla reactiva. Tendras que actualizar el archivo con las concentraciones & 
         obtenidas despues de resolver el transporte conservativo en cada iteracion."
-    num_aq_comps=my_chem%get_num_aq_comps_dom() !> we get number of aqueous components
+    !> We choose interface based on whether there are equilibrium reactions or not, using procedure pointers
+    if (my_chem%target_waters(my_chem%dom_tar_wat_indices(1))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions==0) then
+        p_interfaz=>interfaz_esp_arch
+        num_st_var=my_chem%chem_syst%speciation_alg%num_aq_var_act_species !> we get number of aqueous variable activity species
+    else
+        p_interfaz=>interfaz_comps_arch
+        num_st_var=my_chem%get_num_aq_comps_dom() !> we get number of aqueous components
+    end if
     if (flag_Delta_t.eq.1) then !> constant time step
         do
-            call my_chem%interfaz_comps_arch(dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
+            call p_interfaz(my_chem,dir_pb_trimmed,num_st_var,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
             write(*,*) "Quieres hacer otra iteracion de mezcla reactiva? (1: si, 0: no)"
             read(*,*, iostat=ios) flag
             if (ios /= 0) then
@@ -110,7 +117,7 @@ program main_interfaz
         end do
     else if (flag_Delta_t.eq.0) then !> variable time step
         do
-            call my_chem%interfaz_comps_arch(dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
+            call p_interfaz(my_chem,dir_pb_trimmed,num_st_var,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
             write(*,*) "Quieres hacer otra iteracion de mezcla reactiva? (1: si, 0: no)"
             read(*,*, iostat=ios) flag
             if (ios /= 0) then
