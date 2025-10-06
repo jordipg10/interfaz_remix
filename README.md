@@ -12,5 +12,5 @@ En la carpeta "documentation" se encuentra la documentación del "main", de las 
 
 El directorio "DB" contiene las bases de datos químicas que se usan en este programa.
 
-IMPORTANTE: a la hora de escribir los directorios en el terminal, hay que incluir un "\" al final para usuarios de Windows o un "/" para usuarios de Linux y MacOS.
+IMPORTANTE: a la hora de escribir los directorios en el terminal, hay que incluir un backslash al final para usuarios de Windows o un frontslash para usuarios de Linux y MacOS.
 
