@@ -61,7 +61,7 @@ mkdir -p obj mod exe
 
 # Compile
 cd obj
-gfortran -g -c -O0 -ffpe-summary=none -ffree-line-length-none -fno-range-check -J ../mod ../src_REMIX/*.f90 ../src_interfaces/*.f90
+gfortran -g -c -O0 -ffpe-summary=none -ffree-line-length-none -fno-range-check -J ../mod ../src/*.f90
 
 # Link (dynamic)
 gfortran -ffpe-summary=none -o ../exe/interfaz_linux *.o
@@ -85,7 +85,7 @@ COPY . /src
 RUN mkdir -p obj mod exe \
 		&& cd obj \
 		&& gfortran -g -c -O0 -ffpe-summary=none -ffree-line-length-none -fno-range-check -J ../mod \
-				 ../src_REMIX/*.f90 ../src_interfaces/*.f90 \
+				 ../src/*.f90 \
 		&& gfortran -ffpe-summary=none -o ../exe/interfaz_linux *.o
 CMD ["/bin/bash", "-lc", "cp -v exe/interfaz_linux /output/"]
 ```
@@ -108,7 +108,7 @@ mkdir -p obj mod exe
 
 # Compile
 cd obj
-gfortran -g -c -O0 -ffpe-summary=none -ffree-line-length-none -fno-range-check -J ../mod ../src_REMIX/*.f90 ../src_interfaces/*.f90
+gfortran -g -c -O0 -ffpe-summary=none -ffree-line-length-none -fno-range-check -J ../mod ../src/*.f90
 
 # Link (dynamic)
 gfortran -ffpe-summary=none -o ../exe/interfaz_macos *.o

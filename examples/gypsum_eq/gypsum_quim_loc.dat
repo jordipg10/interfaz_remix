@@ -21,8 +21,8 @@
 '*'      0         0.0           0.0              ' '
 '----------------------------------------------------------------------------'
 'INITIAL MINERAL ZONES'
-1					!nmtype= number of mineral zones 
-1	25.0				!imtype= weathered pelites
+1					! nmtype= number of mineral zones 
+1	25.0				! imtype, temp (C)
 'gypsum'				! name of mineral zone
 'mineral         vol.frac.    area(m2/m3rock)'
 'gypsum'          0.50         0.1d+3 

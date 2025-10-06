@@ -9,9 +9,9 @@ module eq_reaction_m
     type, public, extends(reaction_c) :: eq_reaction_c !> equilibrium reaction subclass
     contains
         procedure, public :: read_eq_reaction
-        procedure, public :: read_dissolution_react_PHREEQC
-        procedure, public :: read_association_react_PHREEQC
-        procedure, public :: read_exchange_react_PHREEQC
+        ! procedure, public :: read_dissolution_react_PHREEQC
+        ! procedure, public :: read_association_react_PHREEQC
+        ! procedure, public :: read_exchange_react_PHREEQC
     end type
     
      interface
@@ -25,34 +25,34 @@ module eq_reaction_m
             character(len=*), intent(in) :: filename
         end subroutine
         
-        subroutine read_dissolution_react_PHREEQC(this,string,phase)
-            import eq_reaction_c
-            import phase_c
-            implicit none
-            class(eq_reaction_c) :: this
-            character(len=*), intent(in) :: string
-            class(phase_c), intent(inout), optional :: phase !> defined phase
-        end subroutine
+        ! subroutine read_dissolution_react_PHREEQC(this,string,phase)
+        !     import eq_reaction_c
+        !     import phase_c
+        !     implicit none
+        !     class(eq_reaction_c) :: this
+        !     character(len=*), intent(in) :: string
+        !     class(phase_c), intent(inout), optional :: phase !> defined phase
+        ! end subroutine
         
-        subroutine read_association_react_PHREEQC(this,string,prim_flag,defined_species)
-            import eq_reaction_c
-            import aq_species_c
-            implicit none
-            class(eq_reaction_c) :: this
-            character(len=*), intent(in) :: string !> association reaction
-            logical, intent(out) :: prim_flag !> TRUE if species is primary
-            type(aq_species_c), intent(out), optional :: defined_species
-        end subroutine
+        ! subroutine read_association_react_PHREEQC(this,string,prim_flag,defined_species)
+        !     import eq_reaction_c
+        !     import aq_species_c
+        !     implicit none
+        !     class(eq_reaction_c) :: this
+        !     character(len=*), intent(in) :: string !> association reaction
+        !     logical, intent(out) :: prim_flag !> TRUE if species is primary
+        !     type(aq_species_c), intent(out), optional :: defined_species
+        ! end subroutine
         
-        subroutine read_exchange_react_PHREEQC(this,string,prim_flag,defined_species)
-            import eq_reaction_c
-            import species_c
-            implicit none
-            class(eq_reaction_c) :: this
-            character(len=*), intent(in) :: string !> half reaction
-            logical, intent(out) :: prim_flag !> TRUE if species is primary
-            type(species_c), intent(out), optional :: defined_species
-        end subroutine
+        ! subroutine read_exchange_react_PHREEQC(this,string,prim_flag,defined_species)
+        !     import eq_reaction_c
+        !     import species_c
+        !     implicit none
+        !     class(eq_reaction_c) :: this
+        !     character(len=*), intent(in) :: string !> half reaction
+        !     logical, intent(out) :: prim_flag !> TRUE if species is primary
+        !     type(species_c), intent(out), optional :: defined_species
+        ! end subroutine
         
         !  subroutine react_rate_bin_syst_eq_1D(this,u,du_dx,D,phi,r_eq)
         !     import eq_reaction_c

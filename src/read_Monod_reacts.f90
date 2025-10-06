@@ -1,4 +1,4 @@
-!> Reads Monod reactions from database 'reacciones_monod_JW.dat' (created by me)
+!> Reads Monod reactions from database 'reacciones_monod.dat' (created by me)
 subroutine read_Monod_reacts(this,path,unit)
     use chem_system_m, only: chem_system_c
     use redox_kin_reaction_m, only: redox_kin_c, Monod_params_c, aq_species_c, kin_reaction_c
@@ -15,7 +15,7 @@ subroutine read_Monod_reacts(this,path,unit)
     type(aq_species_c) :: DOC    
     type(aq_species_c), allocatable :: inhibitors(:),redox_couple(:)
 !> Pre-process    
-    filename=trim(path)//'\reacciones_monod_JW.dat'
+    filename=trim(path)//'\reacciones_monod.dat'
     allocate(n_inh(this%num_redox_kin_reacts))
     allocate(redox_couple(2))
     call DOC%set_name('ch2o(aq)')

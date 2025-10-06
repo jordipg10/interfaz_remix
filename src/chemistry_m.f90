@@ -12,7 +12,7 @@ module chemistry_m
     save
     type, public :: chemistry_c
         integer(kind=4) :: num_lump=0 !> number of lumpings in consistent WMA option
-        integer(kind=4) :: read_opt !> option for reading chemical data (1: CHEPROO-based, 2: PHREEQC, 3: PFLOTRAN)
+        integer(kind=4) :: read_opt !> option for reading chemical data
         integer(kind=4) :: act_coeffs_model !> model to compute activity coefficients
         logical :: lump_flag !> TRUE if lumping applied on reaction term, FALSE otherwise
         integer(kind=4) :: cons_opt !> consistent WMA option, either 1 (explicit) or 2 (upstream to downstream) (see documentation for more details)
@@ -109,10 +109,8 @@ module chemistry_m
         procedure, public :: read_init_min_zones_CHEPROO
         procedure, public :: read_chemistry
         procedure, public :: read_chemistry_CHEPROO
-        !procedure, public :: read_chemistry_PHREEQC
         procedure, public :: read_init_bd_wat_types_CHEPROO
         procedure, public :: read_init_cat_exch_zones_CHEPROO
-        !procedure, public :: read_gas_bd_zones_CHEPROO
         procedure, public :: read_init_gas_zones_CHEPROO
         procedure, public :: read_chem_opts
     !> Initialisation
@@ -148,13 +146,14 @@ module chemistry_m
     
     
     interface
-        
-    subroutine interfaz_esp_arch(this,path,num_st_var,file_in,Delta_t,file_out)
+
+    subroutine interfaz_esp_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
+        !> This subroutine solves reactive mixing iteration when there are no equilibrium reactions
         import chemistry_c
         implicit none
         class(chemistry_c) :: this !> chemistry object
         character(len=*), intent(in) :: path !> path for input and output files
-        integer(kind=4), intent(in) :: num_st_var !> number of state variables (aqueous species)
+        integer(kind=4), intent(in) :: num_aq_comps !> number of aqueous species (= number of aqueous components)
         character(len=*), intent(in) :: file_in !> name of file containing aqueous species concentrations after solving conservative transport
         real(kind=8), intent(in) :: Delta_t !> time step
         character(len=*), intent(in) :: file_out !> name of file containing aqueous species concentrations after solving reactive mixing
@@ -287,14 +286,14 @@ module chemistry_m
             real(kind=8), external :: anal_sol
         end subroutine
         
-        subroutine read_chemistry_PHREEQC(this,path_inp,path_DB,filename)
-            import chemistry_c
-            implicit none
-            class(chemistry_c) :: this
-            character(len=*), intent(in) :: path_inp
-            character(len=*), intent(in) :: path_DB
-            character(len=*), intent(in) :: filename
-        end subroutine
+        ! subroutine read_chemistry_PHREEQC(this,path_inp,path_DB,filename)
+        !     import chemistry_c
+        !     implicit none
+        !     class(chemistry_c) :: this
+        !     character(len=*), intent(in) :: path_inp
+        !     character(len=*), intent(in) :: path_DB
+        !     character(len=*), intent(in) :: filename
+        ! end subroutine
         
         subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,unit_loc_chem_file)
             import chemistry_c
@@ -581,11 +580,11 @@ module chemistry_m
             integer(kind=4), intent(out) :: ngrz !> number of gas reactive zones
         end subroutine
 
-        subroutine interfaz_comps_arch(this,path,num_st_var,file_in,Delta_t,file_out)
+        subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
             import chemistry_c
             class(chemistry_c) :: this !> chemistry object
             character(len=*), intent(in) :: path !> path for input and output files
-            integer(kind=4), intent(in) :: num_st_var !> number of state variables (components)
+            integer(kind=4), intent(in) :: num_aq_comps !> number of aqueous components
             character(len=*), intent(in) :: file_in !> name of file containing component concentrations after solving conservative transport
             !integer(kind=4), intent(in) :: unit_in !> file unit
             real(kind=8), intent(in) :: Delta_t !> time step
@@ -1359,20 +1358,16 @@ module chemistry_m
         subroutine write_conc_comp_wat_types(this,path,filename)
         !> Writes the concentrations of aqueous components of water types to a file
         implicit none
+        !> Arguments
         class(chemistry_c) :: this !> chemistry object
         character(len=*), intent(in) :: path !> path to the file
         character(len=*), intent(in) :: filename !> file name
-
+        !> Local variables
         real(kind=8), allocatable :: u_aq_init(:) !> aqueous components of water types
         integer(kind=4) :: i,j !> loop indices
-        !integer(kind=4) :: num_aq_comps !> number of aqueous components in the chemical system
-        !character(len=256) :: filename !> file name
-
-        !num_aq_comps=this%get_num_aq_comps_chem_syst() !> we get the number of aqueous components in the chemical system
-        !allocate(u_aq_init(num_aq_comps,this%num_target_waters)) !> we allocate the aqueous components of initial target waters
+        !> Body of the subroutine
         open(unit=10, file=path//filename, status='unknown', action='write', form='formatted')
         write(10,*) 'Concentrations of aqueous components of water types:'
-        !> Deberias usar solo 1 bucle en vez de 2
         do i=1,this%num_wat_types
             u_aq_init=this%wat_types(i)%get_u_aq() !> we get the aqueous components of each water type
             write(10,"(/,2x,A15,/)") trim(this%wat_types(i)%name)//':' !> we write the name of the water type

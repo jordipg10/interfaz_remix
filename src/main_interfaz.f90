@@ -7,7 +7,7 @@ program main_interfaz
     type(chemistry_c) :: my_chem !> chemistry class
     !> Variables
     integer(kind=4) :: int_method_chem !> integration method for chemical reactions (1: Euler explicit, 2: Euler fully implicit, 3: Crank-Nicolson)
-    integer(kind=4) :: num_st_var !> number of state variables (components or species)
+    integer(kind=4) :: num_aq_comps !> number of aqueous components
     integer(kind=4) :: flag !> loop flag
     integer(kind=4) :: flag_Delta_t !> whether time step is constant (1) or variable (0)
     integer(kind=4), allocatable :: ind_can_vec(:) !> indices of canonical vectors in mixing ratios
@@ -71,7 +71,7 @@ program main_interfaz
     file_u_new_trimmed = trim(file_u_new)
     write(*,*) "Nombre del archivo que contiene las concentraciones despues de resolver una iteracion de transporte conservativo? & 
         IMPORTANTE: El archivo debe estar en el directorio del problema, el numero de filas tiene que ser el numero &
-            de componentes y el numero de columnas el numero de targets."
+        de componentes y el numero de columnas el numero de targets."
     read(*,*, iostat=ios) file_u_tilde !> file with u_tilde
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo file_u_tilde. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
@@ -91,21 +91,22 @@ program main_interfaz
             safe_stop(1)
     end if
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
-    write(*,*) "Procedemos al bucle de mezcla reactiva. Tendras que actualizar el archivo con las concentraciones & 
-        obtenidas despues de resolver el transporte conservativo en cada iteracion."
+    !> We get number of aqueous components in the domain
+    num_aq_comps=my_chem%get_num_aq_comps_dom()
+    print *, "Numero de componentes acuosas: ", num_aq_comps
     !> We choose interface based on whether there are equilibrium reactions or not, using procedure pointers
     if (my_chem%target_waters(my_chem%dom_tar_wat_indices(1))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions==0) then
-        p_interfaz=>interfaz_esp_arch
-        num_st_var=my_chem%chem_syst%speciation_alg%num_aq_var_act_species !> we get number of aqueous variable activity species
+        p_interfaz=>interfaz_esp_arch !> no equilibrium reactions
     else
-        p_interfaz=>interfaz_comps_arch
-        num_st_var=my_chem%get_num_aq_comps_dom() !> we get number of aqueous components
+        p_interfaz=>interfaz_comps_arch !> with equilibrium reactions
     end if
+    write(*,*) "Procedemos al bucle de mezcla reactiva. Tendras que actualizar el archivo con las concentraciones & 
+        obtenidas despues de resolver el transporte conservativo en cada iteracion."
     if (flag_Delta_t.eq.1) then !> constant time step
         do
-            call p_interfaz(my_chem,dir_pb_trimmed,num_st_var,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
+            call p_interfaz(my_chem,dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
             write(*,*) "Quieres hacer otra iteracion de mezcla reactiva? (1: si, 0: no)"
-            read(*,*, iostat=ios) flag
+            read(*,*, iostat=ios) flag !> loop flag
             if (ios /= 0) then
                 write(*,*) 'Error/EOF leyendo flag. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
             end if
@@ -117,9 +118,9 @@ program main_interfaz
         end do
     else if (flag_Delta_t.eq.0) then !> variable time step
         do
-            call p_interfaz(my_chem,dir_pb_trimmed,num_st_var,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
+            call p_interfaz(my_chem,dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
             write(*,*) "Quieres hacer otra iteracion de mezcla reactiva? (1: si, 0: no)"
-            read(*,*, iostat=ios) flag
+            read(*,*, iostat=ios) flag !> loop flag
             if (ios /= 0) then
                 write(*,*) 'Error/EOF leyendo flag. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
             end if
@@ -129,7 +130,7 @@ program main_interfaz
                 error stop "Opcion no valida. Tiene que ser 1 o 0."
             else
                 write(*,*) "Nuevo paso de tiempo?"
-                read(*,*, iostat=ios) Delta_t
+                read(*,*, iostat=ios) Delta_t !> new time step
                 if (ios /= 0) then
                     write(*,*) 'Error/EOF leyendo Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
                         safe_stop(1)

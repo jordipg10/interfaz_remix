@@ -3,13 +3,13 @@
 !> It is supposed to be called after the conservative transport has been solved
 !> It uses Euler explicit and applies lumping to the kinetic mixing ratios
 !> It reads the concentrations after conservative transport in a file, and writes the concentrations after reactive mixing in a different file
-subroutine interfaz_comps_arch(this,path,num_st_var,file_in,Delta_t,file_out)
+subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
     use chemistry_m, only: chemistry_c
     implicit none
 !> Arguments
     class(chemistry_c) :: this !> chemistry object
     character(len=*), intent(in) :: path !> path for input and output files
-    integer(kind=4), intent(in) :: num_st_var !> number of state variables (components)
+    integer(kind=4), intent(in) :: num_aq_comps !> number of aqueous components
     character(len=*), intent(in) :: file_in !> name of file containing component concentrations after solving conservative transport
     real(kind=8), intent(in) :: Delta_t !> time step
     character(len=*), intent(in) :: file_out !> name of file containing component concentrations after solving conservative transport
@@ -23,14 +23,14 @@ subroutine interfaz_comps_arch(this,path,num_st_var,file_in,Delta_t,file_out)
     real(kind=8), allocatable :: u_new(:,:) !> concentration components after solving reactive mixing
     real(kind=8), allocatable :: conc_nc(:,:) !> concentrations of variable activity species after solving reactive mixing
 !> Pre-process
-    allocate(u_tilde(num_st_var,this%num_target_waters_dom),u_new(num_st_var,this%num_target_waters_dom))
-    allocate(u_react(num_st_var))
+    allocate(u_tilde(num_aq_comps,this%num_target_waters_dom),u_new(num_aq_comps,this%num_target_waters_dom))
+    allocate(u_react(num_aq_comps))
     n_nc=this%get_num_aq_var_act_species_dom() !> we get number of variable activity species in the domain
     allocate(conc_nc(n_nc,this%num_target_waters_dom)) !> we allocate conc_nc for all target waters in the domain
 !> Process
     !> We read the component concentrations after solving conservative transport
     open(unit=1,file=path//file_in,status='old',action='read')
-    do i=1,num_st_var
+    do i=1,num_aq_comps
         read(1,*) (u_tilde(i,j), j=1,this%num_target_waters_dom) !> we read one row (component) at a time
     end do
     close(1)
@@ -53,7 +53,7 @@ subroutine interfaz_comps_arch(this,path,num_st_var,file_in,Delta_t,file_out)
     write(2,*) "Component concentrations after solving reactive mixing iteration (rows: components, columns: & 
         target waters in the domain):"
     write(2,*)
-    do i=1,num_st_var
+    do i=1,num_aq_comps
         write(2,"(2x,*(ES15.5))") (u_new(i,j), j=1,this%num_target_waters_dom)
     end do
     write(2,*)

@@ -108,8 +108,8 @@ module chem_system_m
         procedure, public :: read_master25
         procedure, public :: read_kinetics_DB
         procedure, public :: read_Monod_reacts
-        procedure, public :: read_PHREEQC_DB_opc1
-        procedure, public :: read_PHREEQC_DB_opc2
+        !procedure, public :: read_PHREEQC_DB_opc1
+        !procedure, public :: read_PHREEQC_DB_opc2
     !> Is
         procedure, public :: is_mineral_in_chem_syst
         procedure, public :: is_eq_reaction_in_chem_syst
@@ -176,19 +176,19 @@ module chem_system_m
             integer(kind=4), intent(in) :: unit
         end subroutine
         
-        subroutine read_PHREEQC_DB_opc1(this,filename)
-            import chem_system_c
-            implicit none
-            class(chem_system_c) :: this
-            character(len=*), intent(in) :: filename
-        end subroutine
+        ! subroutine read_PHREEQC_DB_opc1(this,filename)
+        !     import chem_system_c
+        !     implicit none
+        !     class(chem_system_c) :: this
+        !     character(len=*), intent(in) :: filename
+        ! end subroutine
         
-        subroutine read_PHREEQC_DB_opc2(this,filename)
-            import chem_system_c
-            implicit none
-            class(chem_system_c) :: this
-            character(len=*), intent(in) :: filename
-        end subroutine
+        ! subroutine read_PHREEQC_DB_opc2(this,filename)
+        !     import chem_system_c
+        !     implicit none
+        !     class(chem_system_c) :: this
+        !     character(len=*), intent(in) :: filename
+        ! end subroutine
         
         subroutine read_PFLOTRAN_DB(this,unit,filename)
         import chem_system_c
