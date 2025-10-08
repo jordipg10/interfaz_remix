@@ -141,7 +141,7 @@ subroutine solve_reactive_mixing_iter(this,c1_old,mixing_ratios,conc_old,porosit
                         end if
                         if (associated(this%gas_chemistry)) then
                         !> We compute concentrations of gases
-                            call this%gas_chemistry%compute_conc_gases_iter(Delta_t,this%volume,[this%r_eq,this%rk])
+                            call this%gas_chemistry%compute_conc_gases_iter(Delta_t,this%volume,[this%re_mean,this%rk_mean])
                         !> We compute volume of gas   
                             call this%gas_chemistry%compute_vol_gas_conc()
                         !> We compute activity coefficients of gases    

@@ -13,8 +13,8 @@ subroutine reaction_iteration_EE_kin_lump(this,Delta_t,conc_react)
     allocate(rk(this%solid_chemistry%mineral_zone%num_minerals_kin+&
         this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
 !> Process
-    call this%compute_rk(rk) !> we compute kinetic reactions rates
-    call this%compute_Rk_mean(1d0,Delta_t) !> we update mean reaction amounts
+    call this%compute_rk_new(rk) !> we compute kinetic reactions rates
+    call this%compute_Rk(0d0,Delta_t) !> we update mean reaction amounts
     conc_react=Delta_t*matmul(this%solid_chemistry%reactive_zone%U_SkT_prod,rk)
 !> Post-process
     deallocate(rk)

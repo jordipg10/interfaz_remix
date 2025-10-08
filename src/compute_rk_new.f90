@@ -1,5 +1,5 @@
 !> Computes kinetic reaction rates associated to aqueous chemistry object
-subroutine compute_rk(this,rk)
+subroutine compute_rk_new(this,rk)
     use aqueous_chemistry_m, only: aqueous_chemistry_c
     implicit none
 !> Arguments
@@ -23,7 +23,7 @@ subroutine compute_rk(this,rk)
         !allocate(drk_dc_loc(1))
         call this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%compute_rk_lin(&
             this%concentrations(this%indices_aq_species(&
-            this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%indices_aq_phase(1))),this%rk(i))
+            this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%indices_aq_phase(1))),this%rk_new(i))
         rk(i)=this%rk(i) !> chapuza
         !allocate(drk_dc_loc(size(this%indices_rk%cols(num_rk)%col_1)))
         !call this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%compute_drk_dc_lin(drk_dc_loc)
@@ -44,8 +44,8 @@ subroutine compute_rk(this,rk)
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%compute_rk_mineral(&
             this%activities(this%indices_aq_species(this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%cat_indices)),saturation,&
-            this%solid_chemistry%react_surfaces(i),this%solid_chemistry%temp,this%solid_chemistry%rk(i))
-        rk(num_rk+i)=this%solid_chemistry%rk(i) !> chapuza
+            this%solid_chemistry%react_surfaces(i),this%solid_chemistry%temp,this%solid_chemistry%rk_new(i))
+        rk(num_rk+i)=this%solid_chemistry%rk_new(i) !> chapuza
         !call this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
         !    this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%compute_drk_dc_mineral(&
         !        this%concentrations(this%indices_aq_species(&
@@ -66,7 +66,7 @@ subroutine compute_rk(this,rk)
         call this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%compute_rk_Monod(this%concentrations(&
             this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%indices_aq_phase)),&
             this%rk(num_rk-this%solid_chemistry%mineral_zone%num_minerals_kin)) !> chapuza
-        rk(num_rk)=this%rk(num_rk-this%solid_chemistry%mineral_zone%num_minerals_kin) !> chapuza
+        rk(num_rk)=this%rk_new(num_rk-this%solid_chemistry%mineral_zone%num_minerals_kin) !> chapuza
         !call this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%compute_drk_dc_Monod(this%concentrations(&
         !    this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%indices_aq_phase)),&
         !    this%rk(num_rk-this%solid_chemistry%mineral_zone%num_minerals_kin),drk_dc_loc)

@@ -271,7 +271,7 @@ subroutine solve_reactive_mixing_lump(this,root,mixing_ratios,mixing_waters_indi
                         this%dom_tar_wat_indices(i))%get_c1(),target_waters_old(&
                         this%dom_tar_wat_indices(i))%get_c2nc(),c_tilde,Delta_t,conc_nc)
                 !> We compute equilibrium reaction rates from mass balance equation
-                    call target_waters_new(this%dom_tar_wat_indices(i))%compute_Re_mean_lump(c_tilde(n_p+1:n_p+n_nc_aq_2),Delta_t,&
+                    call target_waters_new(this%dom_tar_wat_indices(i))%compute_Re_lump(c_tilde(n_p+1:n_p+n_nc_aq_2),Delta_t,&
                         theta)
             !> We compute solid chemistry state variables
                     if (associated(target_waters_new(this%dom_tar_wat_indices(i))%solid_chemistry%mineral_zone)) then
@@ -284,7 +284,7 @@ subroutine solve_reactive_mixing_lump(this,root,mixing_ratios,mixing_waters_indi
                     if (associated(target_waters_new(this%dom_tar_wat_indices(i))%gas_chemistry)) then
                     !> We compute concentrations of gases
                         call target_waters_new(this%dom_tar_wat_indices(i))%gas_chemistry%compute_conc_gases_iter(Delta_t,&
-                            target_waters_new(i)%volume,[target_waters_new(i)%r_eq,target_waters_new(i)%rk])
+                            target_waters_new(i)%volume,[target_waters_new(i)%re_mean,target_waters_new(i)%rk_mean])
                     !> We compute volume of gas   
                         call target_waters_new(this%dom_tar_wat_indices(i))%gas_chemistry%compute_vol_gas_conc()
                     !> We compute activity coefficients of gases    

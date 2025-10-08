@@ -104,7 +104,7 @@ module solid_chemistry_m
         !     import solid_chemistry_c
         !     implicit none
         !     class(solid_chemistry_c) :: this
-        !     !real(kind=8), intent(in) :: r_eq(:) !> reaction rates
+        !     !real(kind=8), intent(in) :: re_mean(:) !> reaction rates
         !     real(kind=8), intent(in) :: Delta_t !> time step
         ! end subroutine
         
@@ -112,7 +112,7 @@ module solid_chemistry_m
             import solid_chemistry_c
             implicit none
             class(solid_chemistry_c) :: this
-            !real(kind=8), intent(in) :: r_eq(:) !> equilibrium reaction rates
+            !real(kind=8), intent(in) :: re_mean(:) !> equilibrium reaction rates
             real(kind=8), intent(in) :: Delta_t !> time step
         end subroutine
         
@@ -481,7 +481,7 @@ subroutine compute_conc_minerals_iter_EE(this,Delta_t)
         else
             this%concentrations(this%mineral_zone%num_minerals_kin+i)=this%concentrations(this%mineral_zone%num_minerals_kin+i)+&
                 Delta_t*dot_product(this%reactive_zone%stoich_mat(:,this%reactive_zone%ind_mins_stoich_mat(i)),&
-                this%r_eq(1:this%reactive_zone%num_minerals))/this%vol_fracts(this%mineral_zone%num_minerals_kin+i)
+                this%re_mean(1:this%reactive_zone%num_minerals))/this%vol_fracts(this%mineral_zone%num_minerals_kin+i)
         end if
     end do
     do i=1,this%mineral_zone%num_minerals_kin
@@ -489,7 +489,7 @@ subroutine compute_conc_minerals_iter_EE(this,Delta_t)
             continue
         else
             this%concentrations(i)=this%concentrations(i)+Delta_t*dot_product(this%mineral_zone%chem_syst%stoich_mat(:,&
-            this%mineral_zone%ind_min_Sk(i)),this%rk(1:this%mineral_zone%num_minerals_kin))/&
+            this%mineral_zone%ind_min_Sk(i)),this%rk_new(1:this%mineral_zone%num_minerals_kin))/&
             this%vol_fracts(i)
         end if
     end do
@@ -567,11 +567,16 @@ this%concentrations=solid_chemistry%concentrations
 this%activities=solid_chemistry%activities
 this%log_act_coeffs=solid_chemistry%log_act_coeffs
 this%name=solid_chemistry%name
-if (allocated(solid_chemistry%r_eq)) then
-    this%r_eq=solid_chemistry%r_eq
+if (allocated(solid_chemistry%Re)) then
+    this%Re=solid_chemistry%Re
+    this%re_mean=solid_chemistry%re_mean
 end if
-if (allocated(solid_chemistry%rk)) then
-    this%rk=solid_chemistry%rk
+if (allocated(solid_chemistry%Rk)) then
+    this%Rk=solid_chemistry%Rk
+    this%Rk_est=solid_chemistry%Rk_est
+    this%rk_new=solid_chemistry%rk_new
+    this%rk_old=solid_chemistry%rk_old
+    this%rk_mean=solid_chemistry%rk_mean
 end if
 if (allocated(solid_chemistry%vol_fracts)) then
     this%vol_fracts=solid_chemistry%vol_fracts
@@ -591,37 +596,41 @@ end subroutine
 
 subroutine allocate_reaction_rates_solid_chem(this)
     class(solid_chemistry_c) :: this !> solid chemistry object
-    if (.not. allocated(this%r_eq)) then
+    if (.not. allocated(this%re_mean)) then
         if (.not. associated(this%reactive_zone)) then
             error stop "Reactive zone not associated with solid chemistry"
         else
-            allocate(this%r_eq(this%reactive_zone%num_minerals+&
+            allocate(this%re_mean(this%reactive_zone%num_minerals+&
                 this%reactive_zone%cat_exch_zone%num_exch_cats))
-            allocate(this%Re_mean(this%reactive_zone%num_minerals+&
+            allocate(this%Re(this%reactive_zone%num_minerals+&
                 this%reactive_zone%cat_exch_zone%num_exch_cats))
-            this%r_eq=0d0 !> by default
-            this%Re_mean=0d0 !> by default
+            this%re_mean=0d0 !> by default
+            this%Re=0d0 !> by default
         end if
     end if
-    !allocate(this%solid_chemistry%r_eq(this%solid_chemistry%reactive_zone%num_minerals+&
+    !allocate(this%solid_chemistry%re_mean(this%solid_chemistry%reactive_zone%num_minerals+&
     !this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats))
-    !this%solid_chemistry%r_eq=0d0 !> by default
-    if (.not. allocated(this%rk)) then
+    !this%solid_chemistry%re_mean=0d0 !> by default
+    if (.not. allocated(this%Rk)) then
         if (.not. associated(this%mineral_zone)) then
             error stop "Mineral zone not associated with solid chemistry"
         else
-            allocate(this%rk(this%mineral_zone%num_minerals_kin))
+            allocate(this%Rk(this%mineral_zone%num_minerals_kin))
+            allocate(this%Rk_accum(this%mineral_zone%num_minerals_kin))
+            allocate(this%rk_new(this%mineral_zone%num_minerals_kin))
             allocate(this%rk_old(this%mineral_zone%num_minerals_kin))
             allocate(this%rk_old_old(this%mineral_zone%num_minerals_kin))
             allocate(this%rk_old_old_old(this%mineral_zone%num_minerals_kin))
-            allocate(this%Rk_mean(this%mineral_zone%num_minerals_kin))
+            allocate(this%rk_mean(this%mineral_zone%num_minerals_kin))
             allocate(this%Rk_est(this%mineral_zone%num_minerals_kin))
-            this%rk=0d0 !> by default
+            this%Rk=0d0 !> by default
+            this%Rk_accum=0d0 !> by default
+            this%rk_new=0d0 !> by default
             this%Rk_est=0d0 !> by default
             this%rk_old=0d0 !> by default
             this%rk_old_old=0d0 !> by default
             this%rk_old_old_old=0d0 !> by default
-            this%Rk_mean=0d0 !> by default
+            this%rk_mean=0d0 !> by default
         end if
     end if
 end subroutine

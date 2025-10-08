@@ -156,7 +156,7 @@ subroutine solve_reactive_mixing_BCs_dep_t(this,root,unit,mixing_ratios,mixing_w
                         if (associated(target_waters_new(i)%gas_chemistry)) then
                         !> We compute concentrations of gases
                             call target_waters_new(i)%gas_chemistry%compute_conc_gases_iter(&
-                            Delta_t,target_waters_new(i)%volume,[target_waters_new(i)%r_eq,target_waters_new(i)%rk])
+                            Delta_t,target_waters_new(i)%volume,[target_waters_new(i)%re_mean,target_waters_new(i)%rk_mean])
                         !> We compute volume of gas   
                             call target_waters_new(i)%gas_chemistry%compute_vol_gas_conc()
                         !> We compute activity coefficients of gases    

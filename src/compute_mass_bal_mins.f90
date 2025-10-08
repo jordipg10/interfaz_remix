@@ -11,10 +11,10 @@ subroutine compute_mass_bal_mins(this,Delta_t)
 !> Process
     do i=1,this%mineral_zone%num_minerals_kin
         this%vol_fracts(i)=this%vol_fracts(i)+Delta_t*this%mineral_zone%chem_syst%minerals(&
-            this%mineral_zone%ind_min_chem_syst(i))%mineral%mol_vol*this%rk(i)
+            this%mineral_zone%ind_min_chem_syst(i))%mineral%mol_vol*this%rk_mean(i)
     end do
     do i=1,this%reactive_zone%num_minerals
         this%vol_fracts(this%mineral_zone%num_minerals_kin+i)=this%vol_fracts(this%mineral_zone%num_minerals_kin+i)+&
-            Delta_t*this%reactive_zone%chem_syst%minerals(this%reactive_zone%ind_mins_chem_syst(i))%mineral%mol_vol*this%r_eq(i)
+            Delta_t*this%reactive_zone%chem_syst%minerals(this%reactive_zone%ind_mins_chem_syst(i))%mineral%mol_vol*this%re_mean(i)
     end do
 end subroutine

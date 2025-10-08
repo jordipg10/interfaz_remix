@@ -15,14 +15,16 @@ module local_chemistry_m
         real(kind=8), allocatable :: activities(:) !> species activities
         real(kind=8), allocatable :: log_act_coeffs(:) !> log_10 activity coefficients
         real(kind=8), allocatable :: log_Jacobian_act_coeffs(:,:) !> log_10 Jacobian activity coefficients
-        real(kind=8), allocatable :: rk(:) !> kinetic reaction rates
+        real(kind=8), allocatable :: rk_new(:) !> kinetic reaction rates at the end of the time step
         real(kind=8), allocatable :: Rk_est(:) !> estimated kinetic reaction amounts
-        real(kind=8), allocatable :: Rk_mean(:) !> mean kinetic reaction amount during a time step
-        real(kind=8), allocatable :: Re_mean(:) !> mean equilibrium reaction amount during a time step
+        real(kind=8), allocatable :: Rk(:) !> kinetic reaction amount during a time step
+        real(kind=8), allocatable :: Rk_accum(:) !> accumulated kinetic reaction amount during a simulation
+        real(kind=8), allocatable :: rk_mean(:) !> mean kinetic reaction rate during a time step
         real(kind=8), allocatable :: rk_old(:) !> kinetic reaction rates in previous time step
         real(kind=8), allocatable :: rk_old_old(:) !> kinetic reaction rates in two previous time step (chapuza)
         real(kind=8), allocatable :: rk_old_old_old(:) !> kinetic reaction rates in three previous time step (chapuza)
-        real(kind=8), allocatable :: r_eq(:) !> equilibrium reaction rates
+        real(kind=8), allocatable :: Re(:) !> equilibrium reaction amount during a time step
+        real(kind=8), allocatable :: re_mean(:) !> mean equilibrium reaction rate during a time step
         real(kind=8) :: volume=1d0 !> volume of solution or volumetric fraction (1 by default)
         integer(kind=4), allocatable :: var_act_species_indices(:)
         integer(kind=4), allocatable :: cst_act_species_indices(:)
@@ -79,7 +81,7 @@ module local_chemistry_m
         subroutine set_volume(this,vol)
             implicit none
             class(local_chemistry_c) :: this
-            real(kind=8), intent(in), optional :: vol !> [L]
+            real(kind=8), intent(in), optional :: vol !> [m^3]
             if (present(vol)) then
                 this%volume=vol
             else
@@ -135,7 +137,7 @@ module local_chemistry_m
         class(local_chemistry_c) :: this
         this%rk_old_old_old=this%rk_old_old
         this%rk_old_old=this%rk_old
-        this%rk_old=this%rk
+        this%rk_old=this%rk_new
         end subroutine
 
         subroutine update_conc_old(this)
@@ -178,11 +180,11 @@ module local_chemistry_m
         !     ! allocate(this%rk(num_reactions))
         !     ! allocate(this%Rk_est(num_reactions))
         !     ! allocate(this%Rk_mean(num_reactions))
-        !     ! allocate(this%Re_mean(num_reactions))
+        !     ! allocate(this%Re(num_reactions))
         !     ! allocate(this%rk_old(num_reactions))
         !     ! allocate(this%rk_old_old(num_reactions))
         !     ! allocate(this%rk_old_old_old(num_reactions))
-        !     ! allocate(this%r_eq(num_reactions))
+        !     ! allocate(this%re_mean(num_reactions))
         ! end subroutine
         
         subroutine set_id(this,id)

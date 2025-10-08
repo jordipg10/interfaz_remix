@@ -1052,7 +1052,7 @@ module chemistry_m
             call this%target_waters(tar_wat_ind)%set_indices_rk()
             if (flag_ext .eqv. .false.) then !> external waters do not have kinetic reaction rates
                 allocate(rk(this%target_waters(tar_wat_ind)%indices_rk%num_cols))
-                call this%target_waters(tar_wat_ind)%compute_rk(rk)
+                call this%target_waters(tar_wat_ind)%compute_rk_new(rk)
                 !!call this%target_waters(tar_wat_ind)%update_rk_old()
             end if
             deallocate(swap,aux_swap)
@@ -1191,7 +1191,7 @@ module chemistry_m
             call this%target_waters(tar_wat_ind)%set_volume() !> we set the volume of the target water
             if (flag_ext .eqv. .false.) then !> external waters do not have kinetic reaction rates
                 allocate(rk(this%target_waters(tar_wat_ind)%indices_rk%num_cols))
-                call this%target_waters(tar_wat_ind)%compute_rk(rk)
+                call this%target_waters(tar_wat_ind)%compute_rk_new(rk)
                 !!call this%target_waters(tar_wat_ind)%update_rk_old()
                 !!call this%target_waters(tar_wat_ind)%solid_chemistry%update_rk_old()
                 deallocate(rk)

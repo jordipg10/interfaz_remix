@@ -179,9 +179,9 @@ module gas_chemistry_m
                     do i=1,this%reactive_zone%gas_phase%num_cst_act_species
                         !this%concentrations(this%cst_act_species_indices(i))=this%concentrations(this%cst_act_species_indices(i))+&
                         !    Delta_t*dot_product(this%reactive_zone%chem_syst%stoich_mat_gas(:,this%cst_act_species_indices(i)),&
-                        !    [this%r_eq(i),r_aq])*wat_vol
+                        !    [this%re_mean(i),r_aq])*wat_vol
                         this%concentrations(this%cst_act_species_indices(i))=this%concentrations(this%cst_act_species_indices(i))+&
-                            Delta_t*this%r_eq(i)*wat_vol
+                            Delta_t*this%re_mean(i)*wat_vol
                         if (this%concentrations(this%cst_act_species_indices(i))<0d0) then
                             print *, "Negative concentration in gas chemistry"
                             print *, "Gas: ", this%reactive_zone%gas_phase%gases(this%cst_act_species_indices(i))%name
@@ -265,12 +265,12 @@ module gas_chemistry_m
        
        subroutine allocate_reaction_rates_gas_chem(this)
            class(gas_chemistry_c) :: this
-           if (allocated(this%r_eq) .and. allocated(this%Re_mean)) then
-               deallocate(this%r_eq,this%Re_mean)
+           if (allocated(this%re_mean) .and. allocated(this%Re)) then
+               deallocate(this%re_mean,this%Re)
            end if
-           allocate(this%r_eq(this%reactive_zone%gas_phase%num_gases_eq))
-           allocate(this%Re_mean(this%reactive_zone%gas_phase%num_gases_eq))
-           this%r_eq=0d0 !> by default
-           this%Re_mean=0d0 !> by default
+           allocate(this%re_mean(this%reactive_zone%gas_phase%num_gases_eq))
+           allocate(this%Re(this%reactive_zone%gas_phase%num_gases_eq))
+           this%re_mean=0d0 !> by default
+           this%Re=0d0 !> by default
        end subroutine
 end module

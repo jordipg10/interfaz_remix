@@ -77,7 +77,7 @@ subroutine Newton_EI_rk_kin_aq_anal_ideal_opt2(this,c_tilde,rk_old,Rk_tilde,mix_
         !> Check convergence
             if (inf_norm_vec_real(fk)<this%solid_chemistry%reactive_zone%CV_params%abs_tol) then !> CV reached
                 CV_flag=.true.
-                call this%compute_Rk_mean(theta,Delta_t) !> we update mean reaction amounts
+                call this%compute_Rk(theta,Delta_t) !> we update mean reaction amounts
                 exit
             else
                 call this%compute_dfk_dc_aq_EfI(drk_dc,Delta_t,theta,mix_ratio_Rk_new,dfk_dc) !> computes Jacobian of Newton resiudal

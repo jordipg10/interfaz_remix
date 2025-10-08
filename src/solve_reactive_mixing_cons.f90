@@ -353,12 +353,12 @@ subroutine solve_reactive_mixing_cons(this,root,mixing_ratios_conc,mixing_ratios
                     if (this%target_waters(this%dom_tar_wat_indices(ind_non_can_vec(i))&
                         )%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0 .and. &
                         this%target_waters(this%dom_tar_wat_indices(ind_non_can_vec(i)))%indices_rk%num_cols>0) then
-                        call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%compute_Re_mean_rk(&
+                        call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%compute_Re_rk(&
                             c_tilde(n_p+1:n_p+n_nc_aq_2),Delta_t,&
                             theta,rk_tilde(n_p+1:n_p+n_nc_aq_2)) !> chapuza
                     else if (this%target_waters(this%dom_tar_wat_indices(ind_non_can_vec(i))&
                         )%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0) then
-                        call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%compute_Re_mean(&
+                        call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%compute_Re(&
                             c_tilde(n_p+1:n_p+n_nc_aq_2),Delta_t,&
                             theta) !> chapuza
                     end if
@@ -379,7 +379,7 @@ subroutine solve_reactive_mixing_cons(this,root,mixing_ratios_conc,mixing_ratios
                     !> We compute concentrations of gases
                         call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%gas_chemistry%compute_conc_gases_iter(&
                             Delta_t,&
-                            target_waters_new(i)%volume,[target_waters_new(i)%r_eq,target_waters_new(i)%rk])
+                            target_waters_new(i)%volume,[target_waters_new(i)%re_mean,target_waters_new(i)%rk_mean])
                     !> We compute volume of gas
                         call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%gas_chemistry%compute_vol_gas_conc()
                     !> We compute activity coefficients of gases

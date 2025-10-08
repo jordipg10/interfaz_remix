@@ -14,7 +14,7 @@ subroutine reaction_iteration_EE_eq_kin(this,Delta_t,rk_tilde,conc_comp_react)
     conc_comp_react=Delta_t*matmul(this%solid_chemistry%reactive_zone%speciation_alg%comp_mat,rk_tilde) !> we compute reaction part of new component concentrations
     !> We compute new kinetic reaction rates
     allocate(rk(this%indices_rk%num_cols)) !> we allocate new kinetic reaction rates
-    call this%compute_rk(rk) !> we compute new kinetic reaction rates
+    call this%compute_rk_new(rk) !> we compute new kinetic reaction rates
     !call this%update_rk_old() !> we update old aqueous kinetic reaction rates
     !call this%solid_chemistry%update_rk_old() !> we update old solid kinetic reaction rates
 !> Post-process    

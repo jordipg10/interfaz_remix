@@ -14,7 +14,7 @@ subroutine reaction_iteration_EE_kin(this,Delta_t,rk_tilde,conc_react)
     allocate(rk(this%solid_chemistry%mineral_zone%num_minerals_kin+&
         this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts)) !> we allocate kinetic reaction rates
 !> Process
-    call this%compute_rk(rk) !> we compute kinetic reactions rates at current time step (CHAPUZA)
+    call this%compute_rk_new(rk) !> we compute kinetic reactions rates at current time step (CHAPUZA)
     conc_react=Delta_t*matmul(this%solid_chemistry%reactive_zone%speciation_alg%comp_mat,rk_tilde) !> we compute reaction part of variable activity concentrations
 !> Post-process
     deallocate(rk) !> we deallocate kinetic reaction rates

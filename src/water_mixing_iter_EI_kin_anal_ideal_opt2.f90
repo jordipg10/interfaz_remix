@@ -77,7 +77,7 @@ subroutine water_mixing_iter_EI_kin_anal_ideal_opt2(this,c1_old,c_tilde,rk_tilde
         !     end if
         ! end do
     !> We get old kinetic reaction rates
-        rk_old=this%get_rk()
+        rk_old=this%get_rk_old()
     !!> Update old kinetic reaction rates
         !call this%update_rk_old() !> we update old values of kinetic reaction rates
         !call this%solid_chemistry%update_rk_old() !> we update old values of kinetic reaction rates

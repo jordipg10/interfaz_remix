@@ -1,0 +1,23 @@
+'TITLE OF THE PROBLEM: Calcite in equilibrium'
+'-----------------------------------------------------------------------------------------------------'
+'DEFINITION OF THE GEOCHEMICAL SYSTEM'
+'PRIMARY AQUEOUS SPECIES'
+'h2o(p)'					! species name
+'h+'
+'ca+2'
+'o2(aq)'
+'hco3-'
+'*'
+'MINERALS'
+'calcite' .true. .true. 			! name of mineral, flag equilibrium, flag constant activity 
+'*' .true. .true.         
+'GASES'
+'o2(g)' .true. .true.				! name of gas, flag equilibrium, flag constant activity
+'co2(g)' .true. .true.
+'*'  .true. .true.
+'------------------------------------------------------------------------------------------------------'
+'end'
+
+
+
+

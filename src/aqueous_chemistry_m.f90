@@ -1,6 +1,6 @@
 !> Aqueous chemistry subclass:
 !!>   contains local information of aqueous solution
-!!>   points to solid chemistry, gas chemistry, chemical system and aqueous phase classes
+!!>   points to solid chemistry, gas chemistry and aqueous phase classes
 module aqueous_chemistry_m
     use local_chemistry_m, only: local_chemistry_c
     use solid_chemistry_m, only: solid_chemistry_c, mineral_c, mineral_zone_c
@@ -15,6 +15,7 @@ module aqueous_chemistry_m
     implicit none
     save
     type, public, extends(local_chemistry_c) :: aqueous_chemistry_c
+        real(kind=8), allocatable :: pos(:) !> position of the object in space
         type(params_aq_sol_t) :: params_aq_sol !> parameters of aqueous solution
         real(kind=8) :: ionic_act !> ionic activity I
         real(kind=8) :: pH
@@ -42,6 +43,7 @@ module aqueous_chemistry_m
         procedure, public :: read_wat_type_CHEPROO
     !> Set
         procedure, public :: set_concentrations=>set_conc_aq_species
+        procedure, public :: set_pos
         procedure, public :: set_act_aq_species
         procedure, public :: set_act_diss_solids
         procedure, public :: set_conc_aq_prim_species
@@ -66,8 +68,9 @@ module aqueous_chemistry_m
         procedure, public :: set_gas_chemistry
         procedure, public :: set_aq_phase
         procedure, public :: set_indices_rk
-        procedure, public :: set_Rk_mean
+        procedure, public :: set_Rk
         procedure, public :: set_Rk_est
+        procedure, public :: set_rk_mean
         !procedure, public :: set_conc_old
         !procedure, public :: set_conc_old_old
     !> Allocate
@@ -92,12 +95,12 @@ module aqueous_chemistry_m
         procedure, public :: compute_pH
         procedure, public :: compute_conc_comp
         procedure, public :: compute_conc_comp_cst_act
-        procedure, public :: compute_r_eq
-        procedure, public :: compute_Re_mean_lump
-        procedure, public :: compute_Re_mean_rk_lump
-        procedure, public :: compute_Re_mean
-        procedure, public :: compute_Re_mean_rk
-        procedure, public :: compute_rk
+        !procedure, public :: compute_re_mean
+        procedure, public :: compute_Re_lump
+        procedure, public :: compute_Re_rk_lump
+        procedure, public :: compute_Re
+        procedure, public :: compute_Re_rk
+        procedure, public :: compute_rk_new
         procedure, public :: compute_Jacobian_rk_anal
         procedure, public :: compute_rk_Jac_rk_anal
         procedure, public :: compute_rk_Jac_rk_incr_coeff
@@ -111,10 +114,10 @@ module aqueous_chemistry_m
         procedure, public :: compute_res_init
         procedure, public :: compute_log_act_coeff_wat
         procedure, public :: compute_saturation_kin_min
-        procedure, public :: compute_Rk_mean
+        procedure, public :: compute_Rk
     !> Get
         procedure, public :: get_indices_reaction
-        procedure, public :: get_rk !> gets kinetic reaction rates
+        procedure, public :: get_rk_new !> gets new kinetic reaction rates
         procedure, public :: get_rk_old !> gets old kinetic reaction rates
         procedure, public :: get_Sk_nc !> gets kinetic stoichiometric matrix var act species
         procedure, public :: get_c1
@@ -1416,7 +1419,7 @@ module aqueous_chemistry_m
         
 
         
-        subroutine compute_r_eq_tilde_aq_chem(this,this_old,mixing_ratios,mixing_waters,Delta_t,r_eq_tilde)
+        subroutine compute_re_mean_tilde_aq_chem(this,this_old,mixing_ratios,mixing_waters,Delta_t,re_mean_tilde)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c) :: this
@@ -1426,10 +1429,10 @@ module aqueous_chemistry_m
             class(aqueous_chemistry_c), intent(in) :: mixing_waters(:)
             real(kind=8), intent(in) :: Delta_t !> time step
             !real(kind=8), intent(in) :: porosity
-            real(kind=8), intent(out) :: r_eq_tilde(:)
+            real(kind=8), intent(out) :: re_mean_tilde(:)
         end subroutine
         
-        subroutine compute_r_eq(this,c2nc_tilde,Delta_t,theta,rk_tilde)
+        subroutine compute_re_mean(this,c2nc_tilde,Delta_t,theta,rk_tilde)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c) :: this
@@ -1439,7 +1442,7 @@ module aqueous_chemistry_m
             real(kind=8), intent(in) :: rk_tilde(:)
         end subroutine
 
-        subroutine compute_Re_mean(this,c2nc_tilde,Delta_t,theta)
+        subroutine compute_Re(this,c2nc_tilde,Delta_t,theta)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c) :: this
@@ -1449,7 +1452,7 @@ module aqueous_chemistry_m
             !real(kind=8), intent(in) :: rk_tilde(:)
         end subroutine
 
-        subroutine compute_Re_mean_rk(this,c2nc_tilde,Delta_t,theta,rk_tilde)
+        subroutine compute_Re_rk(this,c2nc_tilde,Delta_t,theta,rk_tilde)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c) :: this
@@ -1459,7 +1462,7 @@ module aqueous_chemistry_m
             real(kind=8), intent(in) :: rk_tilde(:)
         end subroutine
         
-        subroutine compute_Re_mean_lump(this,c2nc_tilde,Delta_t,theta)
+        subroutine compute_Re_lump(this,c2nc_tilde,Delta_t,theta)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c) :: this
@@ -1469,7 +1472,7 @@ module aqueous_chemistry_m
             !real(kind=8), intent(in) :: porosity
         end subroutine
 
-        subroutine compute_Re_mean_rk_lump(this,c2nc_tilde,Delta_t,theta)
+        subroutine compute_Re_rk_lump(this,c2nc_tilde,Delta_t,theta)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c) :: this
@@ -1485,11 +1488,11 @@ module aqueous_chemistry_m
             class(aqueous_chemistry_c) :: this
         end subroutine
         
-        subroutine compute_rk(this,rk)
+        subroutine compute_rk_new(this,rk_new)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c) :: this
-            real(kind=8), intent(out) :: rk(:)
+            real(kind=8), intent(out) :: rk_new(:)
         end subroutine
         
         subroutine compute_Jacobian_rk_anal(this,drk_dc)
@@ -1499,11 +1502,11 @@ module aqueous_chemistry_m
             real(kind=8), intent(out) :: drk_dc(:,:)
         end subroutine
         
-        subroutine compute_rk_Jac_rk_anal(this,rk,drk_dc)
+        subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c), intent(in) :: this
-            real(kind=8), intent(out) :: rk(:) !>  (must be allocated)
+            real(kind=8), intent(out) :: rk_new(:) !>  (must be allocated)
             real(kind=8), intent(out) :: drk_dc(:,:)
         end subroutine
         
@@ -2114,71 +2117,81 @@ module aqueous_chemistry_m
             implicit none
             class(aqueous_chemistry_c) :: this
             if (associated(this%solid_chemistry%reactive_zone%chem_syst)) then
-                allocate(this%rk(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
-                this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
+                allocate(this%Rk(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
+                    this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
                 allocate(this%rk_old(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
-                this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
+                    this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
                 allocate(this%rk_old_old(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
-                this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
+                    this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
                 allocate(this%rk_old_old_old(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
-                this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
-                allocate(this%Rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
-                this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
+                    this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
+                allocate(this%rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
+                    this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
                 allocate(this%Rk_est(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
-                this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
-                this%rk=0d0 !> by default
+                    this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
+                allocate(this%rk_new(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
+                    this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
+                allocate(this%Rk_accum(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
+                    this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts))
+                this%Rk=0d0 !> by default
                 this%Rk_est=0d0 !> by default
                 this%rk_old=0d0 !> by default
+                this%rk_new=0d0 !> by default
                 this%rk_old_old=0d0 !> by default
                 this%rk_old_old_old=0d0 !> by default
-                this%Rk_mean=0d0 !> by default
+                this%rk_mean=0d0 !> by default
+                this%Rk_accum=0d0 !> by default
             else
                 error stop "Chemical system not associated to reactive zone"
             end if
-            allocate(this%r_eq(this%solid_chemistry%reactive_zone%chem_syst%num_aq_eq_reacts))
-            allocate(this%Re_mean(this%solid_chemistry%reactive_zone%chem_syst%num_aq_eq_reacts))
-            this%r_eq=0d0 !> by default
-            this%Re_mean=0d0 !> by default
+            allocate(this%re_mean(this%solid_chemistry%reactive_zone%chem_syst%num_aq_eq_reacts))
+            allocate(this%Re(this%solid_chemistry%reactive_zone%chem_syst%num_aq_eq_reacts))
+            this%re_mean=0d0 !> by default
+            this%Re=0d0 !> by default
             if (associated(this%solid_chemistry)) then
-                if (.not. allocated(this%solid_chemistry%r_eq)) then
-                    allocate(this%solid_chemistry%r_eq(this%solid_chemistry%reactive_zone%num_minerals+&
+                if (.not. allocated(this%solid_chemistry%re_mean)) then
+                    allocate(this%solid_chemistry%re_mean(this%solid_chemistry%reactive_zone%num_minerals+&
                         this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats))
-                    allocate(this%solid_chemistry%Re_mean(this%solid_chemistry%reactive_zone%num_minerals+&
+                    allocate(this%solid_chemistry%Re(this%solid_chemistry%reactive_zone%num_minerals+&
                         this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats))
-                    this%solid_chemistry%r_eq=0d0 !> by default
-                    this%solid_chemistry%Re_mean=0d0 !> by default
+                    this%solid_chemistry%re_mean=0d0 !> by default
+                    this%solid_chemistry%Re=0d0 !> by default
                 end if
-                !allocate(this%solid_chemistry%r_eq(this%solid_chemistry%reactive_zone%num_minerals+&
+                !allocate(this%solid_chemistry%re_mean(this%solid_chemistry%reactive_zone%num_minerals+&
                 !this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats))
-                !this%solid_chemistry%r_eq=0d0 !> by default
-                if (.not. allocated(this%solid_chemistry%rk)) then
-                    allocate(this%solid_chemistry%rk(this%solid_chemistry%mineral_zone%num_minerals_kin))
+                !this%solid_chemistry%re_mean=0d0 !> by default
+                if (.not. allocated(this%solid_chemistry%Rk)) then
+                    allocate(this%solid_chemistry%Rk(this%solid_chemistry%mineral_zone%num_minerals_kin))
                     allocate(this%solid_chemistry%rk_old(this%solid_chemistry%mineral_zone%num_minerals_kin))
                     allocate(this%solid_chemistry%rk_old_old(this%solid_chemistry%mineral_zone%num_minerals_kin))
                     allocate(this%solid_chemistry%rk_old_old_old(this%solid_chemistry%mineral_zone%num_minerals_kin))
-                    allocate(this%solid_chemistry%Rk_mean(this%solid_chemistry%mineral_zone%num_minerals_kin))
+                    allocate(this%solid_chemistry%rk_mean(this%solid_chemistry%mineral_zone%num_minerals_kin))
+                    allocate(this%solid_chemistry%rk_new(this%solid_chemistry%mineral_zone%num_minerals_kin))
                     allocate(this%solid_chemistry%Rk_est(this%solid_chemistry%mineral_zone%num_minerals_kin))
-                    this%solid_chemistry%rk=0d0 !> by default
+                    allocate(this%solid_chemistry%Rk_accum(this%solid_chemistry%mineral_zone%num_minerals_kin))
+                    this%solid_chemistry%rk_new=0d0 !> by default
                     this%solid_chemistry%Rk_est=0d0 !> by default
                     this%solid_chemistry%rk_old=0d0 !> by default
                     this%solid_chemistry%rk_old_old=0d0 !> by default
                     this%solid_chemistry%rk_old_old_old=0d0 !> by default
-                    this%solid_chemistry%Rk_mean=0d0 !> by default
+                    this%solid_chemistry%rk_mean=0d0 !> by default
+                    this%solid_chemistry%Rk=0d0 !> by default
+                    this%solid_chemistry%Rk_accum=0d0 !> by default
                 end if
             else
                 error stop "Solid chemistry not associated to aqueous chemistry"
             end if
             if (associated(this%gas_chemistry)) then
-                if (.not. allocated(this%gas_chemistry%r_eq)) then
-                    allocate(this%gas_chemistry%r_eq(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
-                    allocate(this%gas_chemistry%Re_mean(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
-                    this%gas_chemistry%r_eq=0d0 !> by default
-                    this%gas_chemistry%Re_mean=0d0 !> by default
+                if (.not. allocated(this%gas_chemistry%re_mean)) then
+                    allocate(this%gas_chemistry%re_mean(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
+                    allocate(this%gas_chemistry%Re(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
+                    this%gas_chemistry%re_mean=0d0 !> by default
+                    this%gas_chemistry%Re=0d0 !> by default
                 end if
-                !allocate(this%gas_chemistry%r_eq(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
-                !allocate(this%gas_chemistry%Re_mean(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
-                !this%gas_chemistry%r_eq=0d0 !> by default
-                !this%gas_chemistry%Re_mean=0d0 !> by default
+                !allocate(this%gas_chemistry%re_mean(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
+                !allocate(this%gas_chemistry%Re(this%gas_chemistry%reactive_zone%gas_phase%num_gases_eq))
+                !this%gas_chemistry%re_mean=0d0 !> by default
+                !this%gas_chemistry%Re=0d0 !> by default
             end if
         end subroutine
         
@@ -3165,7 +3178,8 @@ module aqueous_chemistry_m
             else !> ideal activities by default
                 this%activities(this%indices_aq_species(this%aq_phase%ind_diss_solids))=&
                     this%concentrations(this%indices_aq_species(this%aq_phase%ind_diss_solids))
-                this%activities(this%indices_aq_species(this%aq_phase%ind_wat))=1d0
+                this%activities(this%indices_aq_species(this%aq_phase%ind_wat))=1d0 !> activity of ideal water
+                this%concentrations(this%indices_aq_species(this%aq_phase%ind_wat))=1d0/18d-3 !> concentration of ideal water in mol/m3
             end if
         end subroutine
         
@@ -4620,18 +4634,18 @@ end subroutine
             end do
         end if
     end subroutine
-    
-    function get_rk(this) result(rk)
-    !!> This function returns the kinetic reaction rates (chapuza) ordered in aqueous & mineral reactions (ESTA MAL)
+
+    function get_rk_new(this) result(rk_new)
+    !!> This function returns the new kinetic reaction rates ordered in aqueous & mineral reactions (ESTA MAL)
     class(aqueous_chemistry_c) :: this
-    real(kind=8), allocatable :: rk(:)
+    real(kind=8), allocatable :: rk_new(:)
     integer(kind=4) :: i
-    allocate(rk(this%indices_rk%num_cols))
+    allocate(rk_new(this%indices_rk%num_cols))
     do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_aq_kin_reacts
-        rk(i)=this%rk(i)
+        rk_new(i)=this%rk_new(i)
     end do
     do i=1,this%solid_chemistry%mineral_zone%num_minerals_kin
-        rk(this%solid_chemistry%reactive_zone%chem_syst%num_aq_kin_reacts+i)=this%solid_chemistry%rk(i)
+        rk_new(this%solid_chemistry%reactive_zone%chem_syst%num_aq_kin_reacts+i)=this%solid_chemistry%rk_new(i)
     end do
     !> Faltan gases
     end function
@@ -4677,41 +4691,62 @@ end subroutine
         !> Faltan gases
     end function
     
-    subroutine compute_Rk_mean(this,theta,Delta_t) !> computes mean kinetic reaction amounts during a time step
-    class(aqueous_chemistry_c) :: this
-    real(kind=8), intent(in) :: theta
-    real(kind=8), intent(in) :: Delta_t
+    subroutine compute_Rk(this,theta,Delta_t) !> computes kinetic reaction amounts during a time step
+    class(aqueous_chemistry_c) :: this !> aqueous chemistry object
+    real(kind=8), intent(in) :: theta !> time weighting factor
+    real(kind=8), intent(in) :: Delta_t !> time step
     integer(kind=4) :: i
     do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts
-        this%Rk_mean(i)=theta*this%rk(i)+(1d0-theta)*this%rk_old(i)
+        this%Rk(i)=theta*this%rk_new(i)+(1d0-theta)*this%rk_old(i)
     end do
     do i=1,this%solid_chemistry%mineral_zone%num_minerals_kin
-        this%solid_chemistry%Rk_mean(i)=theta*this%solid_chemistry%rk(i)+(1d0-theta)*this%solid_chemistry%rk_old(i)
+        this%solid_chemistry%Rk(i)=theta*this%solid_chemistry%rk_new(i)+(1d0-theta)*this%solid_chemistry%rk_old(i)
     end do
     do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
-        this%Rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)=&
-            theta*this%rk(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)+&
+        this%Rk(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)=&
+            theta*this%rk_new(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)+&
             (1d0-theta)*this%rk_old(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)
     end do
-    this%Rk_mean=this%Rk_mean*Delta_t
-    this%solid_chemistry%Rk_mean=this%solid_chemistry%Rk_mean*Delta_t
+    this%Rk=this%Rk*Delta_t
+    this%solid_chemistry%Rk=this%solid_chemistry%Rk*Delta_t
     end subroutine
 
-    subroutine set_Rk_mean(this,Rk_mean)
-        !!> This subroutine sets the mean kinetic reaction amounts during a time step
-        !! We assume that Rk_mean is already allocated
+    subroutine set_rk_mean(this,rk_mean)
+        !!> This subroutine sets the mean kinetic reaction rates during a time step
+        !! We assume that rk_mean is already allocated
         class(aqueous_chemistry_c) :: this
-        real(kind=8), intent(in) :: Rk_mean(:) !> mean kinetic reaction amounts during a time step
+        real(kind=8), intent(in) :: rk_mean(:) !> mean kinetic reaction rates during a time step
         integer(kind=4) :: i
         do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts
-            this%Rk_mean(i)=Rk_mean(i)
+            this%rk_mean(i)=rk_mean(i)
         end do
         do i=1,this%solid_chemistry%mineral_zone%num_minerals_kin
-            this%solid_chemistry%Rk_mean(i)=Rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)
+            this%solid_chemistry%rk_mean(i)=rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)
         end do
         do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
-            this%Rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)=&
-                Rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
+            this%rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)=&
+                rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
+                this%solid_chemistry%mineral_zone%num_minerals_kin+i)
+        end do
+        !this%Rk_mean=this%Rk_mean*Delta_t
+        !this%solid_chemistry%Rk_mean=this%solid_chemistry%Rk_mean*Delta_t
+    end subroutine
+
+    subroutine set_Rk(this,Rk)
+        !!> This subroutine sets the kinetic reaction amounts during a time step
+        !! We assume that Rk is already allocated
+        class(aqueous_chemistry_c) :: this
+        real(kind=8), intent(in) :: Rk(:) !> kinetic reaction amounts during a time step
+        integer(kind=4) :: i
+        do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts
+            this%Rk(i)=Rk(i)
+        end do
+        do i=1,this%solid_chemistry%mineral_zone%num_minerals_kin
+            this%solid_chemistry%Rk(i)=Rk(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)
+        end do
+        do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
+            this%Rk(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+i)=&
+                Rk(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
                 this%solid_chemistry%mineral_zone%num_minerals_kin+i)
         end do
         !this%Rk_mean=this%Rk_mean*Delta_t
@@ -4848,6 +4883,13 @@ end subroutine
         else
             call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap)
         end if
+    end subroutine
+
+    subroutine set_pos(this,pos) !> set position in space
+        !!> This subroutine sets the position of the aqueous chemistry object in the global state vector
+        class(aqueous_chemistry_c) :: this !> aqueous chemistry object
+        real(kind=8), intent(in) :: pos(:) !> position in space
+        this%pos=pos
     end subroutine
     
 end module

@@ -149,26 +149,26 @@ subroutine write_chemistry(this,unit,Lagr_flag)
         write(unit,"(/,2x,'Final pH domain:'/)")
         write(unit,"(10x,*(ES15.5))") (this%target_waters(this%dom_tar_wat_indices(j))%pH, j=1,this%num_target_waters_dom)
     end if
-    write(unit,"(/,2x,'Aqueous mean equilibrium reaction amounts:'/)")
+    write(unit,"(/,2x,'Aqueous equilibrium reaction amounts:'/)")
     do i=1,this%chem_syst%aq_phase%num_aq_complexes
-        write(unit,"(10x,*(ES15.5))") (this%target_waters(this%dom_tar_wat_indices(j))%Re_mean(i), j=1,this%num_target_waters_dom)
+        write(unit,"(10x,*(ES15.5))") (this%target_waters(this%dom_tar_wat_indices(j))%Re(i), j=1,this%num_target_waters_dom)
     end do
     ! write(unit,"(/,2x,'Aqueous equilibrium reaction rates:'/)")
     ! do i=1,this%chem_syst%aq_phase%num_aq_complexes
     !     write(unit,"(10x,*(ES15.5))") (this%target_waters(this%dom_tar_wat_indices(j))%r_eq(i), j=1,this%num_target_waters_dom)
     ! end do
-    write(unit,"(/,2x,'Initial aqueous kinetic reaction rates:'/)")
-    do i=1,this%chem_syst%num_aq_kin_reacts
-        write(unit,"(10x,*(ES15.5))") (this%target_waters_init(this%dom_tar_wat_indices(j))%rk(i), j=1,this%num_target_waters_dom)
-    end do
+    ! write(unit,"(/,2x,'Initial aqueous kinetic reaction rates:'/)")
+    ! do i=1,this%chem_syst%num_aq_kin_reacts
+    !     write(unit,"(10x,*(ES15.5))") (this%target_waters_init(this%dom_tar_wat_indices(j))%rk(i), j=1,this%num_target_waters_dom)
+    ! end do
     
-    write(unit,"(/,2x,'Aqueous kinetic reaction rates:'/)")
+    write(unit,"(/,2x,'Aqueous mean kinetic reaction rates:'/)")
     do i=1,this%chem_syst%num_aq_kin_reacts
-        write(unit,"(10x,*(ES15.5))") (this%target_waters(this%dom_tar_wat_indices(j))%rk(i), j=1,this%num_target_waters_dom)
+        write(unit,"(10x,*(ES15.5))") (this%target_waters(this%dom_tar_wat_indices(j))%rk_mean(i), j=1,this%num_target_waters_dom)
     end do
-    write(unit,"(/,2x,'Aqueous mean kinetic reaction amounts:'/)")
+    write(unit,"(/,2x,'Aqueous kinetic reaction amounts:'/)")
     do i=1,this%chem_syst%num_aq_kin_reacts
-        write(unit,"(10x,*(ES15.5))") (this%target_waters(this%dom_tar_wat_indices(j))%Rk_mean(i), j=1,this%num_target_waters_dom)
+        write(unit,"(10x,*(ES15.5))") (this%target_waters(this%dom_tar_wat_indices(j))%Rk(i), j=1,this%num_target_waters_dom)
     end do
     write(unit,"(/,2x,'Aqueous estimated kinetic reaction amounts:'/)")
     do i=1,this%chem_syst%num_aq_kin_reacts
@@ -190,15 +190,15 @@ subroutine write_chemistry(this,unit,Lagr_flag)
         do i=1,this%mineral_zones(l)%num_minerals_kin
             write(unit,"(20x,A15/)")this%mineral_zones(l)%chem_syst%minerals(this%mineral_zones(l)%ind_min_chem_syst(i))%name
         end do
-        write(unit,"(/,10x,'Mineral kinetic reaction rates:'/)")
+        write(unit,"(/,10x,'Mineral mean kinetic reaction rates:'/)")
         do i=1,this%mineral_zones(l)%num_minerals_kin
             !print *, this%target_waters(dom_indices(1))%solid_chemistry%Rk_mean
-            write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%rk(i), j=1,SIZE(dom_indices))
+            write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%rk_mean(i), j=1,SIZE(dom_indices))
         end do
         write(unit,"(/,10x,'Mineral kinetic reaction amounts:'/)")
         do i=1,this%mineral_zones(l)%num_minerals_kin
             !print *, this%target_waters(dom_indices(1))%solid_chemistry%Rk_mean
-            write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%Rk_mean(i), j=1,SIZE(dom_indices))
+            write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%Rk(i), j=1,SIZE(dom_indices))
         end do
         write(unit,"(/,10x,'Mineral estimated kinetic reaction amounts:'/)")
         do i=1,this%mineral_zones(l)%num_minerals_kin
@@ -207,7 +207,7 @@ subroutine write_chemistry(this,unit,Lagr_flag)
         write(unit,"(/,10x,'Absolute error kinetic reaction amounts:'/)")
         do i=1,this%mineral_zones(l)%num_minerals_kin
             write(unit,"(10x,*(ES15.5))") (abs(this%target_waters(dom_indices(j))%solid_chemistry%Rk_est(i)-&
-            this%target_waters(dom_indices(j))%solid_chemistry%Rk_mean(i)), j=1,SIZE(dom_indices))
+            this%target_waters(dom_indices(j))%solid_chemistry%Rk(i)), j=1,SIZE(dom_indices))
         end do
     end do
     do l=1,this%num_reactive_zones
@@ -350,25 +350,25 @@ subroutine write_chemistry(this,unit,Lagr_flag)
             end if
             write(unit,"(/,10x,'Aqueous equilibrium reaction amounts:'/)")
             do i=1,this%reactive_zones(l)%chem_syst%num_aq_eq_reacts
-                write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%Re_mean(i), j=1,size(dom_indices))
+                write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%Re(i), j=1,size(dom_indices))
             end do
-            write(unit,"(/,10x,'Mineral mean equilibrium reaction amounts:'/)")
+            write(unit,"(/,10x,'Mineral equilibrium reaction amounts:'/)")
             do i=1,this%reactive_zones(l)%num_minerals
-                write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%Re_mean(i), j=1,size(dom_indices))
+                write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%Re(i), j=1,size(dom_indices))
             end do
             !> chapuza
             !write(unit,"(/,10x,'Mineral kinetic reaction rates:'/)")
             !do i=1,this%target_waters(dom_indices(1))%solid_chemistry%num_min_kin
             !    write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%rk(i), j=1,size(dom_indices))
             !end do
-            write(unit,"(/,10x,'Exchange equilibrium reaction rates:'/)")
+            write(unit,"(/,10x,'Exchange mean equilibrium reaction rates:'/)")
             do i=1,this%reactive_zones(l)%cat_exch_zone%num_exch_cats
-                write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%r_eq(&
+                write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%solid_chemistry%re_mean(&
                 this%reactive_zones(l)%num_minerals+i), j=1,size(dom_indices))
             end do
-            write(unit,"(/,10x,'Gas equilibrium reaction rates:'/)")
+            write(unit,"(/,10x,'Gas mean equilibrium reaction rates:'/)")
             do i=1,this%reactive_zones(l)%gas_phase%num_gases_eq
-                write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%gas_chemistry%r_eq(i), j=1,size(dom_indices))
+                write(unit,"(10x,*(ES15.5))") (this%target_waters(dom_indices(j))%gas_chemistry%re_mean(i), j=1,size(dom_indices))
             end do
             deallocate(dom_indices,ext_indices)
         end if

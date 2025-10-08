@@ -58,7 +58,7 @@ subroutine Newton_EI_rk_eq_kin_aq_anal_ideal_opt2(this,u_tilde,u_rk_tilde,mix_ra
     !> We compute reaction part of components after mixing (llamalo de otra forma)
         !u_rk_tilde=matmul(this%solid_chemistry%reactive_zone%speciation_alg%comp_mat,Rk_tilde)
     !> We get old kinetic reaction rates
-        rk_old=this%get_rk()
+        rk_old=this%get_rk_old()
     !> Newton loop
         do 
             niter=niter+1 !> we update number of iterations
@@ -81,7 +81,7 @@ subroutine Newton_EI_rk_eq_kin_aq_anal_ideal_opt2(this,u_tilde,u_rk_tilde,mix_ra
         !> Check convergence
             if (inf_norm_vec_real(fk)<this%solid_chemistry%reactive_zone%CV_params%abs_tol) then !> CV reached
                 CV_flag=.true.
-                call this%compute_Rk_mean(theta,Delta_t) !> we update mean reaction amounts
+                call this%compute_Rk(theta,Delta_t) !> we update mean reaction amounts
                 exit
             else
                 call this%compute_dfk_dc1_aq_EfI_ideal(conc_nc(n_p+1:n_nc),drk_dc,Delta_t,theta,mix_ratio_Rk,dfk_dc1) !> computes Jacobian of Newton resiudal

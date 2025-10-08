@@ -1,0 +1,13 @@
+'TITLE OF THE PROBLEM: Calcite in equilibrium'
+'------------------------------------------------------------------------------------------------'
+'TARGET SOLIDS'
+10						! number of target solids
+1-10	1					! target solids interval, solid zone index
+'------------------------------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

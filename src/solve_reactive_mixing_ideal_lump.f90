@@ -358,17 +358,16 @@ subroutine solve_reactive_mixing_ideal_lump(this,root,mixing_ratios,mixing_water
                      call p_solver(target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i))),target_waters_old_old(&
                         this%dom_tar_wat_indices(ind_non_can_vec(i)))%get_c1(),c_tilde,&
                         Delta_t,theta,conc_nc)
-                     Rk_Accum(i)=Rk_accum(i)+target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%solid_chemistry%Rk_mean(1)
                     !> We compute equilibrium reaction rates from mass balance equation
                     if (this%target_waters(this%dom_tar_wat_indices(ind_non_can_vec(i))&
                         )%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0 .and. &
                         this%target_waters(this%dom_tar_wat_indices(ind_non_can_vec(i)))%indices_rk%num_cols>0) then
-                        call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%compute_Re_mean_rk_lump(&
+                        call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%compute_Re_rk_lump(&
                             c_tilde(n_p+1:n_p+n_nc_aq_2),Delta_t,&
                             theta) !> chapuza
                     else if (this%target_waters(this%dom_tar_wat_indices(ind_non_can_vec(i))&
                         )%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0) then
-                        call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%compute_Re_mean_lump(&
+                        call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%compute_Re_lump(&
                             c_tilde(n_p+1:n_p+n_nc_aq_2),Delta_t,&
                             theta) !> chapuza
                     end if
@@ -389,7 +388,7 @@ subroutine solve_reactive_mixing_ideal_lump(this,root,mixing_ratios,mixing_water
                     !> We compute concentrations of gases
                         call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%gas_chemistry%compute_conc_gases_iter(&
                             Delta_t,&
-                            target_waters_new(i)%volume,[target_waters_new(i)%r_eq,target_waters_new(i)%rk])
+                            target_waters_new(i)%volume,[target_waters_new(i)%re_mean,target_waters_new(i)%rk_mean])
                     !> We compute volume of gas
                         call target_waters_new(this%dom_tar_wat_indices(ind_non_can_vec(i)))%gas_chemistry%compute_vol_gas_conc()
                     !> We compute activity coefficients of gases
