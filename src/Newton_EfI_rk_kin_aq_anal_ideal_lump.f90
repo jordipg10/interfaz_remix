@@ -43,10 +43,7 @@ subroutine Newton_EfI_rk_kin_aq_anal_ideal_lump(this,c_tilde,Delta_t,conc_nc,nit
     drk_dc=0d0 !> we initialise Jacobian of kinetic reactions
     dfk_dc=0d0 !> we initialise Jacobian of Newton residual
 !> Process
-    !> We compute component concentrations after mixing
-        !u_tilde=this%compute_u_tilde(c_tilde)
     !> Newton loop
-    !print *, this%solid_chemistry%reactive_zone%U_SkT_prod
         do 
             niter=niter+1 !> we update number of iterations
             if (niter>this%solid_chemistry%reactive_zone%CV_params%niter_max) then
@@ -54,11 +51,9 @@ subroutine Newton_EfI_rk_kin_aq_anal_ideal_lump(this,c_tilde,Delta_t,conc_nc,nit
                 print *, "Too many iterations in subroutine Newton_EfI_rk_kin_aq_anal_ideal"
                 exit
             end if
-            !conc_nc=this%get_conc_nc()
         !> We compute kinetic reaction rates and its Jacobian analitically
             call this%compute_rk_Jac_rk_anal(rk,drk_dc)
         !> Newton residual
-            !print *, this%solid_chemistry%reactive_zone%U_SkT_prod
             fk=conc_nc-c_tilde-Delta_t*matmul(this%solid_chemistry%reactive_zone%U_SkT_prod,rk)
         !> Check convergence
             if (inf_norm_vec_real(fk)<this%solid_chemistry%reactive_zone%CV_params%abs_tol) then !> CV reached

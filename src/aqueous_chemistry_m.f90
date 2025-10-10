@@ -4713,7 +4713,7 @@ end subroutine
 
     subroutine set_rk_mean(this,rk_mean)
         !!> This subroutine sets the mean kinetic reaction rates during a time step
-        !! We assume that rk_mean is already allocated
+        !! We assume that rk_mean attribute is already allocated
         class(aqueous_chemistry_c) :: this
         real(kind=8), intent(in) :: rk_mean(:) !> mean kinetic reaction rates during a time step
         integer(kind=4) :: i
@@ -4728,8 +4728,6 @@ end subroutine
                 rk_mean(this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
                 this%solid_chemistry%mineral_zone%num_minerals_kin+i)
         end do
-        !this%Rk_mean=this%Rk_mean*Delta_t
-        !this%solid_chemistry%Rk_mean=this%solid_chemistry%Rk_mean*Delta_t
     end subroutine
 
     subroutine set_Rk(this,Rk)

@@ -25,7 +25,7 @@ subroutine Newton_EI_rk_kin_aq_anal_ideal_opt2(this,c_tilde,rk_old,Rk_tilde,mix_
     integer(kind=4), intent(out) :: niter !> number of iterations
     logical, intent(out) :: CV_flag !> FALSE: no CV, TRUE: CV
 !> Variables
-    real(kind=8), allocatable :: rk(:) !> kinetic reaction rates
+    real(kind=8), allocatable :: rk_new(:) !> new kinetic reaction rates
     real(kind=8), allocatable :: drk_dc(:,:) !> Jacobian of kinetic reactions
     real(kind=8), allocatable :: dfk_dc(:,:) !> Jacobian Newton residual
     real(kind=8), allocatable :: conc_nc_old(:) !> old variable activity species concentrations
@@ -48,17 +48,13 @@ subroutine Newton_EI_rk_kin_aq_anal_ideal_opt2(this,c_tilde,rk_old,Rk_tilde,mix_
     allocate(dfk_dc(n_nc,n_nc),Delta_c(n_nc),&
         drk_dc(this%solid_chemistry%mineral_zone%num_minerals_kin+&
         this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts,n_nc),&
-        rk(this%solid_chemistry%mineral_zone%num_minerals_kin+&
+        rk_new(this%solid_chemistry%mineral_zone%num_minerals_kin+&
         this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts),&
         c_rk_tilde(n_nc),fk(n_nc))
     drk_dc=0d0 !> we initialise Jacobian of kinetic reactions
     dfk_dc=0d0 !> we initialise Jacobian of Newton residual
     conc_nc_old=conc_nc !> we store old variable activity species concentrations
 !> Process
-    !> We compute reaction part of concentrations after mixing (llamalo de otra forma)
-        !c_rk_tilde=Delta_t*rk_tilde
-    !> We get old kinetic reaction rates
-        !rk_old=this%get_rk()
     !> Newton loop
         do 
             niter=niter+1 !> we update number of iterations
@@ -67,11 +63,11 @@ subroutine Newton_EI_rk_kin_aq_anal_ideal_opt2(this,c_tilde,rk_old,Rk_tilde,mix_
                 print *, "Too many iterations in subroutine Newton_EI_rk_kin_aq_anal_ideal_opt2"
                 exit
             end if
-            !conc_nc=this%get_conc_nc()
-        !> We compute kinetic reaction rates and its Jacobian analitically
-            call this%compute_rk_Jac_rk_anal(rk,drk_dc)
+        !> We compute new kinetic reaction rates and its Jacobian analitically
+            call this%compute_rk_Jac_rk_anal(rk_new,drk_dc)
         !> We compute the ponderated average of kinetic reaction rates
-            rk_avg=theta*rk+(1d0-theta)*rk_old
+            rk_avg=theta*rk_new+(1d0-theta)*rk_old
+            call this%set_rk_mean(rk_avg) !> we set mean reaction rates in the object
         !> Newton residual
             fk=conc_nc-c_tilde-Rk_tilde-Delta_t*mix_ratio_Rk_new*matmul(this%solid_chemistry%reactive_zone%U_SkT_prod,rk_avg)
         !> Check convergence
@@ -99,5 +95,5 @@ subroutine Newton_EI_rk_kin_aq_anal_ideal_opt2(this,c_tilde,rk_old,Rk_tilde,mix_
             end if
         end do
 !> Post-process
-        deallocate(fk,dfk_dc,Delta_c,drk_dc,rk)
+        deallocate(fk,dfk_dc,Delta_c,drk_dc,rk_new,c_rk_tilde)
 end subroutine

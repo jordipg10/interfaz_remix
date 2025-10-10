@@ -104,7 +104,7 @@ module chem_system_m
     !> Read
         !procedure, public :: read_chem_system
         procedure, public :: read_chem_system_CHEPROO
-        procedure, public :: read_chem_system_PFLOTRAN
+        !procedure, public :: read_chem_system_PFLOTRAN
         procedure, public :: read_master25
         procedure, public :: read_kinetics_DB
         procedure, public :: read_Monod_reacts
