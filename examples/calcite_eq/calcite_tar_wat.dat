@@ -1,7 +1,7 @@
 'TITLE OF THE PROBLEM: Calcite in equilibrium'
 '------------------------------------------------------------------------------------------------------------------------------------------------------'
-'TARGET WATERS'
-12					! number of target waters
+'WATERS'
+12					! number of waters
 0					! number of recharge target waters
 2					! number of boundary target waters
 1	1	1	1	0	! target waters interval, water type index, target solids interval, target gases interval, flag water type
