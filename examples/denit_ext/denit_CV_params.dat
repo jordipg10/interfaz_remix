@@ -1,0 +1,10 @@
+'TITLE OF THE PROBLEM: Denitrification'
+'------------------------------------------------------------------------------------------------------------------------'
+'CONVERGENCE PARAMETERS'
+1d-14				! absolute tolerance
+1d-10				! log absolute tolerance
+1d-9				! relative tolerance
+1d-6				! log relative tolerance
+0d0				! Parameter for estimation of reaction rates
+'------------------------------------------------------------------------------------------------------------------------'
+'end'

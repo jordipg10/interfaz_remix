@@ -1,0 +1,9 @@
+'TITLE OF THE PROBLEM: Denitrification'
+'------------------------------------------------------------------------------------------------------------------------'
+'COMPUTATION OPTIONS'
+1			! Option to compute Jacobians (0: incremental coefficients, 1: analyticially)
+.true.			! Lumping flag
+4			! Estimation of downstream waters rk (3 options, see documentation for details)
+2			! Average rk option (1: concentrations, 2: reaction rates)
+'------------------------------------------------------------------------------------------------------------------------'
+'end'
