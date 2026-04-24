@@ -1,7 +1,9 @@
 !> Computes concentration of secondary species from concentration of primary species explicitly using mass action law
 !! We assume ideal activity coefficients of aqueous species
 subroutine compute_conc_surf_ideal_Picard(this,conc_cats,act_ads_cats_ig,niter,CV_flag)
-    use solid_chemistry_m, only: solid_chemistry_c, inf_norm_vec_real, LU_lin_syst
+    use solid_chemistry_m, only: solid_chemistry_c !> Import solid chemistry class and utility functions for infinity norm and linear system solver
+    use vectors_m, only: inf_norm_vec_real
+    use metodos_sist_lin_m, only: LU_lin_syst
     implicit none
     class(solid_chemistry_c) :: this
     real(kind=8), intent(in) :: conc_cats(:) !> chapuza (dim=n� cation exchange half reactions)
@@ -9,7 +11,7 @@ subroutine compute_conc_surf_ideal_Picard(this,conc_cats,act_ads_cats_ig,niter,C
     integer(kind=4), intent(out) :: niter !> number of iterations
     logical, intent(out) :: CV_flag !> TRUE if converges, FALSE otherwise
     
-    integer(kind=4) :: n_ads_cats,n_eq,n_sec_aq,n_nc_aq,i,j
+    integer(kind=4) :: n_ads_cats,n_eq,n_sec_aq,n_v_aq,i,j
     real(kind=8), allocatable :: act_ads_cats_old(:),log_act_ads_cats_new(:),act_ads_cats_new(:)
 !> Pre-processing
     !n_p_aq=this%reactive_zone%speciation_alg%num_aq_prim_species
@@ -78,5 +80,5 @@ subroutine compute_conc_surf_ideal_Picard(this,conc_cats,act_ads_cats_ig,niter,C
     end do
 !> Post-processing
     call this%set_act_surf_compl(act_ads_cats_new)
-    call this%compute_conc_ads_cats()
+    call this%compute_conc_surf_compl()
  end subroutine

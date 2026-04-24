@@ -1,8 +1,23 @@
+!> \file initialise_conc_anal.f90
+!> \brief Newton speciation with analytical Jacobian (general activity coefficients).
+!> \details
+!> Computes species concentrations from water-type constraints using
+!> Newton's method with the analytical Jacobian, accounting for
+!> non-ideal activity coefficients.  Used during CHEPROO water-type reading.
+!>
+!> \author Jordi
+!> \date Unknown
+!> \ingroup chemistry
+!> \see initialise_conc_anal_ideal, initialise_conc_incr_coeff, aqueous_chemistry_m
+
 !> Computes species concentrations with data from water type definition using Newton method
 !> We assume the initial guess of primary aqueous species is already set in the aqueous chemistry object
 !> This subroutine is only used to read water types based in CHEPROO
 subroutine initialise_conc_anal(this,icon,n_icon,indices_constrains,ctot,niter,CV_flag)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, int_array_c, LU_lin_syst, outer_prod_vec, inf_norm_vec_real
+    use aqueous_chemistry_m, only: aqueous_chemistry_c
+    use arrays_m, only: int_array_c
+    use metodos_sist_lin_m, only: LU_lin_syst
+    use vectors_m, only: inf_norm_vec_real, outer_prod_vec
     implicit none
 !> Arguments
     class(aqueous_chemistry_c) :: this
@@ -61,7 +76,7 @@ subroutine initialise_conc_anal(this,icon,n_icon,indices_constrains,ctot,niter,C
         else if (icon(i)==4) then
             counters(4)=counters(4)+1
             indices_icon%cols(4)%col_1(counters(4))=i
-            tol_res(i)=this%solid_chemistry%reactive_zone%CV_params%log_abs_tol !> logarithmic absolute tolerance
+            tol_res(i)=this%solid_chemistry%reactive_zone%CV_params%log_rel_tol !> logarithmic absolute tolerance
         else
             error stop "icon option not implemented"
         end if
@@ -96,14 +111,17 @@ subroutine initialise_conc_anal(this,icon,n_icon,indices_constrains,ctot,niter,C
     !> We update number of iterations
         niter=niter+1
         if (niter>this%solid_chemistry%reactive_zone%CV_params%niter_max) then
+            print *, '[DEBUG initialise_conc_anal] Newton failed after', niter-1, 'iters'
+            print *, '  ||res||_inf =', inf_norm_vec_real(res)
+            print *, '  c1 =', c1
             error stop "Too many Newton iterations in initialisation"
         end if
-        !call this%compute_ionic_act()
-        !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_act,this%params_aq_sol,this%log_act_coeffs)
+        !call this%compute_ionic_strength()
+        !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs)
         c1=this%get_c1()
         call this%compute_c2_from_c1_Picard(c1,c2_old,c2_new,niter_Picard,CV_flag_Picard)
-        !call this%compute_ionic_act() !> we compute ionic activity
-        !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_act,this%params_aq_sol,this%log_act_coeffs) !> we compute log activity coefficients aqueous species
+        !call this%compute_ionic_strength() !> we compute ionic activity
+        !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs) !> we compute log activity coefficients aqueous species
         !call this%compute_activities()
         !call this%compute_log_act_coeff_wat()
         
@@ -114,7 +132,7 @@ subroutine initialise_conc_anal(this,icon,n_icon,indices_constrains,ctot,niter,C
         !c2(1:this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species)=this%concentrations(this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+1:this%aq_phase%num_species)
     !> We compute residue and Jacobian analytically
         !> First we compute d_log_gamma_d_I
-        call this%compute_d_log_gamma_d_I_aq_chem(d_log_gamma_d_I)
+        d_log_gamma_d_I=this%compute_d_log_gamma_d_I_aq_chem()
         !> Outer product d_log_gamma_d_I and z^2
         out_prod=outer_prod_vec(d_log_gamma_d_I,this%solid_chemistry%reactive_zone%chem_syst%z2)
         out_prod_aq(1:this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species,1:&
@@ -172,8 +190,7 @@ subroutine initialise_conc_anal(this,icon,n_icon,indices_constrains,ctot,niter,C
             error stop "Newton method not accurate enough in initialisation"
         end if
     !> We update primary concentrations
-        call this%update_conc_aq_prim_species(Delta_c1(1:this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species),&
-            zero_flag)
+        call this%update_conc_aq_prim_species(c1,Delta_c1,zero_flag)
         c2_old=c2_new
     end do
     call this%compute_pH()

@@ -19,38 +19,38 @@ subroutine link_target_gases_reactive_zone(this,i,dom_indices,ext_indices)
     l=1
     flag=.true.
     do
-        if (this%target_gases(this%dom_tar_wat_indices(j))%reactive_zone%num_non_flowing_species>0 .and. &
-        this%target_gases(this%dom_tar_wat_indices(j))%reactive_zone%num_non_flowing_species==&
-        this%reactive_zones(i)%num_non_flowing_species) then
-            call this%target_gases(this%dom_tar_wat_indices(j))%reactive_zone%is_nf_species_in_react_zone(&
-            this%reactive_zones(i)%non_flowing_species(k),flag,nf_sp_ind)
+        if (this%target_gases(this%tar_wat_indices(j))%reactive_zone%num_non_flow_species>0 .and. &
+        this%target_gases(this%tar_wat_indices(j))%reactive_zone%num_non_flow_species==&
+        this%reactive_zones(i)%num_non_flow_species) then
+            call this%target_gases(this%tar_wat_indices(j))%reactive_zone%is_nf_species_in_react_zone(&
+            this%reactive_zones(i)%ind_non_flow_species(k),flag,nf_sp_ind)
             if (.not. flag) then
-                if (j<this%num_target_waters_dom) then
+                if (j<this%num_target_waters) then
                     j=j+1
                     k=1
                 else
                     exit
                 end if
-            else if (k<this%reactive_zones(i)%num_non_flowing_species) then
+            else if (k<this%reactive_zones(i)%num_non_flow_species) then
                 k=k+1
-            else if (j<this%num_target_waters_dom) then
-                call append_int_1D_array(dom_indices,this%dom_tar_wat_indices(j))
+            else if (j<this%num_target_waters) then
+                call append_int_1D_array(dom_indices,this%tar_wat_indices(j))
                 !if (j==this%ext_wat_indices(l)) then
                 !    call append_int_1D_array(dom_indices,j)
                 !end if
                 j=j+1
             else
-                call append_int_1D_array(dom_indices,this%dom_tar_wat_indices(j))
+                call append_int_1D_array(dom_indices,this%tar_wat_indices(j))
                 exit
             end if
-        else if (this%target_gases(this%dom_tar_wat_indices(j))%reactive_zone%num_non_flowing_species==0 .and. &
-             this%target_gases(this%dom_tar_wat_indices(j))%reactive_zone%num_non_flowing_species==&
-             this%reactive_zones(i)%num_non_flowing_species) then
+        else if (this%target_gases(this%tar_wat_indices(j))%reactive_zone%num_non_flow_species==0 .and. &
+             this%target_gases(this%tar_wat_indices(j))%reactive_zone%num_non_flow_species==&
+             this%reactive_zones(i)%num_non_flow_species) then
             if (j<this%num_target_gases) then
-                call append_int_1D_array(dom_indices,this%dom_tar_wat_indices(j))
+                call append_int_1D_array(dom_indices,this%tar_wat_indices(j))
                 j=j+1
             else
-                call append_int_1D_array(dom_indices,this%dom_tar_wat_indices(j))
+                call append_int_1D_array(dom_indices,this%tar_wat_indices(j))
                 exit
             end if
         else if (j<this%num_target_gases) then
@@ -64,11 +64,11 @@ subroutine link_target_gases_reactive_zone(this,i,dom_indices,ext_indices)
     l=1
     flag=.true.
     do
-        if (this%target_gases(this%ext_waters_indices(j))%reactive_zone%num_non_flowing_species>0 .and. &
-        this%target_gases(this%ext_waters_indices(j))%reactive_zone%num_non_flowing_species==&
-        this%reactive_zones(i)%num_non_flowing_species) then
+        if (this%target_gases(this%ext_waters_indices(j))%reactive_zone%num_non_flow_species>0 .and. &
+        this%target_gases(this%ext_waters_indices(j))%reactive_zone%num_non_flow_species==&
+        this%reactive_zones(i)%num_non_flow_species) then
             call this%target_gases(this%ext_waters_indices(j))%reactive_zone%is_nf_species_in_react_zone(&
-            this%reactive_zones(i)%non_flowing_species(k),flag,nf_sp_ind)
+            this%reactive_zones(i)%ind_non_flow_species(k),flag,nf_sp_ind)
             if (.not. flag) then
                 if (j<this%num_ext_waters) then
                     j=j+1
@@ -76,7 +76,7 @@ subroutine link_target_gases_reactive_zone(this,i,dom_indices,ext_indices)
                 else
                     exit
                 end if
-            else if (k<this%reactive_zones(i)%num_non_flowing_species) then
+            else if (k<this%reactive_zones(i)%num_non_flow_species) then
                 k=k+1
             else if (j<this%num_ext_waters) then
                 call append_int_1D_array(ext_indices,this%ext_waters_indices(j))
@@ -88,9 +88,9 @@ subroutine link_target_gases_reactive_zone(this,i,dom_indices,ext_indices)
                 call append_int_1D_array(ext_indices,this%ext_waters_indices(j))
                 exit
             end if
-        else if (this%target_gases(this%ext_waters_indices(j))%reactive_zone%num_non_flowing_species==0 .and. &
-            this%target_gases(this%ext_waters_indices(j))%reactive_zone%num_non_flowing_species==&
-            this%reactive_zones(i)%num_non_flowing_species) then
+        else if (this%target_gases(this%ext_waters_indices(j))%reactive_zone%num_non_flow_species==0 .and. &
+            this%target_gases(this%ext_waters_indices(j))%reactive_zone%num_non_flow_species==&
+            this%reactive_zones(i)%num_non_flow_species) then
             if (j<this%num_ext_waters) then
                 call append_int_1D_array(ext_indices,this%ext_waters_indices(j))
                 j=j+1

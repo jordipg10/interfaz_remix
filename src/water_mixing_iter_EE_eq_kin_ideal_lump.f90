@@ -2,8 +2,7 @@
 !! We assume all primary species are aqueous
 !! We apply lumping
 subroutine water_mixing_iter_EE_eq_kin_ideal_lump(this,c1_old,c_tilde,Delta_t,theta,conc_nc)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, initialise_iterative_method, reaction_iteration_EE_eq_kin, &
-    compute_u_tilde, compute_c_nc_from_u_aq_Newton_ideal, check_conc_var_act_species, check_act_aq_species
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, initialise_iterative_method
     implicit none
 !> Arguments
     class(aqueous_chemistry_c) :: this !> aqueous chemistry object

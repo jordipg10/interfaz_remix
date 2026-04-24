@@ -1,7 +1,9 @@
 !> Computes residual and its Jacobian analytically in initialisation
 subroutine compute_res_Jac_res_anal(this,indices_icon,n_icon,indices_constrains,ctot,dc2aq_dc1,log_Jacobian_act_coeffs,res,Jac_res)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, inf_norm_vec_real, LU_lin_syst, int_array_c
-
+    use aqueous_chemistry_m, only: aqueous_chemistry_c
+    use vectors_m, only: inf_norm_vec_real
+    use metodos_sist_lin_m, only: LU_lin_syst
+    use arrays_m, only: int_array_c
     implicit none
     !> Pre-process
     class(aqueous_chemistry_c) :: this
@@ -14,7 +16,7 @@ subroutine compute_res_Jac_res_anal(this,indices_icon,n_icon,indices_constrains,
     real(kind=8), intent(out) :: res(:) !> residual in Newton-Raphson
     real(kind=8), intent(out) :: Jac_res(:,:) !> Jacobian of residual in Newton-Raphson
     
-    real(kind=8), allocatable :: c1(:),c2(:),c2nc_init(:),c1k(:),c2k(:),log_c2k(:),log_c2(:),out_prod(:,:)
+    real(kind=8), allocatable :: c1(:),c2(:),c2v_init(:),c1k(:),c2k(:),log_c2k(:),log_c2(:),out_prod(:,:)
     real(kind=8), allocatable :: Delta_c1(:) !> c1^(i+1)-c1^i (Newton)
     real(kind=8), allocatable :: abs_tol_res(:) !> absolute tolerances residues Newton-Raphson
     real(kind=8), allocatable :: mat_lin_syst(:,:),U_aq(:,:),K(:),z2(:)

@@ -1,6 +1,21 @@
+!> \file compute_rk_Jac_rk_incr_coeff.f90
+!> \brief Computes kinetic reaction rates and Jacobian via incremental coefficients.
+!> \details
+!> Evaluates reaction rates and approximates the Jacobian
+!> \f$ \partial r_k / \partial c \f$ numerically using finite
+!> differences (incremental coefficients).
+!>
+!> \author Jordi
+!> \date Unknown
+!> \ingroup kinetics
+!> \see compute_rk, compute_rk_Jac_rk_anal
+
  !> Computes kinetic reaction rates associated to aqueous chemistry object
 subroutine compute_rk_Jac_rk_incr_coeff(this,drk_dc)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, int_array_c
+    use aqueous_chemistry_m, only: aqueous_chemistry_c
+    use vectors_m, only: inf_norm_vec_real
+    use metodos_sist_lin_m, only: LU_lin_syst
+    use arrays_m, only: int_array_c
     implicit none
 !> Arguments
     class(aqueous_chemistry_c) :: this !> aqueous chemistry object
@@ -25,10 +40,20 @@ subroutine compute_rk_Jac_rk_incr_coeff(this,drk_dc)
     do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts
         num_rk=num_rk+1
         !index=this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%indices_aq_phase(1)
-        !allocate(conc_kin(this%solid_chemistry%reactive_zone%chem_syst%num_species),kin_ind(this%solid_chemistry%reactive_zone%chem_syst%num_species))
+        !allocate(conc_kin(this%solid_chemistry%reactive_zone%chem_syst%speciation_alg%num_species),kin_ind(this%solid_chemistry%reactive_zone%chem_syst%speciation_alg%num_species))
         call this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%compute_rk_lin(this%concentrations(&
             this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%indices_aq_phase(1))),&
             this%rk_new(i))
+    end do
+!> We compute Monod reaction rates
+    call indices_Monod%allocate_array(this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts)
+    do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
+        num_rk=num_rk+1
+        call indices_Monod%cols(i)%set_dim(this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%num_aq_rk)
+        indices_Monod%cols(i)%col_1=this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%indices_aq_phase !> falta un set
+        call this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%compute_rk_Monod(this%concentrations(&
+            this%indices_aq_species(indices_Monod%cols(i)%col_1)),&
+            this%rk_new(num_rk))
     end do
 !> We compute mineral kinetic reaction rates
     call indices_min%allocate_array(this%solid_chemistry%mineral_zone%num_minerals_kin)
@@ -43,16 +68,6 @@ subroutine compute_rk_Jac_rk_incr_coeff(this,drk_dc)
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%cat_indices)),saturation,&
             this%solid_chemistry%react_surfaces(i),this%solid_chemistry%temp,this%solid_chemistry%rk_new(i))
     end do
-!> We compute Monod reaction rates
-    call indices_Monod%allocate_array(this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts)
-    do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
-        num_rk=num_rk+1
-        call indices_Monod%cols(i)%set_dim(this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%num_aq_rk)
-        indices_Monod%cols(i)%col_1=this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%indices_aq_phase !> falta un set
-        call this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%compute_rk_Monod(this%concentrations(&
-            this%indices_aq_species(indices_Monod%cols(i)%col_1)),&
-            this%rk_new(num_rk-this%solid_chemistry%mineral_zone%num_minerals_kin))
-    end do
     num_rk=0 !> we reinitialise counter for kinetic reactions
 !> We compute perturbed mineral kinetic reaction rates
     do i=1,this%solid_chemistry%mineral_zone%num_minerals_kin
@@ -62,8 +77,8 @@ subroutine compute_rk_Jac_rk_incr_coeff(this,drk_dc)
             this%concentrations(this%indices_aq_species(indices_min%cols(i)%col_1(j)))=&
                 this%concentrations(this%indices_aq_species(indices_min%cols(i)%col_1(j)))+&
                 this%solid_chemistry%reactive_zone%CV_params%eps
-            call this%compute_ionic_act()
-            call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_act,this%params_aq_sol,this%log_act_coeffs)
+            call this%compute_ionic_strength()
+            call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs)
             call this%compute_activities()
             saturation_pert=this%compute_saturation_kin_min(this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))
             call this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(i)%compute_rk_mineral(this%activities(&
@@ -75,8 +90,8 @@ subroutine compute_rk_Jac_rk_incr_coeff(this,drk_dc)
         !> chapuza
             this%concentrations(this%indices_aq_species(indices_min%cols(i)%col_1(j)))=this%concentrations(&
             this%indices_aq_species(indices_min%cols(i)%col_1(j)))-this%solid_chemistry%reactive_zone%CV_params%eps
-            call this%compute_ionic_act()
-            call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_act,this%params_aq_sol,this%log_act_coeffs)
+            call this%compute_ionic_strength()
+            call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs)
             call this%compute_activities()
         end do
     end do

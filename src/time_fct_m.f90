@@ -1,31 +1,45 @@
+!> \file time_fct_m.f90
+!> \brief Time-dependent function module for piecewise-defined time series.
+!> \details
+!> Defines types for representing time-varying quantities (e.g., boundary
+!> condition values that change at specified time step indices). Supports
+!> integer and real-valued time series with I/O routines.
+!>
+!> \see time_discr_m, BCs_m
+!> \author Jordi
+!> \date Unknown
+!> \ingroup discretization
 module time_fct_m
 implicit none
 save
-type, public :: time_fct_c !> Time function class
-    integer(kind=4) :: ntime = 0 !> Number of time steps
-    integer(kind=4), allocatable :: time_ind(:) !> Time step indices
-    real(kind=8), allocatable :: time(:) !> Time values
+!> \brief Base time function class.
+!> \details Stores a set of time indices and corresponding time values.
+type, public :: time_fct_c
+    integer(kind=4) :: ntime = 0              !< [#] Number of time entries
+    integer(kind=4), allocatable :: time_ind(:)  !< [-] Time step indices
+    real(kind=8), allocatable :: time(:)         !< [T] Time values
 contains
-    procedure :: set_ntime !> Set number of time steps
-    procedure :: allocate_time !> allocate time step indices & values
-    procedure :: set_time !> Set time step sizes
-    procedure :: set_time_ind !> Set time step indices
-    !procedure :: get_time_ind !> Get time step indices
-    procedure :: get_time !> Gets time step size
+    procedure :: set_ntime          !< Set number of time entries
+    procedure :: allocate_time      !< Allocate index and value arrays
+    procedure :: set_time           !< Set time values
+    procedure :: set_time_ind       !< Set time step indices
+    procedure :: get_time           !< Get time value at given index
 end type time_fct_c
 
-type, public, extends(time_fct_c) :: time_fct_int_c !> integer time function subclass
-    integer(kind=4), allocatable :: time_series(:) !> Time series
+!> \brief Integer-valued time function subclass.
+type, public, extends(time_fct_c) :: time_fct_int_c
+    integer(kind=4), allocatable :: time_series(:)  !< [-] Integer time series values
 contains
-    procedure :: set_time_series=>set_time_series_int !> Set time series
+    procedure :: set_time_series=>set_time_series_int  !< Set integer time series
 end type time_fct_int_c
 
-type, public, extends(time_fct_c) :: time_fct_real_c !> real time function subclass
-    real(kind=8), allocatable :: time_series(:) !> Time series
+!> \brief Real-valued time function subclass.
+type, public, extends(time_fct_c) :: time_fct_real_c
+    real(kind=8), allocatable :: time_series(:)  !< [-] Real time series values
 contains
-    procedure :: set_time_series=>set_time_series_real !> Set time series
-    procedure :: read_time_series=>read_time_series_real !> read time series
-    procedure :: allocate_time_series=>allocate_time_series_real !> allocate time series
+    procedure :: set_time_series=>set_time_series_real       !< Set real time series
+    procedure :: read_time_series=>read_time_series_real     !< Read time series from file
+    procedure :: allocate_time_series=>allocate_time_series_real  !< Allocate time series array
 end type time_fct_real_c
 
     contains

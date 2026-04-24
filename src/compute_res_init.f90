@@ -1,7 +1,9 @@
 !> Computes residual in initialisation
 subroutine compute_res_init(this,indices_icon,n_icon,indices_constrains,ctot,res)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, inf_norm_vec_real, LU_lin_syst, int_array_c
-
+    use aqueous_chemistry_m, only: aqueous_chemistry_c
+    use vectors_m, only: inf_norm_vec_real
+    use metodos_sist_lin_m, only: LU_lin_syst
+    use arrays_m, only: int_array_c
     implicit none
     !> Arguments
     class(aqueous_chemistry_c) :: this

@@ -1,8 +1,7 @@
 !> Computes aqueous variable activity species concentrations and aqueous component concentrations after iteration of WMA-EE method for equilibrium-kinetic chemical system
 !! We assume all variable activity sp�cies are auqoeus
 subroutine water_mixing_iter_EE_eq_kin(this,c1_old,c2nc_ig,c_tilde,rk_tilde,mix_ratio_Rk,Delta_t,conc_nc)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, initialise_iterative_method, reaction_iteration_EE_eq_kin, &
-    compute_u_tilde, compute_c_nc_from_u_aq_Newton, check_conc_var_act_species, check_act_aq_species
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, initialise_iterative_method
     implicit none
 !> Arguments
     class(aqueous_chemistry_c) :: this

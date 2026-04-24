@@ -1,6 +1,7 @@
 !> Updates indices of equilibrium reactions in reactive zone object
 subroutine update_eq_reactions(this,old_eq_reacts_ind)
-    use reactive_zone_m, only: reactive_zone_c, eq_reaction_c
+    use reactive_zone_m, only: reactive_zone_c
+    use eq_reaction_m, only: eq_reaction_c
     implicit none
     class(reactive_zone_c) :: this
     integer(kind=4), intent(in) :: old_eq_reacts_ind(:) !> indices of old equilibrium reactions

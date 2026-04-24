@@ -1,67 +1,23 @@
-!> This module contains methods to solve linear systems of equations
+!> \file metodos_sist_lin_m.f90
+!> \brief Linear system solvers module.
+!> \details
+!> Provides routines for solving dense and tridiagonal linear systems
+!> \f$ Ax = b \f$ including matrix inversion via LU decomposition,
+!> Thomas algorithm (tridiagonal), Gauss-Jordan elimination, and
+!> iterative methods (Jacobi, Gauss-Seidel).
+!>
+!> \see arrays_m, vectors_m
+!> \author Jordi
+!> \date Unknown
+!> \ingroup algebra
+
+!> \brief Linear system solvers module.
 module metodos_sist_lin_m
-    use matrices_m
+    use arrays_m, only: id_matrix, tridiag_matrix_c, compute_det, forward_substitution, &
+        backward_substitution, LU
+    use vectors_m, only: inf_norm_vec_real
     implicit none
     save
-    interface
-        ! subroutine Gauss_Jordan(A,b,tol,x,error)
-        !     implicit none
-        !     real(kind=8), intent(in) :: A(:,:) 
-        !     real(kind=8), intent(in) :: b(:)
-        !     real(kind=8), intent(in) :: tol !> tolerance for solution
-        !     real(kind=8), intent(out) :: x(:)
-        !     integer(kind=4), intent(out), optional :: error
-        ! end subroutine
-        
-        ! subroutine forward_substitution(L,b,x)
-        !     implicit none
-        !     real(kind=8), intent(in) :: L(:,:)
-        !     real(kind=8), intent(in) :: b(:)
-        !     real(kind=8), intent(out) :: x(:)
-        ! end subroutine
-        
-        ! subroutine backward_substitution(U,b,x)
-        !     implicit none
-        !     real(kind=8), intent(in) :: U(:,:)
-        !     real(kind=8), intent(in) :: b(:)
-        !     real(kind=8), intent(out) :: x(:)
-        ! end subroutine
-        
-        ! subroutine LU_lin_syst(A,b,tol,x)
-        !     implicit none
-        !     real(kind=8), intent(in) :: A(:,:)
-        !     real(kind=8), intent(in) :: b(:)
-        !     real(kind=8), intent(in) :: tol
-        !     real(kind=8), intent(out) :: x(:)
-        ! end subroutine
-        
-        
-        ! subroutine Thomas_Toeplitz(a,b,c,d,x)
-        !     implicit none
-        !     real(kind=8), intent(in) :: a,b,c
-        !     real(kind=8), intent(in) :: d(:)
-        !     real(kind=8), intent(out) :: x(:)
-        ! end subroutine
-        
-        ! subroutine Jacobi(A,b,x0,x,niter)
-        !     implicit none
-        !     real(kind=8), intent(in) :: A(:,:)
-        !     real(kind=8), intent(in) :: b(:)
-        !     real(kind=8), intent(inout) :: x0(:)
-        !     real(kind=8), intent(out) :: x(:)
-        !     integer(kind=4), intent(out) :: niter !> number of iterations
-        ! end subroutine
-        
-        ! subroutine Gauss_seidel(A,b,x0,x,niter)
-        !     implicit none
-        !     real(kind=8), intent(in) :: A(:,:)
-        !     real(kind=8), intent(in) :: b(:)
-        !     real(kind=8), intent(inout) :: x0(:)
-        !     real(kind=8), intent(out) :: x(:)
-        !     integer(kind=4), intent(out) :: niter !> number of iterations
-        ! end subroutine
-    end interface
-
     contains
     !> Inverse of square matrix using LU decomposition
 subroutine inv_matrix(A,tol,inv)
@@ -70,19 +26,16 @@ subroutine inv_matrix(A,tol,inv)
     real(kind=8), intent(in) :: tol !> tolerance for determinant
     real(kind=8), intent(out) :: inv(:,:) !> inverse matrix of A (must be allocated)
     
-    integer(kind=4) :: n,j,i,err
+    integer(kind=4) :: n,j,i
     real(kind=8) :: det
-    real(kind=8), parameter :: epsilon=1d-6
     real(kind=8), allocatable :: id(:,:), prod_A_invA(:,:), id_col(:), inv_col(:)
-    logical :: nzdiag,error
+    logical :: error
     
-    !print *, size(A,1), size(A,2)
     if (size(A,1)/=size(A,2)) then
         error stop "Matrix must be square (inv_matrix)"
     end if
     if (size(A,1)==1) then
         inv(1,1)=1d0/A(1,1)
-        !return
     else
         call compute_det(A,tol,det,error)
         if ((error .eqv. .true.) .or. (abs(det)<tol)) then
@@ -98,33 +51,9 @@ subroutine inv_matrix(A,tol,inv)
         else
             allocate(inv_col(n))
             id=id_matrix(n)
-            !nzdiag=.true.
-            !do i=1,n
-            !>    if (abs(A(i,i))<epsilon) then
-            !>        nzdiag=.false.
-            !>        exit
-            !>    end if
-            !end do
-            !if (nzdiag.eqv..true.) then
-            !>    do j=1,n
-            !>        id_col=id(1:n,j)
-            !>        call LU_lin_syst(A,id_col,inv_col) !> LU decomposition
-            !>        inv(1:n,j)=inv_col
-            !>    end do
-            !else
-            !>    do j=1,n
-            !>        id_col=id(1:n,j)
-            !>        call Gauss_Jordan(A,id_col,inv_col) !> Gauss-Jordan
-            !>        inv(1:n,j)=inv_col
-            !>    end do
-            !end if
             do j=1,n
                 id_col=id(1:n,j)
-                !call Gauss_Jordan(A,id_col,tol,inv_col,err) !> Gauss-Jordan
                 call LU_lin_syst(A,id_col,tol,inv_col)
-                !if (err.eqv.1) then
-                !    error stop "Singular equation in Gauss-Jordan"
-                !end if
                 inv(1:n,j)=inv_col
             end do
             prod_A_invA=matmul(A,inv)
@@ -135,25 +64,6 @@ subroutine inv_matrix(A,tol,inv)
             end do
         end if
     end if
-end subroutine
-
-!> Inverse of square matrix using LU decomposition from first element
-subroutine inv_matrix_WMA(A,tol,inv)
-    implicit none
-    real(kind=8), intent(in) :: A(:,:)
-    real(kind=8), intent(in) :: tol
-    real(kind=8), intent(out) :: inv(:,:)
-    
-    integer(kind=4) :: n,j,i
-    real(kind=8), parameter :: epsilon=1d-6
-    real(kind=8), allocatable :: id(:,:), prod_A_invA(:,:), id_col(:), inv_col(:)
-    logical :: nzdiag
-    
-    if (size(A,1)/=size(A,2)) error stop "Matrix must be square (inv_matrix_WMA)"
-    
-    !if (det(A)>=tol) error stop "Matrix is not invertible"
-    
-    call inv_matrix(A,tol,inv) 
 end subroutine
 
         subroutine Thomas(A,b,tol,x)
@@ -230,83 +140,77 @@ end subroutine
         end do
         x=x(n:1:-1)
     end subroutine Thomas_Toeplitz
-    
-    subroutine Thomas_induction(A,b,i,x_i,tol,x_k)  !> to be developed
-        !> A: tridiagonal matrix
-        !> b: independent term
-        !> x: solution of linear system
-    
-        class(tridiag_matrix_c), intent(in) :: A
-        real(kind=8), intent(in) :: b(:)
-        integer(kind=4), intent(in) :: i !> row index
-        real(kind=8), intent(in) :: x_i
-        real(kind=8), intent(in) :: tol !> tolerance
-        real(kind=8), intent(out) :: x_k(:) !> must be allocated
-        
-        integer(kind=4) :: k
-        real(kind=8), allocatable :: c_star(:),d_star(:), matrix(:,:)
-        
-        !allocate(c_star(this%dim-1),d_star(this%dim))
-        !c_star(1)=A%super(1)/A%diag(1)
-        !d_star(1)=b(1)/A%diag(1)
-        !do i=2,this%dim-1
-        !>    c_star(i)=A%super(i)/(A%diag(i)-A%sub(i-1)*c_star(i-1))
-        !>    d_star(i)=(b(i)-A%sub(i-1)*d_star(i-1))/(A%diag(i)-A%sub(i-1)*c_star(i-1))
-        !end do
-        !d_star(this%dim)=(b(this%dim)-A%sub(i-1)*d_star(this%dim-1))/(A%diag(i)-A%sub(i-1)*c_star(i-1))
-        !x(this%dim)=d_star(this%dim)
-        !x(this%dim-1)=d_star(this%dim-1)-c_star(this%dim-1)*x(this%dim)
-        !do k=2,this%dim-1
-        !>    sum=0d0
-        !>    do j=0,k-1
-        !>        prod=1d0
-        !>        do l=1,k-j
-        !>            prod=prod*c_star(i-j-l)
-        !>        end do
-        !>        sum=sum+prod*d_star(i-j)
-        !>    x(this%dim-k)=d_star(this%dim-k)+sum()
-        !end do
-        !deallocate(c_star,d_star)
-    end subroutine
 
-    subroutine LU_lin_syst(A,b,tol,x) !> Ax=b
+    subroutine LU_lin_syst(A,b,tol,x,sing_flag) !> Ax=b
         real(kind=8), intent(in) :: A(:,:) !> square matrix (A=LU)
         real(kind=8), intent(in) :: b(:) !> vector
         real(kind=8), intent(in) :: tol !> tolerance for solution
         real(kind=8), intent(out) :: x(:) !> solution of linear system (must be already allocated)
+        logical, intent(out), optional :: sing_flag !> if present, set TRUE on singular matrix instead of error stop
         
         
-        real(kind=8), allocatable :: L(:,:), U(:,:), y(:)
+        real(kind=8), allocatable :: L(:,:), U(:,:), y(:), pb(:)
         real(kind=8) :: det
-        integer(kind=4) :: n
+        integer(kind=4) :: n, i
+        integer(kind=4), allocatable :: p(:)
         logical :: error
+        
+        if (present(sing_flag)) sing_flag = .false.
         
         n=size(b)
         call compute_det(A,tol,det,error)
         
         if (size(A,1)/=n .or. size(A,2)/=n) then
             error stop "Wrong dimensions in LU_lin_syst"
-        else if (ABS(A(1,1))<tol) then
-            error stop "A(1,1)=0 in LU_lin_syst"
         else if (abs(det)<tol) then
+            if (present(sing_flag)) then
+                sing_flag = .true.
+                return
+            end if
             error stop "Zero determinant in LU_lin_syst"
         end if
         
         if (n.eq.2) then
             x(2)=(A(1,1)*b(2)-A(2,1)*b(1))/det
-            x(1)=(b(1)-A(1,2)*x(2))/A(1,1)
+            x(1)=(A(2,2)*b(1)-A(1,2)*b(2))/det
         else
-            allocate(L(n,n),U(n,n),y(n))
-            call LU(A,tol,L,U,error)
+            allocate(L(n,n),U(n,n),y(n),pb(n),p(n))
+            call LU(A,tol,L,U,error,perm=p)
             if (error .eqv. .true.) then
+                if (present(sing_flag)) then
+                    sing_flag = .true.
+                    deallocate(L,U,y,pb,p)
+                    return
+                end if
                 error stop "Error in LU decompoisiton"
             end if
-            call forward_substitution(L,b,y)
+            !> Apply row permutation to b
+            do i=1,n
+                pb(i)=b(p(i))
+            end do
+            call forward_substitution(L,pb,y)
             call backward_substitution(U,y,x)
-            if (inf_norm_vec_real(matmul(A,x)-b) .ge. tol) then
-                print *, inf_norm_vec_real(matmul(A,x)-b)
+            if (inf_norm_vec_real(matmul(A,x)-b) .ge. tol*max(1d0, inf_norm_vec_real(b), maxval(abs(A))*inf_norm_vec_real(x))) then
+                if (present(sing_flag)) then
+                    sing_flag = .true.
+                    deallocate(L,U,y,pb,p)
+                    return
+                end if
+                print *, "DEBUG LU_lin_syst: ||Ax-b||_inf = ", inf_norm_vec_real(matmul(A,x)-b)
+                print *, "DEBUG LU_lin_syst: tol          = ", tol
+                print *, "DEBUG LU_lin_syst: n            = ", n
+                print *, "DEBUG LU_lin_syst: det          = ", det
+                print *, "DEBUG LU_lin_syst: ||A||_max    = ", maxval(abs(A))
+                print *, "DEBUG LU_lin_syst: ||b||_inf    = ", inf_norm_vec_real(b)
+                print *, "DEBUG LU_lin_syst: ||x||_inf    = ", inf_norm_vec_real(x)
+                print *, "DEBUG LU_lin_syst: A = "
+                do i=1,n
+                    print *, "  row", i, ": ", A(i,:)
+                end do
+                print *, "DEBUG LU_lin_syst: b = ", b
+                print *, "DEBUG LU_lin_syst: x = ", x
+                print *, "DEBUG LU_lin_syst: Ax-b = ", matmul(A,x)-b
                 error stop "Wrong solution in LU_lin_syst"
-                !print *, "Wrong solution in LU_lin_syst"
             end if
         end if
     
@@ -320,28 +224,15 @@ end subroutine
         real(kind=8), intent(out) :: x(:)
         integer(kind=4), intent(out) :: niter !> number of iterations
         
-        real(kind=8), allocatable :: L(:,:), R(:,:), D(:), C_mat(:,:), c(:)
+        real(kind=8), allocatable :: D(:)
         real(kind=8) :: sum
         integer(kind=4) :: i,j,k,n
         real(kind=8), parameter :: tol=1d-12
         n=size(A,1)
-        allocate(L(n,n),R(n,n),D(n),C_mat(n,n),c(n))
-        forall (i=1:n)
-            D(i)=A(i,i)
-        end forall
-        L=0d0
-        R=0d0
-        do j=1,n
-            L((j+1):n,j)=-A((j+1):n,j)
-            R(j,(j+1):n)=-A(j,(j+1):n)
-        end do
-        C_mat=L+R
+        allocate(D(n))
         do i=1,n
-            C_mat(i,1:n)=(1d0/D(i))*C_mat(i,1:n)
+            D(i)=A(i,i)
         end do
-        forall (i=1:n)
-            c(i)=(1d0/D(i))*b(i)
-        end forall
         niter=0
         do k=1,n
             niter=niter+1 !> we update number of iterations
@@ -367,27 +258,15 @@ subroutine Gauss_seidel(A,b,x0,x,niter)
     real(kind=8), intent(out) :: x(:)
     integer(kind=4), intent(out) :: niter !> number of iterations
     
-    real(kind=8), allocatable :: L(:,:), R(:,:), D(:), C_mat(:,:), inv(:,:), c(:)
+    real(kind=8), allocatable :: D(:)
     real(kind=8) :: sum
     integer(kind=4) :: i,j,k,n
     real(kind=8), parameter :: tol=1d-9
     n=size(A,1)
-    allocate(L(n,n),R(n,n),D(n),C_mat(n,n),inv(n,n),c(n))
-    forall (i=1:n)
+    allocate(D(n))
+    do i=1,n
         D(i)=A(i,i)
-    end forall
-    L=0d0
-    R=0d0
-    do j=1,n
-        L((j+1):n,j)=-A((j+1):n,j)
-        R(j,(j+1):n)=-A(j,(j+1):n)
     end do
-    forall (i=1:n)
-        L(i,i)=L(i,i)-D(i)
-    end forall
-    call inv_matrix(-L,tol,inv)
-    C_mat=matmul(inv,R)
-    c=matmul(inv,b)
     do k=1,n
         niter=niter+1 !> we update number of iterations
         do i=1,n
@@ -481,32 +360,33 @@ subroutine Gauss_Jordan(A,b,tol,x,error)
     end if
 end subroutine
 
-subroutine compute_Thomas_coeffs(A,b,tol,c_tilde,d_tilde)
+subroutine compute_Thomas_coeffs(A,b,tol,c_mix,d_tilde)
     !> Computes coefficients of Thomas algorithm
     
     !> A: tridiagonal matrix
-    !> c_tilde,d_tilde: coefficients
+    !> c_mix,d_tilde: coefficients
 
     
     class(tridiag_matrix_c), intent(in) :: A
     real(kind=8), intent(in) :: b(:)
     real(kind=8), intent(in) :: tol
-    real(kind=8), intent(out) :: c_tilde(:),d_tilde(:) !> tiene que estar alocatado
+    real(kind=8), intent(out) :: c_mix(:),d_tilde(:) !> tiene que estar alocatado
     
     integer(kind=4) :: i,n
     real(kind=8) :: denom
     
-    c_tilde(1)=A%super(1)/A%diag(1)
+    n=size(b)
+    c_mix(1)=A%super(1)/A%diag(1)
     d_tilde(1)=b(1)/A%diag(1)
     do i=2,n-1
-        denom=A%diag(i)-A%sub(i-1)*c_tilde(i-1)
+        denom=A%diag(i)-A%sub(i-1)*c_mix(i-1)
         if (abs(denom)<tol) then
             error stop "Singularity in Thomas algorithm"
         end if
-        c_tilde(i)=A%super(i)/denom
+        c_mix(i)=A%super(i)/denom
         d_tilde(i)=(b(i)-A%sub(i-1)*d_tilde(i-1))/denom
     end do
-    denom=A%diag(n)-A%sub(n-1)*c_tilde(n-1)
+    denom=A%diag(n)-A%sub(n-1)*c_mix(n-1)
     if (abs(denom)<tol) then
         error stop "Singularity in Thomas algorithm"
     end if
@@ -531,6 +411,70 @@ subroutine compute_inverse_tridiag_matrix(this,tol,inv_mat)
     end do
 end subroutine
 
+
+!> Solves Ax=b using LAPACK dgesv (pivoted LU) with row/column equilibration.
+!> Scaling improves conditioning when entries of A span many orders of magnitude.
+    subroutine scaled_dgesv_lin_syst(A, b, x)
+        implicit none
+        real(kind=8), intent(in) :: A(:,:)
+        real(kind=8), intent(in) :: b(:)
+        real(kind=8), intent(out) :: x(:)
+        
+        integer(kind=4) :: n, info
+        integer(kind=4), allocatable :: ipiv(:)
+        real(kind=8), allocatable :: A_work(:,:), b_work(:)
+        real(kind=8), allocatable :: row_scale(:), col_scale(:)
+        real(kind=8) :: row_max, col_max
+        integer(kind=4) :: i, j
+        
+        n = size(b)
+        allocate(A_work(n,n), b_work(n), ipiv(n))
+        allocate(row_scale(n), col_scale(n))
+        
+        !> Row equilibration: scale each row so max|A(i,:)| = 1
+        do i = 1, n
+            row_max = maxval(abs(A(i,:)))
+            if (row_max > 0d0) then
+                row_scale(i) = 1d0 / row_max
+            else
+                row_scale(i) = 1d0
+            end if
+        end do
+        
+        do i = 1, n
+            A_work(i,:) = row_scale(i) * A(i,:)
+            b_work(i) = row_scale(i) * b(i)
+        end do
+        
+        !> Column equilibration: scale each column so max|A(:,j)| = 1
+        do j = 1, n
+            col_max = maxval(abs(A_work(:,j)))
+            if (col_max > 0d0) then
+                col_scale(j) = 1d0 / col_max
+            else
+                col_scale(j) = 1d0
+            end if
+            A_work(:,j) = col_scale(j) * A_work(:,j)
+        end do
+        
+        !> Solve scaled system with LAPACK dgesv (partial pivoting)
+        call dgesv(n, 1, A_work, n, ipiv, b_work, n, info)
+        
+        if (info /= 0) then
+            print *, "WARNING scaled_dgesv_lin_syst: dgesv info = ", info
+        end if
+        
+        !> Unscale solution: x_original = col_scale * x_scaled
+        x = col_scale * b_work
+        
+        !> Residual check: ||Ax - b|| / max(1, ||b||, ||A||*||x||)
+        if (inf_norm_vec_real(matmul(A,x)-b) > 1d-8 * max(1d0, inf_norm_vec_real(b), maxval(abs(A))*inf_norm_vec_real(x))) then
+            print *, "WARNING scaled_dgesv: ||Ax-b||=", inf_norm_vec_real(matmul(A,x)-b), &
+                " ||b||=", inf_norm_vec_real(b), " info=", info
+        end if
+        
+        deallocate(A_work, b_work, ipiv, row_scale, col_scale)
+    end subroutine
 
 
 end module 

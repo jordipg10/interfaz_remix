@@ -1,40 +1,65 @@
-!> 1D spatial discretisation module
+!> \file spatial_discr_1D_m.f90
+!> \brief One-dimensional spatial discretization module.
+!> \details
+!> Defines homogeneous and heterogeneous 1D Eulerian mesh types extending
+!> the abstract `spatial_discr_c` base class. Supports reading mesh data
+!> from files, computing cell sizes, domain measure, target indices, and
+!> mesh refinement.
+!>
+!> \par Mesh Types:
+!> - `mesh_1D_Euler_homog_c`  : uniform cell size \f$\Delta x\f$
+!> - `mesh_1D_Euler_heterog_c`: variable cell sizes \f$\Delta x_i\f$
+!>
+!> \see spatial_discr_m, spatial_discr_2D_m, spatial_discr_rad_m
+!> \author Jordi
+!> \date Unknown
+!> \ingroup discretization
+
+!> \brief 1D spatial discretization module.
 module spatial_discr_1D_m
     use spatial_discr_m, only: spatial_discr_c
     use vectors_m, only: inf_norm_vec_real
     implicit none
     save
+    private
+    !> \brief Homogeneous 1D Eulerian mesh with uniform cell size.
+    !> \details All cells have the same width \f$\Delta x = L / N\f$.
     type, public, extends(spatial_discr_c) :: mesh_1D_Euler_homog_c
-        real(kind=8) :: Delta_x !> Cell size
-        real(kind=8) :: Delta_x_D !> Dimensionless cell size
+        real(kind=8) :: Delta_x      !< [L] Uniform cell size
+        real(kind=8) :: Delta_x_D    !< [-] Dimensionless cell size
     contains
-        procedure, public :: set_Delta_x_homog
-        procedure, public :: read_mesh=>read_mesh_homog
-        procedure, public :: get_Cell_size=>get_Delta_x_homog
-        procedure, public :: get_max_cell_size=>get_max_Delta_x_homog
-        procedure, public :: compute_measure=>compute_measure_homog
-        procedure, public :: compute_Delta_x
-        procedure, private :: compute_Num_targets
-        procedure, public :: check_exit=>check_exit_1D_homog
-        procedure, public :: refine_mesh=>refine_mesh_homog
-        procedure, public :: compute_dimless_mesh=>compute_dimless_mesh_1D_homog
-        !procedure, public :: get_dim_1D=>get_dim_1D_homog
-        procedure, public :: get_target_ind=>get_target_ind_1D_homog
+        procedure :: set_Delta_x_homog
+        procedure :: read_mesh=>read_mesh_homog
+        procedure :: get_Cell_size=>get_Delta_x_homog
+        procedure :: get_max_cell_size=>get_max_Delta_x_homog
+        procedure :: compute_measure=>compute_measure_homog
+        procedure :: compute_Delta_x=>compute_Delta_x_1D_homog
+        procedure :: compute_Num_targets=>compute_Num_targets_1D_homog
+        procedure :: check_exit=>check_exit_1D_homog
+        procedure :: refine_mesh=>refine_mesh_homog
+        procedure :: compute_dimless_mesh=>compute_dimless_mesh_1D_homog
+        procedure :: compute_final_point=>compute_final_point_1D_homog
+        procedure :: get_target_ind=>get_target_ind_1D_homog
+        procedure :: get_num_cells=>get_num_cells_1D_homog
     end type
     
+    !> \brief Heterogeneous 1D Eulerian mesh with variable cell sizes.
+    !> \details Each cell \f$i\f$ has its own width \f$\Delta x_i\f$.
     type, public, extends(spatial_discr_c) :: mesh_1D_Euler_heterog_c
-        real(kind=8), allocatable :: Delta_x(:) !> Cell sizes
-        real(kind=8), allocatable :: Delta_x_D(:) !> Dimensionless cell sizes
+        real(kind=8), allocatable :: Delta_x(:)    !< [L] Cell sizes array
+        real(kind=8), allocatable :: Delta_x_D(:)  !< [-] Dimensionless cell sizes
     contains
-        procedure, public :: set_Delta_x_heterog
-        procedure, public :: read_mesh=>read_mesh_heterog
-        procedure, public :: get_Cell_size=>get_Delta_x_heterog
-        procedure, public :: get_max_cell_size=>get_max_Delta_x_heterog
-        procedure, public :: compute_measure=>compute_measure_heterog
-        procedure, public :: check_exit=>check_exit_1D_heterog
-        procedure, public :: refine_mesh=>refine_mesh_heterog
-        procedure, public :: compute_dimless_mesh=>compute_dimless_mesh_1D_heterog
-        procedure, public :: get_target_ind=>get_target_ind_1D_heterog
+        procedure :: set_Delta_x_heterog
+        procedure :: read_mesh=>read_mesh_heterog
+        procedure :: get_Cell_size=>get_Delta_x_heterog
+        procedure :: get_max_cell_size=>get_max_Delta_x_heterog
+        procedure :: compute_measure=>compute_measure_heterog
+        procedure :: check_exit=>check_exit_1D_heterog
+        procedure :: refine_mesh=>refine_mesh_heterog
+        procedure :: compute_dimless_mesh=>compute_dimless_mesh_1D_heterog
+        procedure :: get_target_ind=>get_target_ind_1D_heterog
+        procedure :: compute_Num_targets=>compute_Num_targets_1D_heterog
+        procedure :: get_num_cells=>get_num_cells_1D_heterog
     end type
     
     interface
@@ -66,14 +91,27 @@ module spatial_discr_1D_m
             
             integer(kind=4) :: i !> Loop index
             real(kind=8) :: coords(1) !> Coordinates of the targets (1D)
+            character(len=256) :: label !> Label for reading file
             
+            allocate(this%init_point(1),this%final_point(1))
             open(unit=1,file=filename,status='old',action='read')
-            read(1,*) this%scheme
-            read(1,*) this%targets_flag
-            read(1,*) this%measure
-            read(1,*) this%Num_targets
-            read(1,*) this%init_point
-            read(1,*) this%adapt_ref
+            do
+                ! read(1,*,iostat=i) !> Skip possible blank lines
+                ! if (i==0) exit
+                read(1,*) label
+                if (trim(label)=='SPATIAL DISCRETISATION') then
+                    read(1,*) this%scheme
+                    read(1,*) this%targets_flag
+                    read(1,*) this%measure
+                    read(1,*) this%Num_targets
+                    read(1,*) this%init_point
+                    read(1,*) this%adapt_ref
+                else if (trim(label)=='end') then
+                    exit
+                else
+                    continue
+                end if
+            end do
             close(1)
             call this%set_dim(1) !> Set dimension to 1D
             this%Num_targets_defined=.true.
@@ -99,6 +137,7 @@ module spatial_discr_1D_m
             call this%targets(this%Num_targets)%set_measure(this%Delta_x*(1-this%targets_flag))
             coords=this%init_point+this%Delta_x*(this%Num_targets-1d0/(2d0-this%targets_flag))
             call this%targets(this%Num_targets)%set_coordinates(coords)
+            call this%compute_final_point()
         end subroutine
         
         subroutine read_mesh_heterog(this,filename,phi)
@@ -134,7 +173,7 @@ module spatial_discr_1D_m
             if (present(i)) then
                 Delta_x=this%Delta_x(i) ! return cell size at index i
             else
-                Delta_x=minval(this%Delta_x) ! return minimum cell size if no index is provided
+                Delta_x=this%Delta_x(1) ! return cell size at index 1 by default
             end if
         end function
         
@@ -150,16 +189,22 @@ module spatial_discr_1D_m
             this%measure=sum(this%Delta_x)
         end subroutine
         
-        subroutine compute_Delta_x(this)
+        subroutine compute_Delta_x_1D_homog(this)
             implicit none
             class(mesh_1D_Euler_homog_c) :: this
             this%Delta_x=this%measure/(this%Num_targets-this%targets_flag)
         end subroutine
         
-        subroutine compute_Num_targets(this)
+        subroutine compute_Num_targets_1D_homog(this)
             implicit none
             class(mesh_1D_Euler_homog_c) :: this
             this%Num_targets=this%measure/this%Delta_x + this%targets_flag
+        end subroutine
+
+        subroutine compute_Num_targets_1D_heterog(this)
+            implicit none
+            class(mesh_1D_Euler_heterog_c) :: this
+            this%Num_targets=size(this%Delta_x) + this%targets_flag
         end subroutine
         
         function get_dim_1D_homog(this) result(dim)
@@ -196,29 +241,29 @@ module spatial_discr_1D_m
         !this%init_point=this%init_point/char_length
         end subroutine
 
-        subroutine check_exit_1D_homog(this,coords,exit)
+        subroutine check_exit_1D_homog(this,coords,exit_flag)
             implicit none
             class(mesh_1D_Euler_homog_c) :: this
             real(kind=8), intent(in) :: coords(:) !> Coordinates to check
-            logical, intent(out) :: exit
+            logical, intent(out) :: exit_flag !> exit flag
             
-            exit=.false.
-            if (coords(1)<this%init_point .or. coords(1)>this%init_point+this%measure) then
+            exit_flag=.false.
+            if (coords(1)<this%init_point(1) .or. coords(1)>this%final_point(1)) then
                 print *, "Error: Coordinates out of bounds."
-                exit=.true.
+                exit_flag=.true.
             end if
         end subroutine
 
-        subroutine check_exit_1D_heterog(this,coords,exit)
+        subroutine check_exit_1D_heterog(this,coords,exit_flag)
             implicit none
             class(mesh_1D_Euler_heterog_c) :: this
             real(kind=8), intent(in) :: coords(:) !> Coordinates to check
-            logical, intent(out) :: exit
+            logical, intent(out) :: exit_flag
 
-            exit=.false.
-            if (coords(1)<this%init_point .or. coords(1)>this%init_point+this%measure) then
+            exit_flag=.false.
+            if (coords(1)<this%init_point(1) .or. coords(1)>this%final_point(1)) then
                 print *, "Error: Coordinates out of bounds."
-                exit=.true.
+                exit_flag=.true.
             end if
         end subroutine
 
@@ -255,11 +300,11 @@ module spatial_discr_1D_m
 
             target_ind=0 ! Default value
 
-            if (coord(1) < this%init_point .or. coord(1) > this%init_point+this%measure) then
+            if (coord(1) < this%init_point(1) .or. coord(1) > this%final_point(1)) then
                 print *, "Error: Coordinates out of bounds."
                 return
             end if
-            if (coord(1) <= this%init_point + 0.5*this%Delta_x(1)) then
+            if (coord(1) <= this%init_point(1) + 0.5*this%Delta_x(1)) then
                 target_ind = 1 ! Set target index for the first target
                 return
             end if
@@ -274,7 +319,7 @@ module spatial_discr_1D_m
                     continue ! Continue to next target
                 end if
             end do
-            if (coord(1) <= this%init_point + this%measure) then
+            if (coord(1) <= this%final_point(1)) then
                 target_ind = this%Num_targets ! Set target index for the last target
                 return
             end if
@@ -282,13 +327,13 @@ module spatial_discr_1D_m
         end function get_target_ind_1D_heterog
         
         function get_max_Delta_x_heterog(this) result(max_cell_size)
-        class(mesh_1D_Euler_heterog_c) :: this
+        class(mesh_1D_Euler_heterog_c), intent(in) :: this
         real(kind=8) :: max_cell_size
         max_cell_size=maxval(this%Delta_x)
         end function
         
         function get_max_Delta_x_homog(this) result(max_cell_size)
-        class(mesh_1D_Euler_homog_c) :: this
+        class(mesh_1D_Euler_homog_c), intent(in) :: this
         real(kind=8) :: max_cell_size
         max_cell_size=this%Delta_x
         end function
@@ -352,5 +397,26 @@ module spatial_discr_1D_m
                 conc_ext=conc_ext_ref
             end if
         end subroutine
+
+        subroutine compute_final_point_1D_homog(this)
+            !> Compute final point based on initial point and measure
+            implicit none
+            class(mesh_1D_Euler_homog_c) :: this
+            this%final_point(1)=this%init_point(1)+this%measure
+        end subroutine
+        
+        function get_num_cells_1D_homog(this,dim) result(num_cells)
+            class(mesh_1D_Euler_homog_c), intent(in) :: this
+            integer(kind=4), intent(in), optional :: dim
+            integer(kind=4) :: num_cells
+            num_cells=this%Num_targets-this%targets_flag
+        end function get_num_cells_1D_homog
+        
+        function get_num_cells_1D_heterog(this,dim) result(num_cells)
+            class(mesh_1D_Euler_heterog_c), intent(in) :: this
+            integer(kind=4), intent(in), optional :: dim
+            integer(kind=4) :: num_cells
+            num_cells=this%Num_targets-this%targets_flag
+        end function get_num_cells_1D_heterog
 
 end module

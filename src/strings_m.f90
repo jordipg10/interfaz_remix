@@ -1,5 +1,19 @@
+!> \file strings_m.f90
+!> \brief String utility module for character array operations.
+!> \details
+!> Provides helper routines for searching and comparing character string arrays.
+!> Used throughout the codebase for name-based lookups of species, reactions, etc.
+!>
+!> \author Jordi
+!> \date Unknown
+!> \ingroup algebra
 module strings_m
     interface
+        !> \brief Compare two string arrays for element-wise equality.
+        !> \param[in]  str_arr_1 First string array
+        !> \param[in]  str_arr_2 Second string array
+        !> \param[out] flag      .true. if arrays match element-wise
+        !> \param[out] indices   (Optional) Mapping indices
         subroutine compare_str_arrays(str_arr_1,str_arr_2,flag,indices)
             implicit none
             character(len=*), intent(in) :: str_arr_1(:)
@@ -11,6 +25,12 @@ module strings_m
 
     contains
 
+    !> \brief Check if a string belongs to a string array.
+    !> \details Linear search returning the first matching index.
+    !> \param[in]  string  String to search for
+    !> \param[in]  array   Array of strings to search in
+    !> \param[out] flag    .true. if found
+    !> \param[out] index   (Optional) Index of the first match
     subroutine str_belongs_to(string,array,flag,index)
         implicit none
         character(len=*), intent(in) :: string

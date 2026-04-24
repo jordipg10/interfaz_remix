@@ -18,9 +18,9 @@ subroutine set_stoich_mat_gas(this)
             j=1 !> counter equilibrium reactions reactive zone
             k=1 !> counter species of each equilibrium reaction in reactive zone
             do
-                if (this%gas_phase%gases(i)%name==this%eq_reacts(j)%species(k)%name) then
+                if (this%gas_phase%gases(i)%name==this%species(this%eq_reacts(j)%species_ind(k))%name) then
                     this%stoich_mat_gas(j,i)=this%eq_reacts(j)%stoichiometry(k)
-                    if (j<this%num_eq_reacts) then
+                    if (j<this%speciation_alg%num_eq_reactions) then
                         j=j+1 
                         k=1
                     else if (i<this%gas_phase%num_species) then
@@ -32,7 +32,7 @@ subroutine set_stoich_mat_gas(this)
                     end if
                 else if (k<this%eq_reacts(j)%num_species) then
                     k=k+1
-                else if (j<this%num_eq_reacts) then
+                else if (j<this%speciation_alg%num_eq_reactions) then
                     j=j+1
                     k=1
                 else if (i<this%gas_phase%num_species) then

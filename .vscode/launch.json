@@ -5,7 +5,7 @@
             "name": "Debug Fortran",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/exe/interfaz.exe",
+            "program": "${workspaceFolder}/bin/interfaz_remix.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

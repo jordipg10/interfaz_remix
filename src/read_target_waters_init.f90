@@ -95,13 +95,13 @@ subroutine read_target_waters_init(this,root,nsrz,ngrz)
             call this%allocate_bd_waters_indices(num_tar_wat_bd)
             call this%allocate_dom_tar_wat_indices(this%num_target_waters-this%num_rech_waters-this%num_bd_waters)
             if (nstype==0) then
-                call this%allocate_target_solids(this%num_target_waters_dom) !> we assume bijection with domain target waters (chapuza)
+                call this%allocate_target_solids(this%num_target_waters) !> we assume bijection with domain target waters (chapuza)
                 do i=1,this%num_target_solids
                     this%target_solids(i)=solid_chem !> we set the default solid chemistry object
                 end do  
             end if
             if (ngzns==0) then
-                call this%allocate_target_gases(this%num_target_waters_dom) !> we assume bijection with domain target waters (chapuza)
+                call this%allocate_target_gases(this%num_target_waters) !> we assume bijection with domain target waters (chapuza)
             end if
             aux_istype=0 !> auxiliary solid type index
             aux_igzn=0 !> auxiliary gas zone index
@@ -165,7 +165,7 @@ subroutine read_target_waters_init(this,root,nsrz,ngrz)
                         else if (flag_wat_type==1) then !> domain water
                             !this%dom_tar_wat_indices(ind_dom)=tar_wat_ind
                             do i=1,int_wat_size
-                                this%dom_tar_wat_indices(ind_dom+i)=first_wat+i-1 !> we set the indices of domain waters
+                                this%tar_wat_indices(ind_dom+i)=first_wat+i-1 !> we set the indices of domain waters
                             end do
                             ind_dom=ind_dom+int_wat_size !> counter domain waters
                             flag=.false.
@@ -291,7 +291,7 @@ subroutine read_target_waters_init(this,root,nsrz,ngrz)
                             this%rech_waters_indices(ind_rech)=tar_wat_ind
                         else if (flag_wat_type==1) then !> domain water
                             ind_dom=ind_dom+1 !> counter domain waters
-                            this%dom_tar_wat_indices(ind_dom)=tar_wat_ind
+                            this%tar_wat_indices(ind_dom)=tar_wat_ind
                             !call this%loop_read_tar_wat_init(flag,this%wat_types,init_sol_types,init_gas_types,nsrz,ngrz,tar_wat_ind,wtype,&
                             !    istype,int_gas,aux_istype,aux_int_gas,solid_chem)
                         end if

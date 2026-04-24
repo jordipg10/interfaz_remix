@@ -20,18 +20,18 @@ subroutine interfaz_esp_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
     real(kind=8), allocatable :: c_react(:) !> concentration components after solving reactive mixing
     real(kind=8), allocatable :: c_new(:,:) !> concentration components after solving reactive mixing
 !> Pre-process
-    allocate(c_tilde(num_aq_comps,this%num_target_waters_dom),c_new(num_aq_comps,this%num_target_waters_dom))
+    allocate(c_tilde(num_aq_comps,this%num_target_waters),c_new(num_aq_comps,this%num_target_waters))
     allocate(c_react(num_aq_comps))
 !> Process
     !> We read the aqueous species concentrations after solving conservative transport
     open(unit=1,file=path//file_in,status='old',action='read')
     do i=1,num_aq_comps
-        read(1,*) (c_tilde(i,j), j=1,this%num_target_waters_dom) !> we read one row (species) at a time
+        read(1,*) (c_tilde(i,j), j=1,this%num_target_waters) !> we read one row (species) at a time
     end do
     close(1)
     !> We solve reactive mixing for each target water
-    do j=1,this%num_target_waters_dom !> loop over target waters in the domain
-        call this%target_waters(this%dom_tar_wat_indices(j))%reaction_iteration_EE_eq_kin_lump(Delta_t,c_react) !> chemical part of aqueous species concentrations
+    do j=1,this%num_target_waters !> loop over target waters in the domain
+        call this%waters(this%tar_wat_indices(j))%compute_react_term_EE_kin(Delta_t,1.0d0,c_react) !> chemical part of aqueous species concentrations
         c_new(:,j)=c_tilde(:,j)+c_react !> we sum transport and reaction parts
     end do
 !> Post-process
@@ -41,7 +41,7 @@ subroutine interfaz_esp_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
         target waters in the domain):"
     write(2,*)
     do i=1,num_aq_comps
-        write(2,"(2x,*(ES15.5))") (c_new(i,j), j=1,this%num_target_waters_dom)
+        write(2,"(2x,*(ES15.5))") (c_new(i,j), j=1,this%num_target_waters)
     end do
     close(2)
     deallocate(c_tilde,c_react,c_new)

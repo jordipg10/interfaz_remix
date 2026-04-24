@@ -21,8 +21,8 @@ subroutine interfaz_comps_vars(this,u_tilde,Delta_t,u_new)
     allocate(u_react(num_comps))
 !> Process
     !> We solve reactive mixing for each target water
-    do j=1,this%num_target_waters_dom
-        call this%target_waters(this%dom_tar_wat_indices(j))%reaction_iteration_EE_eq_kin_lump(Delta_t,u_react) !> chemical part of components
+    do j=1,this%num_target_waters
+        call this%waters(this%tar_wat_indices(j))%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react) !> chemical part of components
         u_new(:,j)=u_tilde(:,j)+u_react !> we sum transport and reaction parts
     end do
 !> Post-process

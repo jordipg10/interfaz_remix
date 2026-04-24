@@ -1,9 +1,32 @@
-!> Array operations module
+!> \file array_ops_m.f90
+!> \brief Array operations utility module for integer and real array manipulations.
+!> \details
+!> Provides helper subroutines and functions for common array operations used
+!> throughout the RT_code codebase, including:
+!> - Appending elements to dynamically-allocated integer arrays
+!> - Searching for integers within arrays (membership tests)
+!> - Retrieving the index of an integer in an array
+!>
+!> These routines are used extensively for managing index arrays, species lists,
+!> and other dynamic data structures in the reactive transport framework.
+!>
+!> \author Jordi
+!> \date Unknown
+!> \ingroup algebra
+
+!> \brief Array operations utility module.
+!> \details Contains general-purpose array manipulation subroutines and functions.
 module array_ops_m
     implicit none
     save
     contains
-        subroutine append_int_1D_array(array,new_elem) !> appends element in integer vector
+
+        !> \brief Append an integer element to a 1D allocatable integer array.
+        !> \details Resizes the array by one and places the new element at the end.
+        !> Uses a temporary copy to preserve existing data during reallocation.
+        !> \param[in,out] array  Allocatable integer array to be extended
+        !> \param[in]     new_elem  Integer value to append
+        subroutine append_int_1D_array(array,new_elem)
             implicit none
             integer(kind=4), intent(inout), allocatable :: array(:)
             integer(kind=4), intent(in) :: new_elem
@@ -23,13 +46,19 @@ module array_ops_m
             array(size(array))=new_elem
         end subroutine
         
+        !> \brief Check if an integer value exists in a 1D integer array.
+        !> \details Performs a linear search through the array. Optionally returns
+        !> the index of the first match.
+        !> \param[in]  int    Integer value to search for
+        !> \param[in]  array  Array of integers to search in
+        !> \param[out] flag   .true. if the integer is found, .false. otherwise
+        !> \param[out] ind    (Optional) Index of the first occurrence in the array (0 if not found)
         subroutine is_int_in_1D_array(int,array,flag,ind)
-        !> checks if integer is in array
             implicit none
-            integer(kind=4), intent(in) :: int !> integer to check
-            integer(kind=4), intent(in) :: array(:) !> array of integers to check
-            logical, intent(out) :: flag !> TRUE if integer is in array, FALSE otherwise
-            integer(kind=4), intent(out), optional :: ind !> index of integer in array
+            integer(kind=4), intent(in) :: int !< Integer value to search for
+            integer(kind=4), intent(in) :: array(:) !< Array of integers to search in
+            logical, intent(out) :: flag !< .true. if integer is found, .false. otherwise
+            integer(kind=4), intent(out), optional :: ind !< Index of integer in array (0 if not found)
             
             integer(kind=4) :: i
             
@@ -50,6 +79,12 @@ module array_ops_m
             end do
         end subroutine
         
+        !> \brief Get the index of an integer in a 1D array.
+        !> \details Performs a linear search and returns the index of the matching element.
+        !> \warning Undefined behavior if the integer is not present in the array.
+        !> \param[in] int    Integer value to search for
+        !> \param[in] array  Array to search in
+        !> \return Index of the matching element in the array
         function get_ind_int(int,array) result(ind)
             integer(kind=4), intent(in) :: int
             integer(kind=4), intent(in) :: array(:)

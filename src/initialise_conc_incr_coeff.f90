@@ -1,8 +1,23 @@
+!> \file initialise_conc_incr_coeff.f90
+!> \brief Newton speciation with incremental-coefficient Jacobian.
+!> \details
+!> Computes aqueous species concentrations from component
+!> concentrations using Newton's method with an incremental-
+!> coefficient (numerical) Jacobian approximation.
+!>
+!> \author Jordi
+!> \date Unknown
+!> \ingroup chemistry
+!> \see initialise_conc_anal, initialise_conc_anal_ideal, aqueous_chemistry_m
+
 !> Computes aqueous species concentrations from component concentrations using Newton method
 !> We assume the initial guess of primary aqueous species is already set in the aqueous chemistry object
 !> This subroutine is only used to read water types
 subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,niter,CV_flag)
-    use aqueous_chemistry_m, only : aqueous_chemistry_c, int_array_c, LU_lin_syst, inf_norm_vec_real
+    use aqueous_chemistry_m, only: aqueous_chemistry_c
+    use arrays_m, only: int_array_c
+    use metodos_sist_lin_m, only: LU_lin_syst
+    use vectors_m, only: inf_norm_vec_real, outer_prod_vec
     implicit none
     !> Pre-process
     class(aqueous_chemistry_c) :: this
@@ -60,7 +75,7 @@ subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,n
         else if (icon(i)==4) then
             counters(4)=counters(4)+1
             indices_icon%cols(4)%col_1(counters(4))=i
-            abs_tol_res(i)=this%solid_chemistry%reactive_zone%CV_params%log_abs_tol
+            abs_tol_res(i)=this%solid_chemistry%reactive_zone%CV_params%log_rel_tol
         else
             error stop "icon option not implemented"
         end if
@@ -94,11 +109,14 @@ subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,n
     !> We update number of iterations
         niter=niter+1
         if (niter>this%solid_chemistry%reactive_zone%CV_params%niter_max) then
+            print *, '[DEBUG initialise_conc_incr_coeff] Newton failed after', niter-1, 'iters'
+            print *, '  ||res||_inf =', inf_norm_vec_real(res)
+            print *, '  c1 =', c1
             error stop "Too many Newton iterations in initialisation"
         end if
-        call this%compute_c2_from_c1_aq_Picard(c2_old,c2_new,niter_Picard,CV_flag)
-        !call this%compute_ionic_act() !> we compute ionic activity
-        !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_act,this%params_aq_sol,this%log_act_coeffs) !> we compute log activity coefficients aqueous species
+        call this%compute_c2_from_c1_Picard(c1,c2_old,c2_new,niter_Picard,CV_flag)
+        !call this%compute_ionic_strength() !> we compute ionic activity
+        !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs) !> we compute log activity coefficients aqueous species
         !call this%compute_activities()
         !call this%compute_log_act_coeff_wat()
         
@@ -123,7 +141,7 @@ subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,n
             error stop "Newton method not accurate enough in initialisation"
         end if
     !> We update primary concentrations
-        call this%update_conc_aq_prim_species(Delta_c1,zero_flag)
+        call this%update_conc_aq_prim_species(c1,Delta_c1,zero_flag)
     end do
     call this%compute_pH()
     call this%compute_salinity()

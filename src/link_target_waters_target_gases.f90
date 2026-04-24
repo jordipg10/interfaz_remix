@@ -19,7 +19,7 @@ subroutine link_target_waters_target_gases(this,tar_gas_indices,tar_wat_indices)
         i=1
         j=1
         do
-            if (inf_norm_vec_real(this%target_waters(j)%gas_chemistry%concentrations-this%target_gases(&
+            if (inf_norm_vec_real(this%waters(j)%gas_chemistry%concentrations-this%target_gases(&
             tar_gas_indices(i))%concentrations)<eps) then
                 tar_wat_indices(i)=j
                 if (j<this%num_target_waters) then

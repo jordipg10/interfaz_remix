@@ -1,4 +1,20 @@
-!> Special functions module
+!> \file special_fcts_m.f90
+!> \brief Special mathematical functions module.
+!> \details
+!> Provides implementations of special functions used in analytical
+!> solutions of diffusion and transport equations:
+!> - Factorial
+!> - Pochhammer symbol (rising factorial)
+!> - Confluent hypergeometric function of the first kind \f$ {}_1F_1(a;b;z) \f$
+!> - Parabolic cylinder function \f$ D_\nu(z) \f$
+!> - Binomial coefficient
+!>
+!> \see polynomials_m, analytical_solutions_diffusion_m
+!> \author Jordi
+!> \date Unknown
+!> \ingroup algebra
+
+!> \brief Special mathematical functions module.
 module special_fcts_m
     implicit none
     save

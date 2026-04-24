@@ -10,11 +10,11 @@ subroutine compare_react_zones(react_zone_1,react_zone_2,flag)
     logical :: sp_flag
     
     flag=.true.
-    if (react_zone_1%num_non_flowing_species/=react_zone_2%num_non_flowing_species) then
+    if (react_zone_1%num_non_flow_species/=react_zone_2%num_non_flow_species) then
         flag=.false.
     else
-        do i=1,react_zone_1%num_non_flowing_species
-            call react_zone_2%is_nf_species_in_react_zone(react_zone_1%non_flowing_species(i),sp_flag,nf_species_ind)
+        do i=1,react_zone_1%num_non_flow_species
+            call react_zone_2%is_nf_species_in_react_zone(react_zone_1%ind_non_flow_species(i),sp_flag,nf_species_ind)
             if (sp_flag .eqv. .false.) then
                 flag=.false.
                 exit

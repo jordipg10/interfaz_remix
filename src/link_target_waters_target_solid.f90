@@ -26,7 +26,7 @@ subroutine link_target_waters_target_solid(this,i,tw_indices)
         end if 
     else if (this%num_target_waters>this%num_target_solids) then
         do j=1,this%num_target_waters
-            if (inf_norm_vec_real(this%target_waters(j)%solid_chemistry%concentrations-this%target_solids(i)%concentrations)<eps)&
+            if (inf_norm_vec_real(this%waters(j)%solid_chemistry%concentrations-this%target_solids(i)%concentrations)<eps)&
              then
                 call append_int_1D_array(tw_indices,j)
             end if

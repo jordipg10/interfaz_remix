@@ -1,17 +1,27 @@
+!> \file polynomials_m.f90
+!> \brief Polynomial evaluation and differentiation module.
+!> \details
+!> Provides functions for evaluating real polynomials and their first
+!> and second derivatives using Horner-like schemes. Also includes
+!> orthonormal Legendre polynomial evaluation up to degree 3.
+!>
+!> \see special_fcts_m
+!> \author Jordi
+!> \date Unknown
+!> \ingroup algebra
 module polynomials_m
     implicit none
     save
     interface
-        ! function Legendre_poly(n,x) result(p)
-        !     implicit none
-        !     integer(kind=4), intent(in) :: n !> degree
-        !     real(kind=8), intent(in) :: x(:) !> input
-        !     real(kind=8), allocatable :: p(:) !> output
-        ! end function
-        
     end interface
     
     contains
+        !> \brief Evaluate a real polynomial at a scalar point.
+        !> \details Coefficients are in decreasing degree order:
+        !> \f$ p(x) = \sum_{i=0}^{n} a_i \, x^{n-i} \f$.
+        !> \param[in] coeffs  Polynomial coefficients (decreasing degree) [-]
+        !> \param[in] x       Evaluation point [-]
+        !> \return Polynomial value \f$ p(x) \f$
         function real_poly_1D(coeffs,x) result(p)
             implicit none
             real(kind=8), intent(in) :: coeffs(:) !> orden decreciente

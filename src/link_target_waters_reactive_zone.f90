@@ -18,43 +18,43 @@ subroutine link_target_waters_reactive_zone(this,i,dom_indices,ext_indices)
     k=1
     l=1
     flag=.true.
-    !print *, this%dom_tar_wat_indices
+    !print *, this%tar_wat_indices
     do
-        if (this%target_waters(this%dom_tar_wat_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species>0 .and. &
-        this%target_waters(this%dom_tar_wat_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species==&
-        this%reactive_zones(i)%num_non_flowing_species) then
-            call this%target_waters(this%dom_tar_wat_indices(j))%solid_chemistry%reactive_zone%is_nf_species_in_react_zone(&
-            this%reactive_zones(i)%non_flowing_species(k),flag,nf_sp_ind)
+        if (this%waters(this%tar_wat_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species>0 .and. &
+        this%waters(this%tar_wat_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species==&
+        this%reactive_zones(i)%num_non_flow_species) then
+            call this%waters(this%tar_wat_indices(j))%solid_chemistry%reactive_zone%is_nf_species_in_react_zone(&
+            this%reactive_zones(i)%ind_non_flow_species(k),flag,nf_sp_ind)
             if (.not. flag) then
-                if (j<this%num_target_waters_dom) then
+                if (j<this%num_target_waters) then
                     j=j+1
                     k=1
                 else
                     exit
                 end if
-            else if (k<this%reactive_zones(i)%num_non_flowing_species) then
+            else if (k<this%reactive_zones(i)%num_non_flow_species) then
                 k=k+1
-            else if (j<this%num_target_waters_dom) then
-                call append_int_1D_array(dom_indices,this%dom_tar_wat_indices(j))
+            else if (j<this%num_target_waters) then
+                call append_int_1D_array(dom_indices,this%tar_wat_indices(j))
                 !if (j==this%ext_wat_indices(l)) then
                 !    call append_int_1D_array(dom_indices,j)
                 !end if
                 j=j+1
             else
-                call append_int_1D_array(dom_indices,this%dom_tar_wat_indices(j))
+                call append_int_1D_array(dom_indices,this%tar_wat_indices(j))
                 exit
             end if
-        else if (this%target_waters(this%dom_tar_wat_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species==0 .and. &
-            this%target_waters(this%dom_tar_wat_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species==&
-            this%reactive_zones(i)%num_non_flowing_species) then
-            if (j<this%num_target_waters_dom) then
-                call append_int_1D_array(dom_indices,this%dom_tar_wat_indices(j))
+        else if (this%waters(this%tar_wat_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species==0 .and. &
+            this%waters(this%tar_wat_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species==&
+            this%reactive_zones(i)%num_non_flow_species) then
+            if (j<this%num_target_waters) then
+                call append_int_1D_array(dom_indices,this%tar_wat_indices(j))
                 j=j+1
             else
-                call append_int_1D_array(dom_indices,this%dom_tar_wat_indices(j))
+                call append_int_1D_array(dom_indices,this%tar_wat_indices(j))
                 exit
             end if
-        else if (j<this%num_target_waters_dom) then
+        else if (j<this%num_target_waters) then
             j=j+1
         else
             exit
@@ -69,13 +69,13 @@ subroutine link_target_waters_reactive_zone(this,i,dom_indices,ext_indices)
         !print *, this%ext_waters_indices
         do
             
-            !print *, this%target_waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species
-            !print *, this%reactive_zones(i)%num_non_flowing_species
-            if (this%target_waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species>0 .and. &
-            this%target_waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species==&
-            this%reactive_zones(i)%num_non_flowing_species) then
-                call this%target_waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%is_nf_species_in_react_zone(&
-                this%reactive_zones(i)%non_flowing_species(k),flag,nf_sp_ind)
+            !print *, this%waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species
+            !print *, this%reactive_zones(i)%num_non_flow_species
+            if (this%waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species>0 .and. &
+            this%waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species==&
+            this%reactive_zones(i)%num_non_flow_species) then
+                call this%waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%is_nf_species_in_react_zone(&
+                this%reactive_zones(i)%ind_non_flow_species(k),flag,nf_sp_ind)
                 if (flag.eqv..false.) then
                     if (j<this%num_ext_waters) then
                         j=j+1
@@ -83,7 +83,7 @@ subroutine link_target_waters_reactive_zone(this,i,dom_indices,ext_indices)
                     else
                         exit
                     end if
-                else if (k<this%reactive_zones(i)%num_non_flowing_species) then
+                else if (k<this%reactive_zones(i)%num_non_flow_species) then
                     k=k+1
                 else if (j<this%num_ext_waters) then
                     call append_int_1D_array(ext_indices,this%ext_waters_indices(j))
@@ -95,9 +95,9 @@ subroutine link_target_waters_reactive_zone(this,i,dom_indices,ext_indices)
                     call append_int_1D_array(ext_indices,this%ext_waters_indices(j))
                     exit
                 end if
-            else if (this%target_waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species==0 .and.&
-                 this%target_waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flowing_species==&
-                 this%reactive_zones(i)%num_non_flowing_species) then
+            else if (this%waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species==0 .and.&
+                 this%waters(this%ext_waters_indices(j))%solid_chemistry%reactive_zone%num_non_flow_species==&
+                 this%reactive_zones(i)%num_non_flow_species) then
                 if (j<this%num_ext_waters) then
                     call append_int_1D_array(ext_indices,this%ext_waters_indices(j))
                     j=j+1

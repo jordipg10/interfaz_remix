@@ -95,7 +95,7 @@ program main_interfaz
     num_aq_comps=my_chem%get_num_aq_comps_dom()
     print *, "Numero de componentes acuosas: ", num_aq_comps
     !> We choose interface based on whether there are equilibrium reactions or not, using procedure pointers
-    if (my_chem%target_waters(my_chem%dom_tar_wat_indices(1))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions==0) then
+    if (my_chem%waters(my_chem%tar_wat_indices(1))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions==0) then
         p_interfaz=>interfaz_esp_arch !> no equilibrium reactions
     else
         p_interfaz=>interfaz_comps_arch !> with equilibrium reactions
