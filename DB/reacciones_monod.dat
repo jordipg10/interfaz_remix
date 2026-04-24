@@ -1,11 +1,11 @@
 'aerobic oxidation of DOC'
 0 '*' 0.0								! number of inhibitors, inhibitors (name + I)
 'o2(aq)' 1.0e-05 'ch2o(aq)' 1.0e-03					! electron acceptor, k, electron donor, k
-4 'o2(aq)' -1.0  'ch2o(aq)' -1.0 'hco3-' 1.0 'h+' 1.0 0.001		! number of species, species (name + stoich. coeff.), rate constant
+4 'o2(aq)' -1.0  'ch2o(aq)' -1.0 'hco3-' 1.0 'h+' 1.0 0.5		! number of species, species (name + stoich. coeff.), rate constant
 'denitrification'
-1 'o2(aq)' 1e-06
+1 'o2(aq)' 2.52e-05
 'no3-' 5.9e-03 'ch2o(aq)' 1.4e-03
-6 'no3-' -0.8  'ch2o(aq)' -1.0 'hco3-' 1.0 'n2(aq)(p)' 0.4 'h2o(p)' 0.4 'h+' 0.2 0.1
+6 'no3-' -0.8  'ch2o(aq)' -1.0 'hco3-' 1.0 'n2(aq)(p)' 0.4 'h2o(p)' 0.4 'h+' 0.2 2.0
 'Mn reduction (review)'
 2 'o2' 1.0e-04 'no3-' 1.0e-04
 'mno2(s)' 1.0e-04
