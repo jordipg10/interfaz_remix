@@ -1,5 +1,5 @@
 program main_interfaz
-    use chemistry_m
+    use chemistry_m, only: chemistry_c, interfaz_comps_arch, interfaz_esp_arch
     use, intrinsic :: ieee_arithmetic
     use, intrinsic :: ieee_exceptions
     implicit none
@@ -51,7 +51,7 @@ program main_interfaz
     end if
     root_files_trimmed = trim(root_files)
     !> we read chemistry
-    call my_chem%read_chemistry(root_files_trimmed,dir_pb_trimmed,dir_DB_trimmed)
+    call my_chem%read_chemistry_interface(root_files_trimmed,dir_pb_trimmed,dir_DB_trimmed)
     !> write file name
     write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones de los tipos de agua iniciales y externas?"
     read(*,*, iostat=ios) file_u_wat_types !> file with initial and external water types
@@ -91,8 +91,8 @@ program main_interfaz
             safe_stop(1)
     end if
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
-    !> We get number of aqueous components in the domain
-    num_aq_comps=my_chem%get_num_aq_comps_dom()
+    !> We get number of aqueous components in the chemical system, which is needed to choose the interface and to read the input file with u_tilde
+    num_aq_comps=my_chem%get_num_aq_comps_chem_syst()
     print *, "Numero de componentes acuosas: ", num_aq_comps
     !> We choose interface based on whether there are equilibrium reactions or not, using procedure pointers
     if (my_chem%waters(my_chem%tar_wat_indices(1))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions==0) then

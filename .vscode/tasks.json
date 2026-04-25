@@ -30,7 +30,7 @@
         {
             "label": "compile-to-obj-dir-cwd",
             "type": "shell",
-            "command": "gfortran",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -52,7 +52,7 @@
         {
             "label": "compile-to-obj-dir",
             "type": "shell",
-            "command": "gfortran",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -77,7 +77,7 @@
         {
             "label": "link",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-o",
                 "../bin/interfaz_remix.exe",
@@ -278,12 +278,13 @@
                 "gas_phase_m.o",
                 //"gas_zone_m.o",
                 "get_indices_reaction.o",
-                "initialise_chemistry.o",
+                //"initialise_chemistry.o",
                 "initialise_conc_anal_ideal.o",
                 "initialise_conc_anal_exch.o",
                 "initialise_conc_anal.o",
                 "initialise_conc_incr_coeff.o",
                 "interfaz_comps_arch.o",
+                "interfaz_esp_arch.o",
                 "interfaz_comps_vars.o",
                 "kin_mineral_m.o",
                 "kin_mineral_params_m.o",
@@ -338,7 +339,7 @@
                 //"read_chem_system.o",
                 //"read_chemistry_PHREEQC.o",
                 "read_chemistry_CHEPROO.o",
-                "read_chemistry.o",
+                "read_chemistry_interface.o",
                 "read_dissolution_react_PHREEQC.o",
                 // "read_eq_reaction.o",
                 "read_exchange_react_PHREEQC.o",
@@ -401,22 +402,25 @@
                 //"reactive_mixing_iter_EI_kin_anal_ideal_opt2_lump.o",
                 "reactive_mixing_iter_EI_eq_anal_ideal.o",
                 "write_chemistry.o",
-                "RT_m.o",
-                "target_water_m.o",
-                "compute_Delta_t_crit.o",
-                "compute_eq_react_rates_stat.o",
+                // The following objects are not required by the interfaz executable
+                // (main_interfaz only uses chemistry_m). Commented out so the link
+                // task does not fail when their sources are not built.
+                // "RT_m.o",
+                // "target_water_m.o",
+                // "compute_Delta_t_crit.o",
+                // "compute_eq_react_rates_stat.o",
                 //"solve_RT_1D.o",
-                "solve_RT_1D_ideal_lump_Euler_trans_flux.o",
-                "solve_RT_1D_ideal_lump_Euler_stat_flux.o",
-                "solve_RT_1D_ideal_lump_Lagr_trans_flux.o",
-                "solve_RT_1D_ideal_lump_Lagr_stat_flux.o",
-                "solve_RT_1D_ideal_cons_Lagr_stat_flux.o",
-                "solve_RT_1D_ideal_cons_Euler_stat_flux.o",
-                "solve_RT_2D_ideal_lump_Lagr_stat_flux.o",
-                "write_cpu_profile_report.o",
+                // "solve_RT_1D_ideal_lump_Euler_trans_flux.o",
+                // "solve_RT_1D_ideal_lump_Euler_stat_flux.o",
+                // "solve_RT_1D_ideal_lump_Lagr_trans_flux.o",
+                // "solve_RT_1D_ideal_lump_Lagr_stat_flux.o",
+                // "solve_RT_1D_ideal_cons_Lagr_stat_flux.o",
+                // "solve_RT_1D_ideal_cons_Euler_stat_flux.o",
+                // "solve_RT_2D_ideal_lump_Lagr_stat_flux.o",
+                // "write_cpu_profile_report.o",
                 //"write_python.o",
-                "write_RT.o",
-                "write_transport_data.o",
+                // "write_RT.o",
+                // "write_transport_data.o",
                 "main_interfaz.o",
                 "${workspaceFolder}/lib/liblapack.a",
                 "${workspaceFolder}/lib/librefblas.a"
@@ -439,7 +443,7 @@
         {
             "label": "compile",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -674,12 +678,13 @@
                 // "../src/gas_phase_m.f90",
                 // "../src/gas_zone_m.f90",
                 "../src/get_indices_reaction.f90",
-                "../src/initialise_chemistry.f90",
+                //"../src/initialise_chemistry.f90",
                 "../src/initialise_conc_anal_ideal.f90",
                 "../src/initialise_conc_anal_exch.f90",
                 "../src/initialise_conc_anal.f90",
                 "../src/initialise_conc_incr_coeff.f90",
                 "../src/interfaz_comps_arch.f90",
+                "../src/interfaz_esp_arch.f90",
                 "../src/interfaz_comps_vars.f90",
                 // "../src/kin_mineral_m.f90",
                 // "../src/kin_mineral_params_m.f90",
@@ -732,7 +737,7 @@
                 "../src/read_chem_system_CHEPROO.f90",
                 //"../src/read_chem_system.f90",
                 "../src/read_chemistry_CHEPROO.f90",
-                "../src/read_chemistry.f90",
+                "../src/read_chemistry_interface.f90",
                 "../src/read_dissolution_react_PHREEQC.f90",
                 //"../src/read_eq_reaction.f90",
                 "../src/read_exchange_react_PHREEQC.f90",
@@ -816,7 +821,7 @@
         {
             "label": "compile-discr",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -862,7 +867,7 @@
         {
             "label": "compile-chem",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -975,12 +980,13 @@
                 // "../src/gas_phase_m.f90",
                 // "../src/gas_zone_m.f90",
                 "../src/get_indices_reaction.f90",
-                "../src/initialise_chemistry.f90",
+                //"../src/initialise_chemistry.f90",
                 "../src/initialise_conc_anal_ideal.f90",
                 "../src/initialise_conc_anal_exch.f90",
                 "../src/initialise_conc_anal.f90",
                 "../src/initialise_conc_incr_coeff.f90",
                 "../src/interfaz_comps_arch.f90",
+                "../src/interfaz_esp_arch.f90",
                 "../src/interfaz_comps_vars.f90",
                 // "../src/kin_mineral_m.f90",
                 // "../src/kin_mineral_params_m.f90",
@@ -1035,7 +1041,7 @@
                 "../src/read_chem_system_CHEPROO.f90",
                 // "../src/read_chem_system.f90",
                 "../src/read_chemistry_CHEPROO.f90",
-                "../src/read_chemistry.f90",
+                "../src/read_chemistry_interface.f90",
                 "../src/read_dissolution_react_PHREEQC.f90",
                 // "../src/read_eq_reaction.f90",
                 "../src/read_exchange_react_PHREEQC.f90",
@@ -1165,6 +1171,7 @@
                 //"compile-transport-m",
                 //"compile-MRMT",
                 "compile-chem",
+                "compile-main",
                 //"compile-RT",
                 "link"
             ],
@@ -1189,7 +1196,7 @@
         {
             "label": "compile-main",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -1215,8 +1222,7 @@
             "label": "compile-main-and-link-and-run",
             "dependsOn": [
                 "compile-main",
-                "link",
-                "run"
+                "link-and-run",
             ],
             "dependsOrder": "sequence",
             "group": {

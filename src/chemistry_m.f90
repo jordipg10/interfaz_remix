@@ -29,6 +29,7 @@ module chemistry_m
     private !< Make all entities private by default
     public :: chemistry_c !< Make chemistry class public
     public :: reactive_zone_c !< Re-export reactive zone class for use by subprograms
+    public :: interfaz_comps_arch, interfaz_esp_arch !< External interface subroutines for reactive mixing iterations
     !> @brief Main chemistry class - central coordinator for all chemical processes
     !> @details This class manages the complete chemical system including:
     !>          - Water types and target waters at spatial locations
@@ -192,7 +193,7 @@ module chemistry_m
         procedure :: read_tar_sol                     !< Read target solid definitions
         procedure :: read_tar_gas                     !< Read target gas definitions
         procedure :: read_init_min_zones_CHEPROO      !< Read initial mineral zones (CHEPROO format)
-        procedure :: read_chemistry                   !< Read complete chemistry setup
+        procedure :: read_chemistry_interface         !< Read chemistry information from input files and initialize chemistry object
         procedure :: read_chemistry_CHEPROO           !< Read chemistry data in CHEPROO format
         procedure :: read_init_bd_wat_types_CHEPROO   !< Read initial boundary water types (CHEPROO)
         procedure :: read_init_cat_exch_zones_CHEPROO !< Read initial cation exchange zones (CHEPROO)
@@ -205,7 +206,7 @@ module chemistry_m
         
         !> @name Initialization Methods
         !> @{
-        procedure :: initialise_chemistry             !< Initialize complete chemistry system
+        !procedure :: initialise_chemistry             !< Initialize complete chemistry system
         !> @}
         
         !> @name Main Solver Methods
@@ -441,7 +442,7 @@ module chemistry_m
     !> @param[in] root Root name for input/output files
     !> @param[in] path_pb Path to problem directory
     !> @param[in] path_DB Path to database files
-        subroutine read_chemistry(this,root,path_pb,path_DB)
+        subroutine read_chemistry_interface(this,root,path_pb,path_DB)
             import chemistry_c
             class(chemistry_c) :: this                    !< Chemistry object to initialize
             character(len=*), intent(in) :: root          !< Root name for input/output files
@@ -808,6 +809,19 @@ module chemistry_m
             real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
             character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
         end subroutine
+
+    !> @brief Interface for aqueous species concentrations via file I/O (no equilibrium reactions)
+    !> @details Reads aqueous species concentrations from a file after conservative transport,
+    !>          performs reactive chemistry step (kinetic only), and writes updated concentrations to output file.
+        subroutine interfaz_esp_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
+            import chemistry_c
+            class(chemistry_c) :: this                    !< Chemistry object
+            character(len=*), intent(in) :: path          !< Path for input and output files
+            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous species
+            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
+            real(kind=8), intent(in) :: Delta_t           !< Time step
+            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
+        end subroutine
         
     !> @brief Interface for component concentrations via variables
     !> @details Takes aqueous component concentrations after conservative transport (u_mix),
@@ -859,14 +873,14 @@ module chemistry_m
     !> @param[in] root Root name for input/output files
     !> @param[in] path_pb Path to problem directory
     !> @param[in] path_DB Path to database files
-        subroutine initialise_chemistry(this,root,path_pb,path_DB)
-            import chemistry_c                            !< Import chemistry class definition
-            implicit none                                 !< Require explicit variable declarations
-            class(chemistry_c) :: this                    !< Chemistry object to initialize
-            character(len=*), intent(in) :: root          !< Root name for input/output files
-            character(len=*), intent(in) :: path_pb       !< Path to problem directory
-            character(len=*), intent(in) :: path_DB       !< Path to database files
-        end subroutine
+        ! subroutine initialise_chemistry(this,root,path_pb,path_DB)
+        !     import chemistry_c                            !< Import chemistry class definition
+        !     implicit none                                 !< Require explicit variable declarations
+        !     class(chemistry_c) :: this                    !< Chemistry object to initialize
+        !     character(len=*), intent(in) :: root          !< Root name for input/output files
+        !     character(len=*), intent(in) :: path_pb       !< Path to problem directory
+        !     character(len=*), intent(in) :: path_DB       !< Path to database files
+        ! end subroutine
 
     !> @brief Single iteration of the ideal lumped reactive mixing solver
     !> @details Performs one iteration of the Water Mixing Algorithm using the ideal
@@ -1862,19 +1876,107 @@ module chemistry_m
         character(len=*), intent(in) :: filename          !< Output filename
 
         real(kind=8), allocatable :: u_aq_init(:)         !< Aqueous components of water types
-        integer(kind=4) :: i,j                            !< Loop indices
+        real(kind=8), allocatable :: c_var_act(:)         !< Variable-activity-species concentrations of water type i, ordered as in the reference water type
+        integer(kind=4) :: i,j,k                          !< Loop indices
+        integer(kind=4) :: ref_idx                        !< Index of reference water type ("domain"/"initial")
+        integer(kind=4) :: num_comps_ref                  !< Number of aqueous components in reference water type
+        integer(kind=4) :: num_var_act_ref                !< Number of variable-activity aqueous species in reference water type
+        integer(kind=4) :: sp_idx_i                       !< Index of a reference species inside water type i's own aq_phase
+        character(len=:), allocatable :: name_lc          !< Lowercased water type name for matching
+        character(len=13) :: name_buf                     !< Fixed-width buffer for right-aligning species names (matches ES13.5E2 width)
+
+        !> Locate reference water type whose name contains "domain", "initial",
+        !> "dominio" or "inicial" (case-insensitive). Its aqueous component matrix
+        !> will be used for all water types so the resulting u_aq vectors share
+        !> the same dimension.
+        ref_idx=0 !< Sentinel: no reference water type found yet
+        do i=1,this%num_wat_types !< Scan all water types looking for the reference
+            name_lc=to_lower(trim(this%wat_types(i)%name)) !< Normalise name to lowercase for case-insensitive match
+            if (index(name_lc,'domain')>0 .or. index(name_lc,'initial')>0 .or. &
+                index(name_lc,'dominio')>0 .or. index(name_lc,'inicial')>0 .or. &
+                index(name_lc,'resident')>0 .or. index(name_lc,'residente')>0) then
+                ref_idx=i !< Remember reference water type index
+                exit !< Use first matching water type as reference
+            end if
+        end do
+        if (ref_idx==0) then !< No matching water type was found
+            error stop "write_conc_comp_wat_types: no water type named 'domain'/'initial'/'resident'/'dominio'/'inicial'/'residente' found"
+        end if
+
+        num_comps_ref=this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species
+        num_var_act_ref=this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species
 
         open(unit=10, file=path//filename, status='unknown', action='write', form='formatted') !< Open output file for writing water type compositions
-        !> Deberias usar solo 1 bucle en vez de 2
+        !> Write the names of the aqueous primary species of the reference water
+        !> type, in the same order as the component concentrations that follow.
+        !> Names are right-aligned in a 13-character field so that they end at the
+        !> same column (column 17) as the concentration values written below.
+        write(10,"(2x,A,/)") "Aqueous primary species:"
+        do j=1,num_comps_ref
+            name_buf=trim(this%wat_types(ref_idx)%aq_phase%aq_species(&
+                this%wat_types(ref_idx)%indices_aq_phase(&
+                this%wat_types(ref_idx)%ind_prim_species(j)))%name) !< Trim then assign into 13-char fixed buffer (auto right-pads)
+            write(10,"(4x,A13)") adjustr(name_buf) !< Right-align inside the 13-char buffer
+        end do
         do i=1,this%num_wat_types !< Loop over all water types to write their aqueous component data
-            u_aq_init=this%wat_types(i)%get_u_aq() !< Retrieve aqueous component concentrations for current water type
-            write(10,"(/,2x,A15,/)") trim(this%wat_types(i)%name)//':' !< Write water type name as section header with formatting
-            do j=1,this%wat_types(i)%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species !< Loop over all aqueous primary species in this water type's reactive zone
-                write(10,"(10x,ES15.5)") u_aq_init(j) !< Write each aqueous component concentration in scientific notation with indentation
+            allocate(u_aq_init(num_comps_ref)) !< Result vector with reference dimension (same for every water type)
+            allocate(c_var_act(num_var_act_ref)) !< Concentration vector for water type i in reference's species ordering
+            !> Look up each reference variable-activity species by name in water
+            !> type i's own aq_phase. This guarantees consistency even if the two
+            !> water types use different species orderings or different aq_phase
+            !> instances after speciation-algebra rearrangements.
+            do j=1,num_var_act_ref
+                call this%wat_types(i)%aq_phase%get_aq_species_index_by_name(&
+                    trim(this%wat_types(ref_idx)%aq_phase%aq_species(&
+                        this%wat_types(ref_idx)%indices_aq_phase(&
+                        this%wat_types(ref_idx)%ind_var_act_species(j)))%name), &
+                    sp_idx_i)
+                !> sp_idx_i is an index into water type i's aq_phase; map back to
+                !> its concentrations array via its own indices_aq_phase inverse.
+                !> Since indices_aq_phase(k) gives the aq_phase index of the k-th
+                !> entry of concentrations, scan to find k such that
+                !> indices_aq_phase(k)==sp_idx_i.
+                do k=1,size(this%wat_types(i)%indices_aq_phase)
+                    if (this%wat_types(i)%indices_aq_phase(k)==sp_idx_i) then
+                        c_var_act(j)=this%wat_types(i)%concentrations(k)
+                        exit
+                    end if
+                end do
+            end do
+            !> Project water type i's variable-activity-species concentrations
+            !> (now ordered as in the reference) onto the component basis defined
+            !> by the reference water type, so all water types yield component
+            !> vectors of identical length.
+            u_aq_init=matmul(&
+                this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
+                c_var_act)
+            write(10,"(/,2x,A,/)") "Aqueous component concentrations of "//trim(this%wat_types(i)%name)//':' !< Section header on same line as water type name
+            do j=1,num_comps_ref !< Loop over all components in the reference basis
+                !> Use the fixed-width ES13.5E2 field directly (no adjustl) so every
+                !> value occupies the same 13 characters and therefore ends at the
+                !> same column on every line. Indentation is provided by 4x.
+                write(10,"(4x,ES13.5E2)") u_aq_init(j) !< Right-aligned value: all numbers end at column 17
             end do !< End inner loop over species
-            deallocate(u_aq_init) !< Free memory for current water type's component array before next iteration
+            deallocate(u_aq_init,c_var_act) !< Free memory for current water type's arrays before next iteration
         end do !< End outer loop over water types
         close(10) !< Close output file after writing all water type data
+
+        contains
+
+        !> @brief Return a lowercase copy of the input string (ASCII)
+        pure function to_lower(s) result(out)
+            character(len=*), intent(in) :: s
+            character(len=len(s)) :: out
+            integer :: k, ic
+            do k=1,len(s)
+                ic=iachar(s(k:k))
+                if (ic>=iachar('A') .and. ic<=iachar('Z')) then
+                    out(k:k)=achar(ic+32)
+                else
+                    out(k:k)=s(k:k)
+                end if
+            end do
+        end function to_lower
         end subroutine
         
         !> @brief Associate target solids with spatial mesh targets

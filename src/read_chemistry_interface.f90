@@ -1,4 +1,4 @@
-!> \file read_chemistry.f90
+!> \file read_chemistry_interface.f90
 !> \brief Reads all chemistry input data from files.
 !> \details
 !> Dispatches to CHEPROO, PHREEQC, or PFLOTRAN readers depending
@@ -12,7 +12,7 @@
 !> \see chemistry_m, read_chem_system_CHEPROO, read_chemistry_CHEPROO
 
 !> This subroutine reads chemistry data depending on the selected option
-subroutine read_chemistry(this,root,path_pb,path_DB)
+subroutine read_chemistry_interface(this,root,path_pb,path_DB)
     use chemistry_m, only: chemistry_c
     implicit none
     !> Arguments
@@ -32,10 +32,6 @@ subroutine read_chemistry(this,root,path_pb,path_DB)
     unit_comp_opts=51
     unit_loc_chem=2
 
-    !> Read computation options
-    call this%read_comp_opts(path_pb,root,unit_comp_opts)
-    !> Read convergence parameters
-    call this%CV_params%read_CV_params(path_pb,root)
     !> Read chemical data depending on the selected option (we impose CHEPROO here)
     read_opt=1 !> CHEPROO-based (chapuza)
     call this%set_read_opt(read_opt) !> set reading option (chapuza)
@@ -48,6 +44,4 @@ subroutine read_chemistry(this,root,path_pb,path_DB)
     else
         error stop "This data input option is not implemented yet"
     end if
-    !> Read output options
-     call this%chem_out_options%read_chem_out_options(path_pb,root,this%chem_syst,this%num_waters)
 end subroutine
