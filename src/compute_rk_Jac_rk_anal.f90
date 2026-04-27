@@ -196,14 +196,14 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
         !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
         !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
         !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))
-        this%solid_chemistry%rk_new(i)=this%solid_chemistry%rk_new(i)*this%activities(this%indices_aq_species(&
-            this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
-            this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))*&
-            this%solid_chemistry%time**(&
-            -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m) !< Update rate in chemistry object (temporary workaround - "chapuza")
+        ! this%solid_chemistry%rk_new(i)=this%solid_chemistry%rk_new(i)*this%activities(this%indices_aq_species(&
+        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
+        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))*&
+        !     this%solid_chemistry%time**(&
+        !     -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m) !< Update rate in chemistry object (temporary workaround - "chapuza")
         rk_new(num_rk+i)=this%solid_chemistry%rk_new(i) !< Copy rate to output array (temporary workaround - "chapuza")
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   rk_new(", num_rk+i, ") (after time scaling) =", rk_new(num_rk+i)
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   time =", this%solid_chemistry%time, &
@@ -232,20 +232,20 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
             this%solid_chemistry%temp,& !< Temperature [K]
             drk_dc_loc) !< Output: Jacobian derivatives drk/dc [1/s]
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   drk_dc_loc (mineral) (before time scaling) =", drk_dc_loc
-        drk_dc_loc(1:this%indices_rk%cols(num_rk+i)%dim-1)=drk_dc_loc(1:this%indices_rk%cols(num_rk+i)%dim-1)*&
-            this%activities(this%indices_aq_species(&
-            this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
-            this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))*&
-            this%solid_chemistry%time**(&
-            -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m)
-        drk_dc_loc(this%indices_rk%cols(num_rk+i)%dim)=-this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%k(1)*&
-            this%solid_chemistry%time**(&
-            -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m)
+        ! drk_dc_loc(1:this%indices_rk%cols(num_rk+i)%dim-1)=drk_dc_loc(1:this%indices_rk%cols(num_rk+i)%dim-1)*&
+        !     this%activities(this%indices_aq_species(&
+        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
+        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))*&
+        !     this%solid_chemistry%time**(&
+        !     -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m)
+        ! drk_dc_loc(this%indices_rk%cols(num_rk+i)%dim)=-this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%k(1)*&
+        !     this%solid_chemistry%time**(&
+        !     -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m)
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   drk_dc_loc (mineral) (after time scaling) =", drk_dc_loc
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   indices_rk (mineral) =", &
         !     this%indices_rk%cols(num_rk+i)%col_1

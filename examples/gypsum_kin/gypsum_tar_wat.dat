@@ -1,11 +1,12 @@
 'TITLE OF THE PROBLEM: Yeso cinetico'
 '---------------------------------------------------------------------------------------------------------------------------------'
-'TARGET WATERS'
-4					! number of target waters
+'WATERS'
+6					! number of target waters
 0					! number of recharge target waters
-0					! number of boundary target waters
-1	1	1	0	1	! target waters interval, water type index, target solid index, target gas index, flag
-2-4	2	2-4	0	1
+2					! number of boundary target waters
+1	1	0	0	0	! target waters interval, water type index, target solid index, target gas index, flag
+2-5	2	1-4	0	1
+6	2	0	0	0
 '----------------------------------------------------------------------------------------------------------------------------------'
 'end'
 
