@@ -1,12 +1,12 @@
-'TITLE OF THE PROBLEM: Yeso en equilibrio'
+'TITLE OF THE PROBLEM: Gypsum in equilibrium'
 '---------------------------------------------------------------------------------------------------------------------------------'
-'TARGET WATERS'
+'WATERS'
 4					! number of target waters
 0					! number of recharge target waters
 2					! number of boundary target waters
-1	1	1	0	0	! target waters interval, water type index, target solids indices, target gases indices, flag
+1	1	0	0	0	! target waters interval, water type index, target solids indices, target gases indices, flag
 2-3	2	1-2	0	1
-4	2	2	0	0
+4	2	0	0	0
 '----------------------------------------------------------------------------------------------------------------------------------'
 'end'
 

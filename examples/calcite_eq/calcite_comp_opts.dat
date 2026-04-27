@@ -1,9 +1,0 @@
-'TITLE OF THE PROBLEM: Calcite in equilibrium'
-'------------------------------------------------------------------------------------------------------------------------'
-'COMPUTATION OPTIONS'
-1			! Option to compute Jacobians (0: incremental coefficients, 1: analyticially)
-.false.			! Lumping flag
-4			! Estimation of downstream waters reaction rates (4 options, see documentation for details)
-2			! Averaging kinetic reaction rates option (1: concentrations, 2: reaction rates)
-'------------------------------------------------------------------------------------------------------------------------'
-'end'
