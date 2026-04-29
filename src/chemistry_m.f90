@@ -155,6 +155,7 @@ module chemistry_m
         !> @name Query and Retrieval Methods
         !> @{
         procedure :: get_num_aq_comps_chem_syst       !< Get number of aqueous components in chemical system
+        procedure :: get_num_aq_comps_tar_wat         !< Get number of aqueous components in a domain (target) water
         procedure :: get_num_wat_types                !< Get number of water types
         procedure :: get_conc_comp_wat_types          !< Get component concentrations of water types
         procedure :: get_num_aq_var_act_species       !< Get number of aqueous variable activity species
@@ -1801,6 +1802,36 @@ module chemistry_m
         class(chemistry_c) :: this                        !< Chemistry object instance
         integer(kind=4) :: num_aq_comps                   !< Number of aqueous components in chemical system
         num_aq_comps=this%chem_syst%speciation_alg%num_aq_prim_species !< Retrieve count from chemical system's speciation algorithm object
+        end function
+
+        !> @brief Get the number of aqueous components in a domain (resident/initial) target water
+        !> @details Retrieves the number of aqueous primary species (components) from the
+        !>          speciation algebra associated with a specific target water,
+        !>          accessed through its solid chemistry's reactive zone. If no index is
+        !>          provided, the first target water (`tar_wat_indices(1)`) is used.
+        !>          The component count may differ from the chemical-system-wide count when
+        !>          the local reactive zone defines a reduced set of equilibrium reactions.
+        !> @param[in] this Chemistry object
+        !> @param[in] ind_tw Optional index into `tar_wat_indices` selecting the target water
+        !> @return num_aq_comps Number of aqueous components in the selected target water
+        function get_num_aq_comps_tar_wat(this,ind_tw) result(num_aq_comps)
+        implicit none                                     !< Require explicit variable declarations
+        class(chemistry_c), intent(in) :: this            !< Chemistry object instance
+        integer(kind=4), intent(in), optional :: ind_tw   !< Optional index into tar_wat_indices
+        integer(kind=4) :: num_aq_comps                   !< Number of aqueous components in the target water
+        integer(kind=4) :: idx                            !< Resolved position in tar_wat_indices
+        if (present(ind_tw)) then                         !< Validate caller-provided index
+            if (ind_tw<1 .or. ind_tw>size(this%tar_wat_indices)) then
+                error stop "get_num_aq_comps_tar_wat: ind_tw out of range"
+            end if
+            idx=ind_tw                                    !< Use caller-provided index
+        else
+            if (.not. allocated(this%tar_wat_indices) .or. size(this%tar_wat_indices)<1) then
+                error stop "get_num_aq_comps_tar_wat: no target waters available"
+            end if
+            idx=1                                         !< Default to the first target water
+        end if
+        num_aq_comps=this%waters(this%tar_wat_indices(idx))%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species !< Retrieve count from the local reactive zone's speciation algorithm
         end function
         
         !> @brief Get number of aqueous variable activity species in a target water

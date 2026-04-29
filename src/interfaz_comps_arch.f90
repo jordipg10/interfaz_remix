@@ -2,7 +2,7 @@
 !> It has to be called only once in each time step
 !> It is supposed to be called after the conservative transport has been solved
 !> It uses Euler explicit and applies lumping to the kinetic mixing ratios
-!> It reads the concentrations after conservative transport in a file, and writes the concentrations after reactive mixing in a different file
+!> It reads the aqueous component concentrations after conservative transport in a file, and writes the concentrations after reactive mixing in a different file
 subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
     use chemistry_m, only: chemistry_c
     implicit none
@@ -10,9 +10,9 @@ subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
     class(chemistry_c) :: this !> chemistry object
     character(len=*), intent(in) :: path !> path for input and output files
     integer(kind=4), intent(in) :: num_aq_comps !> number of aqueous components
-    character(len=*), intent(in) :: file_in !> name of file containing component concentrations after solving conservative transport
+    character(len=*), intent(in) :: file_in !> name of file containing aqueous component concentrations after solving conservative transport iteration
     real(kind=8), intent(in) :: Delta_t !> time step
-    character(len=*), intent(in) :: file_out !> name of file containing component concentrations after solving conservative transport
+    character(len=*), intent(in) :: file_out !> name of file containing variable activity species and aqueous component concentrations after solving reactive mixing iteration
 !> Variables
     integer(kind=4) :: i,j !> loop variables
     integer(kind=4) :: niter !> number of iterations in Newton algorithm
@@ -35,7 +35,7 @@ subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
     end do
     close(1)
     !> We solve reactive mixing for each target water
-    do j=1,this%num_target_waters !> loop over target waters in the domain
+    do j=1,this%num_target_waters !> loop over target waters
         call this%waters(this%tar_wat_indices(j))%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react) !> chemical part of components
         u_new(:,j)=u_tilde(:,j)+u_react !> we sum transport and reaction parts
         call this%waters(this%tar_wat_indices(j))%compute_c_nc_from_u_Newton_ideal(&
@@ -51,15 +51,15 @@ subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
 !> Post-process
     !> We write the component concentrations after solving reactive mixing
     open(unit=2,file=path//file_out,status='unknown',form='formatted')
-    write(2,*) "Component concentrations after solving reactive mixing iteration (rows: components, columns: & 
-        target waters in the domain):"
+    write(2,*) "Aqueous component concentrations after solving reactive mixing iteration (rows: components, columns: & 
+        targets):"
     write(2,*)
     do i=1,num_aq_comps
         write(2,"(2x,*(ES15.5))") (u_new(i,j), j=1,this%num_target_waters)
     end do
     write(2,*)
     write(2,*) "Concentrations of variable activity species after solving reactive mixing iteration (rows: species, & 
-        columns: target waters in the domain):"
+        columns: targets):"
     write(2,*)
     do i=1,n_nc
         write(2,"(2x,*(ES15.5))") (conc_nc(i,j), j=1,this%num_target_waters)
