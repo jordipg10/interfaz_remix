@@ -1,11 +1,17 @@
 Param()
 
+# Copy gfortran runtime DLLs from the in-repo lib/ folder next to the
+# executable in bin/. Used to make bin/interfaz_remix.exe portable on
+# Windows machines without a gfortran installation.
+#
+# Usage: ./copy_local_dlls.ps1
+
 $ErrorActionPreference = 'Stop'
 
 # Resolve paths relative to this script
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src  = Join-Path $root 'lib'
-$dst  = Join-Path $root 'exe'
+$dst  = Join-Path $root 'bin'
 
 if (-not (Test-Path $src)) {
     Write-Error "Source folder not found: $src"
@@ -28,7 +34,7 @@ foreach ($d in $dlls) {
     $s = Join-Path $src $d
     if (Test-Path $s) {
         Copy-Item $s $dst -Force
-        Write-Host "Copied $d" -ForegroundColor Green
+        Write-Host "Copied $d -> bin/" -ForegroundColor Green
     } else {
         Write-Warning "Missing $d in lib/"
         $missing += $d

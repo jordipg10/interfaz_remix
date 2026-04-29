@@ -1,108 +1,143 @@
-# Portable Executable Setup for interfaz.exe
+# Portable Executable Setup for `interfaz_remix.exe`
 
-This document explains how to make the `interfaz.exe` executable work on other Windows computers that don't have the GFortran compiler installed.
+This document explains how to make the `interfaz_remix.exe` executable work on
+other Windows computers that do not have a gfortran toolchain installed.
 
-## The Problem
+## The problem
 
-The `interfaz.exe` executable is compiled with GFortran and depends on several runtime DLL files:
-- `libgfortran_64-5.dll` - Fortran runtime library
-- `libgcc_s_seh_64-1.dll` - GCC runtime library  
-- `libwinpthread_64-1.dll` - Threading library
-- `libquadmath_64-0.dll` - Extended precision math library
+`interfaz_remix.exe` is built with gfortran (MinGW-w64 / MSYS2 / TDM-GCC) and at
+runtime depends on the following DLLs:
 
-These DLLs are usually installed with the compiler but are not present on computers without GFortran.
+- `libgfortran_64-5.dll` — Fortran runtime
+- `libgcc_s_seh_64-1.dll` — GCC runtime
+- `libwinpthread_64-1.dll` — POSIX threads
+- `libquadmath_64-0.dll`  — Quad-precision math
+
+These DLLs are normally installed alongside gfortran but are not present on
+machines without the toolchain.
+
+## Repository layout
+
+```
+bin/   interfaz_remix.exe + the four runtime DLLs (this is what you ship)
+lib/   Backup copy of the four runtime DLLs (used by copy_local_dlls.ps1)
+```
+
+The `bin/` folder in this repository already contains the executable together
+with the four DLLs, so it is portable as-is.
 
 ## Solutions
 
-### Option 1: Copy Runtime DLLs (Recommended)
+### Option 1: Ship the executable together with the DLLs (recommended)
 
-This is the simplest approach and has already been implemented.
+This is the simplest and recommended approach.
 
-#### Automatic Setup
-Use one of these:
-- VS Code task: `copy-local-dlls` (copies the four DLLs from your repo `lib/` into `exe/`)
-- PowerShell script: `./copy_local_dlls.ps1`
-- Alternative (from compiler install): `./copy_dlls.ps1` (searches your gfortran installation for the DLLs)
+#### Automatic setup
 
-#### Manual Setup
-1. Preferred: Copy from the repo `lib/` to the `exe/` folder (already included in this project).
-   - If `lib/` is missing the files, locate your GFortran installation (e.g., `C:\TDM-GCC-64\bin\`) and copy them into `lib/` and `exe/`.
-2. Copy these DLL files to both the `lib\` folder (for organization) and `exe\` folder (for runtime):
-   - `libgfortran_64-5.dll`
-   - `libgcc_s_seh_64-1.dll` 
-   - `libwinpthread_64-1.dll`
-   - `libquadmath_64-0.dll`
+- PowerShell (in-repo DLLs):
+	```powershell
+	./copy_local_dlls.ps1
+	```
+- PowerShell (locate DLLs from your gfortran installation):
+	```powershell
+	./copy_dlls.ps1
+	```
 
-**Note**: The DLLs must be in the same directory as the executable (`exe\`) for the program to run properly.
+Both scripts ensure the four DLLs are present next to `bin/interfaz_remix.exe`.
 
-#### Using VS Code Tasks
-- Run the `build-with-dlls` task to build and copy DLLs in one step
+#### Manual setup
 
-### Option 2: Static Linking (optional)
+1. Locate the four DLLs. Preferred source: `lib/` in this repo. Otherwise look
+   in your gfortran installation, e.g. `C:\TDM-GCC-64\bin\` or
+   `C:\msys64\mingw64\bin\`.
+2. Copy them next to the executable:
+	```powershell
+	Copy-Item lib\libgfortran_64-5.dll, lib\libgcc_s_seh_64-1.dll, `
+			  lib\libwinpthread_64-1.dll, lib\libquadmath_64-0.dll `
+			  bin\ -Force
+	```
 
-You can try to embed the Fortran/GCC runtimes to avoid shipping DLLs, but this is not enabled by default.
+> The DLLs must live in the same directory as `interfaz_remix.exe` (or in a
+> directory on `PATH`) for the program to start.
 
-Suggested linker flags (Windows/MinGW):
-- `-static-libgfortran -static-libgcc -static-libquadmath`
-   - Full `-static` is often problematic on Windows and not recommended.
+### Option 2: Static linking (optional)
 
-How to use:
-- Edit the `link` task to add the static runtime flags, or create a separate `link-static` task.
-- Note: Some combinations of libraries may still require DLLs.
+You can try to embed the gfortran/GCC runtimes to avoid shipping DLLs. This is
+not enabled by default. Suggested linker flags on Windows / MinGW:
 
-### Option 3: Installer Package
+```
+-static-libgfortran -static-libgcc -static-libquadmath
+```
 
-Create an installer that includes the executable and required DLLs:
-- Use tools like NSIS, InnoSetup, or WiX
-- Include all dependencies in the installer
-- Handles installation and uninstallation
+Notes:
 
-## Current Status
+- Full `-static` is often problematic on Windows and is not recommended.
+- Some library combinations may still pull in DLLs at runtime.
+- To use this, modify the `link` task in `.vscode/tasks.json` (or add a
+  separate `link-static` task).
 
-The project now organizes DLLs as follows:
+### Option 3: Installer package
 
-**lib/ folder** (for organization):
-- `libgfortran_64-5.dll` - Fortran runtime
-- `libgcc_s_seh_64-1.dll` - GCC runtime
-- `libwinpthread_64-1.dll` - Threading support
-- `libquadmath_64-0.dll` - Extended precision math
+Wrap the executable plus its DLLs (and optionally `DB/`, `examples/`,
+`documentation/`) in an installer:
 
-**exe/ folder** (for runtime):
-- `interfaz.exe` - The main executable
-- `libgfortran_64-5.dll` - Fortran runtime (required at runtime)
-- `libgcc_s_seh_64-1.dll` - GCC runtime (required at runtime)
-- `libwinpthread_64-1.dll` - Threading support (required at runtime)
-- `libquadmath_64-0.dll` - Extended precision math (required at runtime)
+- NSIS, InnoSetup, or WiX are all reasonable choices.
+- The installer should place the four DLLs in the same folder as the executable.
 
-## Distribution
+## Distribution checklist
 
-To distribute the executable:
+To distribute a portable build:
 
-1. **Zip the exe folder**: Create a zip file containing the entire `exe\` folder
-2. **Test on clean system**: Verify it works on a computer without GFortran
-3. **Include instructions**: Provide README with any additional setup steps
+1. Build the executable (see `BUILD_GUIDE.md`, e.g. via the `rebuild` VS Code task).
+2. Make sure `bin/` contains:
+	- `interfaz_remix.exe`
+	- `libgfortran_64-5.dll`
+	- `libgcc_s_seh_64-1.dll`
+	- `libwinpthread_64-1.dll`
+	- `libquadmath_64-0.dll`
+3. (Optional) Include the `DB/`, `examples/`, and `documentation/` folders so
+   the user has databases and ready-to-run problems.
+4. Zip the result and test it on a clean machine without gfortran installed.
 
-## VS Code Tasks Available
+## Helper scripts and tasks
 
-- `compile`: Compile object files into `obj/`
-- `link`: Link (dynamic) into `exe/interfaz.exe`
-- `copy-local-dlls`: Copy four runtime DLLs from repo `lib/` to `exe/`
-- `build-with-local-dlls`: Compile → link → copy-local-dlls (one step)
-- `copy-dlls`: Copy runtime DLLs from your gfortran installation (alternative)
-- `build-with-dlls`: Compile + Link + copy-dlls (alternative)
+PowerShell scripts at the repository root:
+
+- `copy_local_dlls.ps1` — copies the four DLLs from `lib/` into `bin/`.
+- `copy_dlls.ps1` — locates and copies the DLLs from your gfortran installation
+  into `bin/`.
+- `build_multiplatform.ps1` — multi-platform build driver (Docker-based for Linux).
+
+VS Code tasks (see `.vscode/tasks.json`):
+
+- `compile`, `compile-discr`, `compile-chem`, `compile-main` — build the objects.
+- `link` — link `obj/*.o` into `bin/interfaz_remix.exe` (dynamic).
+- `rebuild` — `clean` → `compile-discr` → `compile-chem` → `compile-main` → `link`.
+- `run`, `link-and-run`, `compile-main-and-link-and-run` — launch the executable.
+- `clean` — remove `obj/*.o` and `mod/*.mod`.
+
+> The current `tasks.json` does not include dedicated `copy-dlls` /
+> `build-with-dlls` tasks. Use the PowerShell scripts above instead.
 
 ## Troubleshooting
 
-If the executable still doesn't work on other computers:
+If the executable still does not run on another machine:
 
-1. **Check Windows version compatibility**: Ensure target systems are compatible
-2. **Verify all DLLs**: Use `dumpbin /dependents interfaz.exe` to check dependencies
-3. **Missing Visual C++ runtime**: Some systems may need Visual C++ Redistributable
-4. **Architecture mismatch**: Ensure 64-bit executable on 64-bit systems
+1. **Check Windows version / architecture**: ship the 64-bit build to 64-bit
+   targets. Re-build for 32-bit if you need to support legacy systems.
+2. **Verify dependencies**: from a Visual Studio Developer Prompt, run
+   `dumpbin /dependents bin\interfaz_remix.exe` to list the DLLs the binary
+   actually requires; make sure each one is present next to the executable
+   (or on the system).
+3. **Missing Visual C++ runtime**: some systems may also require the
+   Microsoft Visual C++ Redistributable.
+4. **Antivirus / SmartScreen**: an unsigned executable can be blocked on
+   first run. Right-click → Properties → Unblock if needed.
 
-## Testing
+## Testing portability
 
-Test the portable executable by:
-1. Copying the `exe\` folder to a different computer
-2. Running `interfaz.exe` from that location
-3. Verifying all functionality works correctly
+1. Copy the `bin/` folder (and any required data folders such as `DB/` and
+   `examples/`) to a Windows machine without gfortran installed.
+2. Open a terminal in that folder and run `.\interfaz_remix.exe`.
+3. Walk through the interactive prompts described in `README.md` to confirm
+   end-to-end functionality.
