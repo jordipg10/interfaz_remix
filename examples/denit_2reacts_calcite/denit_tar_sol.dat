@@ -1,0 +1,13 @@
+'TITLE OF THE PROBLEM: Denitrification with 2 reactions + calcite'
+'----------------------------------------------------------------------------'
+'TARGET SOLIDS'
+10						! number of target solids
+1-10	1					! index target solid, mineral zone
+'----------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

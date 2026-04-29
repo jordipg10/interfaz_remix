@@ -1,0 +1,36 @@
+'TITLE OF THE PROBLEM: Denitrification with 2 reactions + calcite'
+'-------------------------------------------------------------------------------------------------'
+'DEFINITION OF THE GEOCHEMICAL SYSTEM'
+'PRIMARY AQUEOUS SPECIES'
+'h2o(p)'
+'cl-'
+'ch2o(aq)'	
+'h+' 
+'no3-' 
+'n2(aq)(p)'
+'ca+2'
+'hco3-'
+'o2(aq)'
+'*'
+'AQUEOUS COMPLEXES'
+'co3-2'
+'*'
+'MINERALS'
+'calcite' .true. .true.
+'*' .true. .true.
+'GASES'
+'co2(g)' .true. .true.			! name of gas, flag equilibrium, flag constant activity
+'o2(g)' .true. .true.
+'*' .false. .false.
+'REDOX REACTIONS'
+'aerobic oxidation of DOC' .false.	! name of redox reaction, flag equilibrium
+'denitrification' .false.
+'*' .false.
+'-------------------------------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+

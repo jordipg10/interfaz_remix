@@ -1,0 +1,13 @@
+'TITLE OF THE PROBLEM: Denitrification with 2 reactions + calcite'
+'----------------------------------------------------------------------------'
+'TARGET GASES'
+1						! number of target gases
+1	1					! target gases interval, gas zone index
+'----------------------------------------------------------------------------'
+'end'
+
+
+
+
+
+
