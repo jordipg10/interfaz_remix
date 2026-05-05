@@ -20,6 +20,7 @@ program main_interfaz
     !> Variables
     integer(kind=4) :: int_method_chem !>< Integration method for chemical reactions (1: Euler explicit, 2: Euler fully implicit, 3: Crank-Nicolson).
     integer(kind=4) :: num_aq_comps !>< Number of aqueous components in the chemical system.
+    integer(kind=4) :: num_tar !>< Number of targets in the mesh.
     integer(kind=4) :: flag !>< Loop continuation flag (1: continue, 0: exit).
     integer(kind=4) :: flag_Delta_t !>< Whether the time step is constant (1) or variable (0).
     integer(kind=4), allocatable :: ind_can_vec(:) !>< Indices of canonical vectors in mixing ratios.
@@ -103,6 +104,7 @@ program main_interfaz
     !> we write concentrations of initial and external water types
     !> Write the initial and external water-type component concentrations to the chosen file.
     call my_chem%write_conc_comp_wat_types(dir_pb_trimmed,file_u_wat_types_trimmed)
+    write(*,*) 'Archivo ' // trim(file_u_wat_types_trimmed) // ' generado correctamente.'
     !> write file name 
     !> Prompt for the output file name for post-reactive-mixing concentrations.
     write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones despues de la mezcla reactiva?"
@@ -114,6 +116,14 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the post-mixing output filename.
     file_u_new_trimmed = trim(file_u_new)
+    !> Prompt the user for the number of targets in the mesh.
+    write(*,*) "Cuantos targets tiene la malla?"
+    !> Read the number of targets.
+    read(*,*, iostat=ios) num_tar
+    !> Abort gracefully on read error or EOF.
+    if (ios /= 0) then
+        write(*,*) 'Error/EOF leyendo num_tar. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+    end if
     !> Prompt for the input file containing u_tilde (post conservative-transport concentrations).
     write(*,*) "Nombre del archivo que contiene las concentraciones de componentes acuosas despues de resolver una iteracion de &
         transporte conservativo? & 
