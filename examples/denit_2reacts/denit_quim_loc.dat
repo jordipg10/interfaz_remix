@@ -16,7 +16,7 @@
 'n2(aq)(p)'	1	1d-16		1d-16		''
 '*'      0         0.0           0.0		''
 2     25.0					!iwtype initial, temp (C)
-'dominio'					! name
+'residente'					! name
 '       icon        guess         ctot          constrain'
 'h+'		1	1d-7		1d-7		''
 'cl-'		1	1d-16		1d-16		''

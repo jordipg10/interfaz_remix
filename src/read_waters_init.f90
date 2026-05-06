@@ -45,7 +45,7 @@
 !> @warning File format is rigid - incorrect format will cause read errors or crashes
 !> @see read_tar_wat_line for detailed water initialization logic
 !>
-subroutine read_waters_init(this,root,nsrz,ngrz)
+subroutine read_waters_init(this,root,nsrz,ngrz,num_tar)
     use chemistry_m, only: chemistry_c
     use solid_chemistry_m, only: solid_chemistry_c
     use reactive_zone_m, only: reactive_zone_c
@@ -54,6 +54,7 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
     character(len=*), intent(in) :: root !> root filename (without extension) for input files
     integer(kind=4), intent(in) :: nsrz !> number of solid reactive zones
     integer(kind=4), intent(in) :: ngrz !> number of gas reactive zones
+    integer(kind=4), intent(in) :: num_tar !> expected number of target (domain) waters from the mesh
     
     !> Loop counters and index variables
     integer(kind=4) :: ind_rech      !> counter for recharge waters processed
@@ -267,7 +268,14 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
             call this%allocate_rech_waters_indices(num_wat_rech) !> allocate array for recharge water indices
             read(unit,*) num_wat_bd !> read number of boundary waters
             call this%allocate_bd_waters_indices(num_wat_bd) !> allocate array for boundary water indices
-            call this%allocate_tar_wat_indices(num_wat-num_wat_rech-num_wat_bd) !> allocate array for boundary water indices
+            !> Validate that the number of target waters declared in the file matches
+            !> the number of targets in the mesh provided by the caller.
+            if (num_wat-num_wat_rech-num_wat_bd /= num_tar) then
+                write(*,*) 'Error: el numero de target waters en ',root//'_tar_wat.dat',&
+                    ' (',num_wat-num_wat_rech-num_wat_bd,') no coincide con el numero de targets de la malla (',num_tar,').'
+                error stop "El numero de target waters no coincide con el numero de targets de la malla"
+            end if
+            call this%allocate_tar_wat_indices(num_wat-num_wat_rech-num_wat_bd) !> allocate array for target water indices
             !call this%allocate_ext_waters_indices(num_wat_bd+num_wat_rech) !> allocate external waters (boundary + recharge)
             !call this%allocate_waters(this%num_target_waters+this%num_rech_waters+this%num_bd_waters) !> allocate domain waters (total - external)
             !call this%allocate_waters_init(this%num_target_waters_init+this%num_rech_waters+this%num_bd_waters) !> allocate initial domain waters

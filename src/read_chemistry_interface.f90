@@ -12,7 +12,7 @@
 !> \see chemistry_m, read_chem_system_CHEPROO, read_chemistry_CHEPROO
 
 !> This subroutine reads chemistry data depending on the selected option
-subroutine read_chemistry_interface(this,root,path_pb,path_DB)
+subroutine read_chemistry_interface(this,root,path_pb,path_DB,num_tar)
     use chemistry_m, only: chemistry_c
     implicit none
     !> Arguments
@@ -20,6 +20,7 @@ subroutine read_chemistry_interface(this,root,path_pb,path_DB)
     character(len=*), intent(in) :: root !> root of input and output files of problem
     character(len=*), intent(in) :: path_pb !> path for input and output files of problem
     character(len=*), intent(in) :: path_DB !> path for chemical databases
+    integer(kind=4), intent(in) :: num_tar !> expected number of target (domain) waters from the mesh
 
     !> Variables
     integer(kind=4) :: unit_chem_syst !> chemical system file unit
@@ -36,7 +37,7 @@ subroutine read_chemistry_interface(this,root,path_pb,path_DB)
     read_opt=1 !> CHEPROO-based (chapuza)
     call this%set_read_opt(read_opt) !> set reading option (chapuza)
     if (this%read_opt==1) then !> CHEPROO-based
-        call this%read_chemistry_CHEPROO(root,path_pb,path_DB,unit_chem_syst,unit_loc_chem)
+        call this%read_chemistry_CHEPROO(root,path_pb,path_DB,unit_chem_syst,unit_loc_chem,num_tar)
     else if (this%read_opt==2) then !> PHREEQC
         error stop "PHREEQC data input not fully implemented yet"
     else if (this%read_opt==3) then !> PFLOTRAN

@@ -279,15 +279,15 @@ subroutine write_chemistry(this,dir,root,time_step)
     do i=1,this%chem_syst%num_aq_kin_reacts !> loop over all aqueous kinetic reactions
         write(unit,"(10x,*(ES15.5))") (this%waters(this%tar_wat_indices(j))%Rk_accum(i), j=1,this%num_target_waters) !> write accumulated kinetic amount R_k_accum [mol]
     end do
-    do i=1,this%num_init_cat_exch_zones !> loop over all initial cation exchange zones
+    do i=1,this%num_init_cat_exch_zones !> loop over all initial cation exchange zones (stored at the tail of materials(:))
         write(unit,"(/,2x,'Initial cation exchange site',I5,':'/)") i !> write cation exchange zone index
         write(unit,"(/,10x,'Initial concentration of surface complexes:'/)")  !> write initial surface complex concentrations header
-        do j=1,this%init_cat_exch_zones(i)%reactive_zone%cat_exch_zone%num_surf_compl !> loop over surface complexes in zone
-            write(unit,"(10x,*(ES25.15))") this%init_cat_exch_zones(i)%concentrations(j) !> write initial surface complex concentration [C]
+        do j=1,this%materials(this%num_min_zones+i)%reactive_zone%cat_exch_zone%num_surf_compl !> loop over surface complexes in zone
+            write(unit,"(10x,*(ES25.15))") this%materials(this%num_min_zones+i)%concentrations(j) !> write initial surface complex concentration [C]
         end do
         write(unit,"(/,10x,'Initial activity of surface complexes:'/)")  !> write initial surface complex activities header
-        do j=1,this%init_cat_exch_zones(i)%reactive_zone%cat_exch_zone%num_surf_compl !> loop over surface complexes in zone
-            write(unit,"(10x,*(ES25.15))") this%init_cat_exch_zones(i)%activities(j) !> write initial surface complex activity [-]
+        do j=1,this%materials(this%num_min_zones+i)%reactive_zone%cat_exch_zone%num_surf_compl !> loop over surface complexes in zone
+            write(unit,"(10x,*(ES25.15))") this%materials(this%num_min_zones+i)%activities(j) !> write initial surface complex activity [-]
         end do
     end do
     do l=1,this%num_mineral_zones !> loop over all mineral zones

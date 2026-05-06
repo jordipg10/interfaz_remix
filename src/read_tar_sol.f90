@@ -1,6 +1,6 @@
     !> Reads initial target solids and their associated solid zones from a file
     !> We assume file has not already been opened
-    subroutine read_tar_sol(this,root,nsrz,ngrz)
+    subroutine read_tar_sol(this,root,nsrz,ngrz,num_tar)
     use chemistry_m, only: chemistry_c
     use solid_chemistry_m, only: solid_chemistry_c
     use reactive_zone_m, only: reactive_zone_c
@@ -13,6 +13,7 @@
     !type(gas_chemistry_c), intent(in) :: init_gas_types(:) !> initial gas zones
     integer(kind=4), intent(in) :: nsrz !> number of solid reactive zones
     integer(kind=4), intent(in) :: ngrz !> number of gas reactive zones
+    integer(kind=4), intent(in) :: num_tar !> expected number of targets in the mesh (upper bound for target solids)
     !integer(kind=4), intent(out) :: niter !> number of iterations
     !logical, intent(out) :: CV_flag !> TRUE if converges, FALSE otherwise
     
@@ -98,6 +99,12 @@
             exit
         else if (label=='TARGET SOLIDS') then
             read(unit,*) num_tar_sol
+            !> Validate: cannot have more target solids than mesh targets
+            if (num_tar_sol>num_tar) then
+                write(*,*) 'Error: el numero de target solids en ',root//'_tar_sol.dat',&
+                    ' (',num_tar_sol,') es mayor que el numero de targets de la malla (',num_tar,').'
+                error stop "El numero de target solids no puede ser mayor que el numero de targets de la malla"
+            end if
             call this%allocate_target_solids(num_tar_sol)
             do
                 read(unit,*) interval, iszone !> interval of target solids and solid zone index

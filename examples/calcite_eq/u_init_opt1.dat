@@ -1,0 +1,23 @@
+  Number of aqueous components: 3
+
+  Aqueous components:
+
+    u1 = h+ + hco3-
+    u2 = ca+2 - hco3-
+    u3 = o2(aq)
+
+  Aqueous component concentrations of initial water types: 
+
+         resident
+
+      7.05840E-01
+     -7.04830E-01
+      1.00000E-06
+
+  Aqueous component concentrations of external water types: 
+
+           inflow
+
+      5.38611E-05
+     -5.37601E-05
+      2.52947E-04

@@ -85,9 +85,18 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the file root string.
     root_files_trimmed = trim(root_files)
+    !> Prompt the user for the number of targets in the mesh.
+    write(*,*) "Cuantos targets tiene la malla?"
+    !> Read the number of targets.
+    read(*,*, iostat=ios) num_tar
+    !> Abort gracefully on read error or EOF.
+    if (ios /= 0) then
+        write(*,*) 'Error/EOF leyendo num_tar. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+    end if
     !> we read chemistry
     !> Load the chemical system, water types and reactive zones from disk.
-    call my_chem%read_chemistry_interface(root_files_trimmed,dir_pb_trimmed,dir_DB_trimmed)
+    !> num_tar is passed so that the target waters file can be validated against the mesh size.
+    call my_chem%read_chemistry_interface(root_files_trimmed,dir_pb_trimmed,dir_DB_trimmed,num_tar)
     !> write file name
     !> Prompt for the output file name for initial/external water-type concentrations.
     write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones de las componentes acuosas &
@@ -101,6 +110,12 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the water-types output filename.
     file_u_wat_types_trimmed = trim(file_u_wat_types)
+    !> We get number of aqueous components in the first target water,
+    !> which is needed to choose the interface and to read the input file with u_tilde.
+    !> Query the first target water for its number of aqueous components.
+    num_aq_comps=my_chem%get_num_aq_comps_tar_wat()
+    !> Echo the number of aqueous components for diagnostics.
+    !print *, "Numero de componentes acuosas: ", num_aq_comps
     !> we write concentrations of initial and external water types
     !> Write the initial and external water-type component concentrations to the chosen file.
     call my_chem%write_conc_comp_wat_types(dir_pb_trimmed,file_u_wat_types_trimmed)
@@ -116,14 +131,6 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the post-mixing output filename.
     file_u_new_trimmed = trim(file_u_new)
-    !> Prompt the user for the number of targets in the mesh.
-    write(*,*) "Cuantos targets tiene la malla?"
-    !> Read the number of targets.
-    read(*,*, iostat=ios) num_tar
-    !> Abort gracefully on read error or EOF.
-    if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo num_tar. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
-    end if
     !> Prompt for the input file containing u_tilde (post conservative-transport concentrations).
     write(*,*) "Nombre del archivo que contiene las concentraciones de componentes acuosas despues de resolver una iteracion de &
         transporte conservativo? & 
@@ -158,12 +165,6 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the u_tilde input filename.
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
-    !> We get number of aqueous components in the first target water,
-    !> which is needed to choose the interface and to read the input file with u_tilde.
-    !> Query the first target water for its number of aqueous components.
-    num_aq_comps=my_chem%get_num_aq_comps_tar_wat()
-    !> Echo the number of aqueous components for diagnostics.
-    print *, "Numero de componentes acuosas: ", num_aq_comps
     !> We choose interface based on whether there are equilibrium reactions or not, using procedure pointers
     !> If the first target water has no equilibrium reactions, use the species-based interface.
     if (my_chem%waters(my_chem%tar_wat_indices(1))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions==0) then

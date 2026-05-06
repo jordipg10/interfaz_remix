@@ -1219,10 +1219,10 @@
             ]
         },
         {
-            "label": "compile-main-and-link-and-run",
+            "label": "compile-main-and-link",
             "dependsOn": [
                 "compile-main",
-                "link-and-run",
+                "link",
             ],
             "dependsOrder": "sequence",
             "group": {

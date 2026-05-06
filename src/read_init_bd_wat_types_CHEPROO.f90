@@ -60,7 +60,7 @@
 !> @author jordi
 !> @date November 2025
 !>
-subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
+subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,gas_chem)
 !> ================================================================
 !> MODULE IMPORTS
 !> ================================================================
@@ -79,7 +79,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
 !> ================================================================
     class(chemistry_c) :: this !> chemistry object (contains all chemical system data)
     integer(kind=4), intent(in) :: unit !> file unit number for reading input file
-    !type(solid_chemistry_c), intent(inout), allocatable :: init_cat_exch_zones(:) !> (COMMENTED) initial cation exchange zones
+    type(solid_chemistry_c), intent(inout), allocatable :: init_cat_exch_zones(:) !> initial cation exchange zones (caller-owned)
     type(gas_chemistry_c), intent(in), optional :: gas_chem !> optional gas chemistry object (chapuza/workaround)
     
 !> ================================================================
@@ -168,13 +168,15 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
         
         do i=1,nwtype !> loop over all water types
             !> Copy initial cation exchange zone to each water type
-            call cat_exch_zones(i)%copy_solid_chemistry(this%init_cat_exch_zones(1)) !> chapuza (copy zone 1)
+            call cat_exch_zones(i)%copy_solid_chemistry(init_cat_exch_zones(1)) !> chapuza (copy zone 1)
         end do
         
         !deallocate(init_cat_exch_zones) !> (COMMENTED) deallocate original array
         
         !> Reallocate initial cat exch zones to match number of water types
-        call this%allocate_init_cat_exch_zones(nwtype) !> allocate with new size = nwtype
+        if (allocated(init_cat_exch_zones)) deallocate(init_cat_exch_zones)
+        allocate(init_cat_exch_zones(nwtype))
+        this%num_init_cat_exch_zones=nwtype
     end if
     
 !> ================================================================
@@ -184,7 +186,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
     call this%allocate_wat_types(nwtype) !> allocate water types array (size = nwtype)
     
     !> Allocate solid types associated with water types
-    call this%allocate_sol_types() !> allocate solid types (chapuza - size matches water types)
+    call this%allocate_wat_type_solids() !> allocate solid types (chapuza - size matches water types)
     
     !> Allocate reactive zones associated with water types
     call this%allocate_react_zones_wat_types() !> allocate reactive zones (chapuza - one per water type)
@@ -435,10 +437,10 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
                 !> Set up solid chemistry associations
                 !> ------------------------------------------------------------
                 !> Link reactive zone to solid type
-                call this%sol_types(j)%set_reactive_zone(this%react_zones_wat_types(j))
+                call this%wat_type_solids(j)%set_reactive_zone(this%react_zones_wat_types(j))
                     !> set default reactive zone for this solid type
                 
-                !call this%sol_types(j)%set_mineral_zone(min_zones(j)) !> (COMMENTED) set default mineral zone
+                !call this%wat_type_solids(j)%set_mineral_zone(min_zones(j)) !> (COMMENTED) set default mineral zone
                 
                 !> ------------------------------------------------------------
                 !> Handle gas chemistry (COMMENTED OUT)
@@ -448,14 +450,14 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
                 ! end if
                 
                 !> Link solid chemistry to water type
-                call this%wat_types(j)%set_solid_chemistry(this%sol_types(j)) !> chapuza (set solid type)
+                call this%wat_types(j)%set_solid_chemistry(this%wat_type_solids(j)) !> chapuza (set solid type)
                 
                 !> ------------------------------------------------------------
                 !> Handle cation exchange zones if present
                 !> ------------------------------------------------------------
                 if (this%num_init_cat_exch_zones>0) then !> if cation exchange zones exist
                     !> Assign cation exchange zone to solid type
-                    call this%sol_types(j)%copy_solid_chemistry(cat_exch_zones(j))
+                    call this%wat_type_solids(j)%copy_solid_chemistry(cat_exch_zones(j))
                         !> chapuza (copy cat exch zone to solid type)
                     
                     !> --------------------------------------------------------
@@ -463,11 +465,13 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
                     !> --------------------------------------------------------
                     if (this%num_mineral_zones==0) then !> if no mineral zones defined
                         !> Use dummy mineral zone
-                        call this%sol_types(j)%set_mineral_zone(this%min_zone_dummy)
+                        call this%wat_type_solids(j)%set_mineral_zone(this%min_zone_dummy)
                             !> chapuza (use empty/dummy mineral zone)
                     else !> mineral zones exist
-                        !> Use actual mineral zone
-                        call this%sol_types(j)%set_mineral_zone(min_zones(j))
+                        !> Use persistent dummy mineral zone (real mineral zones are
+                        !> not yet read here; min_zones(:) is a local array that
+                        !> would dangle after this routine returns).
+                        call this%wat_type_solids(j)%set_mineral_zone(this%min_zone_dummy)
                             !> chapuza (set mineral zone for this water type)
                     end if
                     
@@ -482,14 +486,18 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
                         !> Returns: niter (iterations), CV_flag (control volume flag)
                     
                     !> Assign updated solid chemistry back to initial cat exch zones
-                    call this%init_cat_exch_zones(j)%copy_solid_chemistry(this%sol_types(j))
+                    call init_cat_exch_zones(j)%copy_solid_chemistry(this%wat_type_solids(j))
                         !> chapuza (copy solid type back to init cat exch zone)
                 
                 else !> no cation exchange zones
                     !> --------------------------------------------------------
                     !> Set mineral zone without cation exchange
                     !> --------------------------------------------------------
-                    call this%sol_types(j)%set_mineral_zone(min_zones(j))
+                    !> Use persistent dummy mineral zone here. min_zones(:) is
+                    !> a routine-local array and would leave wat_type_solids(j)%mineral_zone
+                    !> dangling after this routine returns. Real mineral zones
+                    !> are read later by read_init_min_zones_CHEPROO.
+                    call this%wat_type_solids(j)%set_mineral_zone(this%min_zone_dummy)
                         !> set mineral zone for this solid type
                     
                     !> --------------------------------------------------------
@@ -502,7 +510,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
                             this%Jac_opt,unit,niter,CV_flag,gas_chem)
                             !> read with optional gas_species_chem argument
                     else !> no gas chemistry
-                        !call this%sol_types(j)%set_mineral_zone(min_zones(j)) !> (COMMENTED) redundant mineral zone set
+                        !call this%wat_type_solids(j)%set_mineral_zone(min_zones(j)) !> (COMMENTED) redundant mineral zone set
                         
                         !> Read water type without gas chemistry
                         call this%wat_types(j)%read_wat_type_CHEPROO(num_aq_prim_array(j),num_cstr_array(j),this%num_gas_zones,&
@@ -532,7 +540,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
     
     !> Rearrange mineral zone indices after speciation algebra change
     do i=1,nwtype
-        call this%sol_types(i)%mineral_zone%set_ind_min_Sk()
+        call this%wat_type_solids(i)%mineral_zone%set_ind_min_Sk()
     end do
     
     !> Eliminate constant activity species from water type component matrices
@@ -581,7 +589,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
 
     end do
     
-    !print *, this%sol_types(1)%mineral_zone%num_minerals_eq, this%sol_types(1)%mineral_zone%num_minerals_kin
+    !print *, this%wat_type_solids(1)%mineral_zone%num_minerals_eq, this%wat_type_solids(1)%mineral_zone%num_minerals_kin
         !> (COMMENTED) debug print: number of equilibrium and kinetic minerals in first solid type
         
 end subroutine

@@ -61,7 +61,7 @@
 !> @author jordi
 !> @date November 2025
 !>
-subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
+subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz,init_cat_exch_zones)
 !> ================================================================
 !> MODULE IMPORTS
 !> ================================================================
@@ -71,6 +71,7 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
     !> Gaines-Thomas convention for cation exchange
     use reactive_zone_m, only: reactive_zone_c !> reactive zone class
     use mineral_zone_m, only: mineral_zone_c !> mineral zone class
+    use solid_chemistry_m, only: solid_chemistry_c !> solid chemistry class
     implicit none !> no implicit variable typing
     
 !> ================================================================
@@ -79,8 +80,8 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
     class(chemistry_c) :: this !> chemistry object (contains all chemical system data)
     integer(kind=4), intent(in) :: unit !> file unit number for reading input file
     integer(kind=4), intent(out):: ndrz !> number of adsorption reactive zones (output)
-    !type(solid_chemistry_c), intent(out), allocatable :: this%init_cat_exch_zones(:) 
-        !> (COMMENTED) initial cation exchange zones (now part of chemistry object)
+    type(solid_chemistry_c), intent(out), allocatable :: init_cat_exch_zones(:)
+        !> initial cation exchange zones (allocated and populated by this routine; caller-owned)
     !type(reactive_zone_c), intent(inout), allocatable, optional :: reactive_zones(:)
         !> (COMMENTED) optional reactive zones array
     
@@ -132,8 +133,9 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
     !> Read total number of surface adsorption zone types
     read(unit,*) ndtype !> number of surface adsorption zones to be defined
 
-    !> Allocate initial cation exchange zones array in chemistry object
-    call this%allocate_init_cat_exch_zones(ndtype) !> allocate array (size = ndtype)
+    !> Allocate initial cation exchange zones array (caller-owned)
+    if (allocated(init_cat_exch_zones)) deallocate(init_cat_exch_zones)
+    allocate(init_cat_exch_zones(ndtype))
 
     !> Set output parameter (number of adsorption reactive zones)
     ndrz=ndtype !> chapuza (copy ndtype to output parameter)
@@ -204,37 +206,37 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
         !> Initialize cation exchange zone in chemistry object
         !> ----------------------------------------------------------------
         !> Set number of solids from surface complexes count
-        this%init_cat_exch_zones(idtype)%num_solids=react_zone%cat_exch_zone%num_surf_compl
+        init_cat_exch_zones(idtype)%num_solids=react_zone%cat_exch_zone%num_surf_compl
             !> number of solids = number of surface complexes
         
         !> Link reactive zone to cation exchange zone
-        call this%init_cat_exch_zones(idtype)%set_reactive_zone(react_zone)
+        call init_cat_exch_zones(idtype)%set_reactive_zone(react_zone)
             !> copy reactive zone configuration
         
         !call min_zone%set_chem_syst_min_zone(this%chem_syst) 
             !> (COMMENTED) set chemical system for mineral zone by default
         
         !> Set dummy mineral zone (no minerals in cation exchange zones)
-        call this%init_cat_exch_zones(idtype)%set_mineral_zone(this%min_zone_dummy)
+        call init_cat_exch_zones(idtype)%set_mineral_zone(this%min_zone_dummy)
             !> use empty mineral zone (cat exch zones don't have minerals)
         
         !> ----------------------------------------------------------------
         !> Allocate concentration and activity arrays
         !> ----------------------------------------------------------------
         !> Allocate solid concentrations array
-        call this%init_cat_exch_zones(idtype)%allocate_conc_solids()
+        call init_cat_exch_zones(idtype)%allocate_conc_solids()
             !> allocate conc array (size = num_solids = num_surf_compl)
         
         !> Set Cation Exchange Capacity
-        call this%init_cat_exch_zones(idtype)%set_CEC(CEC)
+        call init_cat_exch_zones(idtype)%set_CEC(CEC)
             !> store CEC value (equivalents/mass)
         
         !> Allocate equivalents array
-        call this%init_cat_exch_zones(idtype)%allocate_equivalents()
+        call init_cat_exch_zones(idtype)%allocate_equivalents()
             !> allocate array for equivalent fractions
         
         !> Allocate log activity coefficients array
-        call this%init_cat_exch_zones(idtype)%allocate_log_act_coeffs_solid_chem()
+        call init_cat_exch_zones(idtype)%allocate_log_act_coeffs_solid_chem()
             !> allocate log(gamma) array for solid species
         
         !> ----------------------------------------------------------------
@@ -245,16 +247,16 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
             !> retrieve valences of all aqueous species
         
         !> Compute log activity coefficients for adsorbed cations
-        call this%init_cat_exch_zones(idtype)%reactive_zone%cat_exch_zone%compute_log_act_coeffs_ads_cats(valences(&
-            this%init_cat_exch_zones(idtype)%reactive_zone%cat_exch_zone%exch_cat_indices),CEC,&
-            this%init_cat_exch_zones(idtype)%log_act_coeffs(&
-            2:this%init_cat_exch_zones(idtype)%reactive_zone%cat_exch_zone%num_surf_compl))
+        call init_cat_exch_zones(idtype)%reactive_zone%cat_exch_zone%compute_log_act_coeffs_ads_cats(valences(&
+            init_cat_exch_zones(idtype)%reactive_zone%cat_exch_zone%exch_cat_indices),CEC,&
+            init_cat_exch_zones(idtype)%log_act_coeffs(&
+            2:init_cat_exch_zones(idtype)%reactive_zone%cat_exch_zone%num_surf_compl))
             !> compute log(gamma) using Gaines-Thomas convention
             !> inputs: valences of exchange cations, CEC
             !> output: log_act_coeffs array (indices 2 to num_surf_compl, index 1 is free site)
         
         !> Allocate activities array
-        call this%init_cat_exch_zones(idtype)%allocate_activities()
+        call init_cat_exch_zones(idtype)%allocate_activities()
             !> allocate activities array (a = gamma * c)
         
         !call this%init_cat_exch_zones(idtype)%set_conc_free_site() 
@@ -322,7 +324,7 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
                     !> copy chemical system to reactive zone
                 
                 !> Set cation exchange zone
-                call this%reactive_zones(num_gas_rz+i)%set_cat_exch_zone(this%init_cat_exch_zones(i)%reactive_zone%cat_exch_zone)
+                call this%reactive_zones(num_gas_rz+i)%set_cat_exch_zone(init_cat_exch_zones(i)%reactive_zone%cat_exch_zone)
                     !> copy cat exch zone from initial zones
                 
                 !call this%init_cat_exch_zones(i)%set_reactive_zone(this%reactive_zones(num_gas_rz+i))
@@ -348,7 +350,7 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
                     
                     !> Set cation exchange zone from cat exch zone j
                     call this%reactive_zones(num_gas_rz+i*ndtype+j)%set_cat_exch_zone(&
-                        this%init_cat_exch_zones(i)%reactive_zone%cat_exch_zone)
+                        init_cat_exch_zones(i)%reactive_zone%cat_exch_zone)
                         !> copy cat exch zone (note: uses i, which may be intentional for specific mapping)
                 end do
             end do
@@ -365,11 +367,11 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
             
             do i=1,ndtype !> loop over all cation exchange zones
                 !> Copy cation exchange reactive zone
-                call this%reactive_zones(i)%copy_react_zone(this%init_cat_exch_zones(i)%reactive_zone)
+                call this%reactive_zones(i)%copy_react_zone(init_cat_exch_zones(i)%reactive_zone)
                     !> copy reactive zone from initial cat exch zone
                 
                 !> Back-link reactive zone to initial cat exch zone
-                call this%init_cat_exch_zones(i)%set_reactive_zone(this%reactive_zones(i))
+                call init_cat_exch_zones(i)%set_reactive_zone(this%reactive_zones(i))
                     !> chapuza (create bidirectional link)
             end do
         end if
