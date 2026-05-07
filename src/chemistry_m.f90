@@ -29,7 +29,7 @@ module chemistry_m
     private !< Make all entities private by default
     public :: chemistry_c !< Make chemistry class public
     public :: reactive_zone_c !< Re-export reactive zone class for use by subprograms
-    public :: interfaz_comps_arch, interfaz_esp_arch !< External interface subroutines for reactive mixing iterations
+    public :: interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch !< External interface subroutines for reactive mixing iterations
     !> @brief Main chemistry class - central coordinator for all chemical processes
     !> @details This class manages the complete chemical system including:
     !>          - Water types and target waters at spatial locations
@@ -798,16 +798,23 @@ module chemistry_m
             integer(kind=4), intent(out) :: ngrz          !< Number of gas reactive zones
         end subroutine
         
-    !> @brief Interface for component concentrations via file I/O
+    !> @brief Interface for component concentrations (equilibrium + kinetic reactions) via file I/O
     !> @details Reads aqueous component concentrations from a file after conservative transport,
-    !>          performs reactive chemistry step, and writes updated concentrations to output file.
-    !> @param[in,out] this Chemistry object
-    !> @param[in] path Path for input and output files
-    !> @param[in] num_aq_comps Number of aqueous components to process
-    !> @param[in] file_in Input filename with post-transport concentrations
-    !> @param[in] Delta_t Time step size for reactive chemistry
-    !> @param[in] file_out Output filename for post-reaction concentrations
-        subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
+    !>          performs reactive chemistry step (both eq and kin), and writes updated concentrations to output file.
+        subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,file_out)
+            import chemistry_c
+            class(chemistry_c) :: this                    !< Chemistry object
+            character(len=*), intent(in) :: path          !< Path for input and output files
+            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
+            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
+            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
+            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
+        end subroutine
+
+    !> @brief Interface for component concentrations (equilibrium reactions only) via file I/O
+    !> @details Reads aqueous component concentrations from a file after conservative transport,
+    !>          performs reactive chemistry step (eq only, no kinetics), and writes updated concentrations to output file.
+        subroutine interfaz_comps_arch_eq(this,path,num_aq_comps,file_in,Delta_t,file_out)
             import chemistry_c
             class(chemistry_c) :: this                    !< Chemistry object
             character(len=*), intent(in) :: path          !< Path for input and output files

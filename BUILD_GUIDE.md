@@ -14,7 +14,7 @@ go to `obj/`, generated module files to `mod/`, and the linked executable to
 - Windows
 	- MinGW / MSYS2 / TDM-GCC gfortran (64-bit). The tasks in this repo currently
 	  hard-code the path
-	  `C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe` — adjust
+	  `C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe` — adjust
 	  it to match your installation, or replace it with `gfortran` if it is on `PATH`.
 	- Runtime DLLs needed next to the executable (already shipped in `bin/`):
 		- `libgfortran_64-5.dll`

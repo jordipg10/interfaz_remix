@@ -6,9 +6,9 @@
 !>          component concentrations, and runs a loop of reactive mixing
 !>          iterations using either a constant or variable time step.
 program main_interfaz
-    !> Import chemistry container type and the two interface procedures
-    !> (one for systems with equilibrium reactions, one without).
-    use chemistry_m, only: chemistry_c, interfaz_comps_arch, interfaz_esp_arch
+    !> Import chemistry container type and the three interface procedures:
+    !> equilibrium+kinetic, equilibrium-only, and kinetic-only (no equilibrium).
+    use chemistry_m, only: chemistry_c, interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch
     !> Standard intrinsic module providing IEEE arithmetic helpers.
     use, intrinsic :: ieee_arithmetic
     !> Standard intrinsic module providing IEEE floating-point exception flags.
@@ -32,7 +32,7 @@ program main_interfaz
         file_u_wat_types_trimmed !>< Trimmed deferred-length versions of the input strings.
     integer :: ios !>< I/O status code returned by safe read statements.
     logical :: has_ieee !>< True if the runtime supports the IEEE intrinsic standard.
-    procedure(interfaz_comps_arch), pointer :: p_interfaz=>null() !>< Procedure pointer dispatching to the appropriate reactive-mixing interface.
+    procedure(interfaz_esp_arch), pointer :: p_interfaz=>null() !>< Procedure pointer dispatching to the appropriate reactive-mixing interface.
     !> Pre-Process
     !> Query whether IEEE intrinsic support is available in this build.
     has_ieee = ieee_support_standard()
@@ -165,15 +165,19 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the u_tilde input filename.
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
-    !> We choose interface based on whether there are equilibrium reactions or not, using procedure pointers
-    !> If the first target water has no equilibrium reactions, use the species-based interface.
-    if (my_chem%waters(my_chem%tar_wat_indices(1))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions==0) then
-        !> Bind the procedure pointer to the no-equilibrium variant.
-        p_interfaz=>interfaz_esp_arch !> no equilibrium reactions
-    else
-        !> Bind the procedure pointer to the components-based variant (with equilibrium).
-        p_interfaz=>interfaz_comps_arch !> with equilibrium reactions
-    end if
+    !> Select the reactive-mixing interface via procedure pointer using three-way polymorphism:
+    !>   - no equilibrium reactions               → interfaz_esp_arch         (kinetic only)
+    !>   - equilibrium reactions, no kinetics      → interfaz_comps_arch_eq    (equilibrium only)
+    !>   - equilibrium reactions AND kinetics      → interfaz_comps_arch_eq_kin (full)
+    associate(tw0 => my_chem%waters(my_chem%tar_wat_indices(1)))
+        if (tw0%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions == 0) then
+            p_interfaz => interfaz_esp_arch
+        else if (tw0%solid_chemistry%reactive_zone%chem_syst%num_kin_reacts == 0) then
+            p_interfaz => interfaz_comps_arch_eq
+        else
+            p_interfaz => interfaz_comps_arch_eq_kin
+        end if
+    end associate
     !> Inform the user that the reactive mixing loop is about to start.
     write(*,*) "Procedemos al bucle de mezcla reactiva. Tendrás que actualizar el archivo con las concentraciones & 
         obtenidas despues de resolver el transporte conservativo en cada iteración."
