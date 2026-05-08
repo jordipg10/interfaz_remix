@@ -211,12 +211,7 @@ module chemistry_m
         
         !> @name Main Solver Methods
         !> @{
-        procedure :: solve_reactive_mixing_lump              !< Main reactive mixing solver with spatial lumping
-        procedure :: solve_reactive_mixing_ideal_cons        !< Ideal reactive mixing solver with consistency
-        procedure :: solve_reactive_mixing_cons              !< General reactive mixing solver with consistency
-        procedure :: solve_reactive_mixing_ideal_lump        !< Ideal reactive mixing solver with lumping
         procedure :: solve_reactive_mixing_ideal_lump_iter   !< Single time-step iteration of ideal lumped solver
-        procedure :: solve_reactive_mixing         !< Reactive mixing with time-dependent boundary conditions
         !> @}
         
         !> @name Linkage and Association Methods
@@ -245,160 +240,6 @@ module chemistry_m
     end type !< End of chemistry_c type definition
     
     interface
-    !> @brief Solve reactive mixing using lumped approach
-    !> @details Performs reactive mixing calculations using a lumped parameter approach for all domain and external waters.
-    !> Uses provided mixing ratios and water indices, with time discretization and integration method for chemical reactions.
-    !> @param this Chemistry object
-    !> @param root Output file root
-    !> @param mixing_ratios Mixing ratios matrix
-    !> @param mix_conc_indices Indices of mixing waters
-    !> @param mix_react_indices Indices of domain mixing waters
-    !> @param time_discr Time discretization object
-    !> @param int_method_chem_reacts Integration method for chemical reactions
-    subroutine solve_reactive_mixing_lump(this,dir,root,mixing_ratios_conc,mixing_ratios_R,mix_conc_indices,time_discr,&
-        theta_r)
-            import chemistry_c                            !< Import chemistry class definition
-            import real_array_c                           !< Import real array class for mixing ratios
-            import int_array_c                            !< Import integer array class for indices
-            import time_discr_c                           !< Import time discretization class
-            implicit none                                 !< Require explicit variable declarations
-            class(chemistry_c) :: this                    !< Chemistry object instance
-            character(len=*), intent(in) :: dir           !< Directory for output files
-            character(len=*), intent(in) :: root          !< Root name for output files
-            class(real_array_c), intent(in) :: mixing_ratios_conc !< Mixing ratios for concentrations
-            class(real_array_c), intent(inout) :: mixing_ratios_R !< Mixing ratios for reaction rates
-            class(int_array_c), intent(in) :: mix_conc_indices !< Indices of mixing waters
-            class(time_discr_c), intent(in) :: time_discr !< Time discretization object
-            real(kind=8), intent(in) :: theta_r           !< Integration method for chemical reactions
-        end subroutine
-        
-        !> @brief Solve ideal conservative reactive mixing
-        !> @details Solves reactive mixing for ideal conservative systems, using concentration and reaction rate mixing ratios.
-        !> Handles domain and external waters, with time discretization and integration method for chemical reactions.
-        !> @param this Chemistry object
-        !> @param root Output file root
-        !> @param mixing_ratios_conc Mixing ratios for concentrations
-        !> @param mixing_ratios_R_init Initial mixing ratios for reaction rates
-        !> @param mix_conc_indices Indices of mixing waters
-        !> @param mix_react_indices Indices of domain mixing waters
-        !> @param time_discr Time discretization object
-        !> @param int_method_chem_reacts Integration method for chemical reactions
-        !> @param mixing_ratios_R Output mixing ratios for reaction rates
-        subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,&
-            mixing_ratios_R,mix_conc_indices,mix_react_indices,&
-            time_discr,theta_r)
-            import chemistry_c                            !< Import chemistry class definition
-            import real_array_c                           !< Import real array class for mixing ratios
-            import int_array_c                            !< Import integer array class for indices
-            import time_discr_c                           !< Import time discretization class
-            implicit none                                 !< Require explicit variable declarations
-            class(chemistry_c) :: this                    !< Chemistry object instance
-            character(len=*), intent(in) :: dir           !< Directory for output files
-            character(len=*), intent(in) :: root          !< Root name for output files
-            class(real_array_c), intent(in) :: mixing_ratios_conc !< Mixing ratios for concentrations
-            class(real_array_c), intent(in) :: mixing_ratios_R !< Mixing ratios for reaction rates
-            class(int_array_c), intent(in) :: mix_conc_indices !< Indices of mixing waters
-            class(int_array_c), intent(in) :: mix_react_indices !< Indices of domain mixing waters
-            class(time_discr_c), intent(in) :: time_discr !< Time discretization object
-            real(kind=8), intent(in) :: theta_r           !< Integration method for chemical reactions
-        end subroutine
-
-        !> @brief Solve conservative reactive mixing
-        !> @details Solves reactive mixing for conservative systems, using concentration and reaction rate mixing ratios.
-        !> Handles domain and external waters, with time discretization and integration method for chemical reactions.
-        !> @param this Chemistry object
-        !> @param root Output file root
-        !> @param mixing_ratios_conc Mixing ratios for concentrations
-        !> @param mixing_ratios_R_init Initial mixing ratios for reaction rates
-        !> @param mix_conc_indices Indices of mixing waters
-        !> @param mix_react_indices Indices of domain mixing waters
-        !> @param time_discr Time discretization object
-        !> @param int_method_chem_reacts Integration method for chemical reactions
-        !> @param mixing_ratios_R Output mixing ratios for reaction rates
-        subroutine solve_reactive_mixing_cons(this,dir,root,mixing_ratios_conc,mixing_ratios_R,mix_conc_indices,&
-            time_discr,theta_r)
-            import chemistry_c                            !< Import chemistry class definition
-            import real_array_c                           !< Import real array class for mixing ratios
-            import int_array_c                            !< Import integer array class for indices
-            import time_discr_c                           !< Import time discretization class
-            implicit none                                 !< Require explicit variable declarations
-            class(chemistry_c) :: this                    !< Chemistry object instance
-            character(len=*), intent(in) :: dir           !< Directory for output files
-            character(len=*), intent(in) :: root          !< Root name for output files
-            class(real_array_c), intent(in) :: mixing_ratios_conc !< Mixing ratios for concentrations
-            class(real_array_c), intent(inout) :: mixing_ratios_R !< Mixing ratios for reaction rates
-            class(int_array_c), intent(in) :: mix_conc_indices !< Indices of mixing waters
-            class(time_discr_c), intent(in) :: time_discr !< Time discretization object
-            real(kind=8), intent(in) :: theta_r           !< Integration method for chemical reactions
-        end subroutine
-            
-        !> @brief Solve ideal lumped reactive mixing
-        !> @details Performs reactive mixing calculations using an ideal lumped parameter approach for all domain and external waters.
-        !> Uses provided mixing ratios and water indices, with time discretization and integration method for chemical reactions.
-        !> @param this Chemistry object
-        !> @param root Output file root
-        !> @param mixing_ratios Mixing ratios matrix
-        !> @param mix_conc_indices Indices of mixing waters
-        !> @param mix_react_indices Indices of domain mixing waters
-        !> @param time_discr Time discretization object
-        !> @param int_method_chem_reacts Integration method for chemical reactions
-        subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mixing_ratios_R,mix_conc_indices,&
-                mix_react_indices,time_discr,theta_r)
-            import chemistry_c                            !< Import chemistry class definition
-            import real_array_c                           !< Import real array class for mixing ratios
-            import int_array_c                            !< Import integer array class for indices
-            import time_discr_c                           !< Import time discretization class
-            implicit none                                 !< Require explicit variable declarations
-            class(chemistry_c) :: this                    !< Chemistry object instance
-            character(len=*), intent(in) :: dir           !< Directory for output files
-            character(len=*), intent(in) :: root          !< Root name for output files
-            class(real_array_c), intent(in) :: mixing_ratios_conc !< Mixing ratios for concentrations
-            class(real_array_c), intent(in) :: mixing_ratios_R !< Mixing ratios for reaction rates
-            class(int_array_c), intent(in) :: mix_conc_indices !< Indices of mixing waters
-            class(int_array_c), intent(in) :: mix_react_indices !< Indices of domain mixing waters
-            class(time_discr_c), intent(in) :: time_discr !< Time discretization object
-            real(kind=8), intent(in) :: theta_r           !< Integration method for chemical reactions
-        end subroutine
-        
-        
-        !> @brief Solve reactive mixing with time-dependent boundary conditions
-        !> @details Solves reactive mixing for systems with time-dependent boundary conditions, using provided mixing ratios, water indices, and transport parameters.
-        !> Includes time and spatial discretization, integration method, and analytical solution for validation.
-        !> @param this Chemistry object
-        !> @param root Output file root
-        !> @param unit File unit for output
-        !> @param mixing_ratios Mixing ratios matrix
-        !> @param mix_conc_indices Indices of mixing waters
-        !> @param time_discr_tpt Time discretization object for transport
-        !> @param int_method_chem_reacts Integration method for chemical reactions
-        !> @param spatial_discr_tpt Spatial discretization object for transport
-        !> @param D Diffusion coefficient
-        !> @param q Flow rate
-        !> @param phi Porosity
-        !> @param anal_sol Analytical solution function
-        subroutine solve_reactive_mixing_BCs_dep_t(this,root,unit,mixing_ratios,mix_conc_indices,time_discr_tpt,&
-            theta_r,spatial_discr_tpt,D,q,phi,anal_sol)
-            import chemistry_c                            !< Import chemistry class definition
-            import spatial_discr_c                        !< Import spatial discretization class
-            import time_discr_c                           !< Import time discretization class
-            import real_array_c                           !< Import real array class for mixing ratios
-            import int_array_c                            !< Import integer array class for indices
-            implicit none                                 !< Require explicit variable declarations
-        !> Arguments
-            class(chemistry_c) :: this                    !< Chemistry object instance
-            character(len=*), intent(in) :: root          !< Root name for output files
-            integer(kind=4), intent(in) :: unit           !< File unit for output
-            class(real_array_c), intent(in) :: mixing_ratios !< Mixing ratios matrix
-            class(int_array_c), intent(in) :: mix_conc_indices !< Indices of mixing waters
-            class(time_discr_c), intent(in) :: time_discr_tpt !< Time discretization for transport
-            real(kind=8), intent(in) :: theta_r           !< Integration method for chemical reactions
-            class(spatial_discr_c), intent(in) :: spatial_discr_tpt !< Spatial discretization for transport
-            real(kind=8), intent(in) :: D                 !< Diffusion coefficient
-            real(kind=8), intent(in) :: q                 !< Flow rate
-            real(kind=8), intent(in) :: phi               !< Porosity
-            real(kind=8), external :: anal_sol             !< Analytical solution function
-        end subroutine
-        
     !> @brief Read chemistry data from PHREEQC files
     !> @details Reads chemical system and database information from PHREEQC input and database files.
     !> Used for initializing chemistry objects from external geochemical databases.
@@ -2249,6 +2090,8 @@ module chemistry_m
         integer(kind=4), allocatable :: init_idx(:), ext_idx(:)
         real(kind=8), allocatable :: u_init(:,:), u_ext(:,:)
         character(len=:), allocatable :: name_lc
+        integer(kind=4) :: num_prim_ref, num_sec_var_act_ref
+        real(kind=8), allocatable :: c_var_act_init(:,:), c_var_act_ext(:,:)
 
         !> Step 1: locate the reference water type (same rule as write_conc_comp_tar_wat).
         ref_idx=0
@@ -2267,6 +2110,8 @@ module chemistry_m
 
         num_comps_ref=this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species
         num_var_act_ref=this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species
+        num_prim_ref=num_comps_ref
+        num_sec_var_act_ref=num_var_act_ref-num_prim_ref
 
         !> Step 2: classify water types into initial vs external by name match.
         n_init=0; n_ext=0
@@ -2298,6 +2143,21 @@ module chemistry_m
 
         open(unit=10, file=path//filename, status='unknown', action='write', form='formatted')
         write(10,"(2x,A,I0,/)") "Number of aqueous components: ", num_comps_ref
+
+        !> Write all variable activity species in one list: primary (1..num_prim_ref) then secondary.
+        if (num_sec_var_act_ref>0) then
+            write(10,"(2x,A,I0,A,I0,A,I0,A,/)") &
+                "Variable activity species (rows 1 to ",num_prim_ref, &
+                ": primary; rows ",num_prim_ref+1," to ",num_var_act_ref,": secondary):"
+        else
+            write(10,"(2x,A,/)") "Variable activity species (all primary):"
+        end if
+        do j=1,num_var_act_ref
+            write(10,"(4x,I0,': ',A)") j, trim(this%wat_types(ref_idx)%aq_phase%aq_species(&
+                this%wat_types(ref_idx)%indices_aq_phase(&
+                this%wat_types(ref_idx)%ind_var_act_species(j)))%name)
+        end do
+        write(10,"(A)") ""
 
         !> Write each component as the linear combination of aqueous variable-activity
         !> species defined by row j of comp_mat_aq, in the same format used by
@@ -2354,6 +2214,7 @@ module chemistry_m
         !> Step 3: project initial water types onto the reference component basis.
         if (n_init>0) then
             allocate(u_init(num_comps_ref,n_init))
+            allocate(c_var_act_init(num_var_act_ref,n_init))
             allocate(c_var_act(num_var_act_ref))
             do i=1,n_init
                 associate (it => init_idx(i))
@@ -2370,13 +2231,22 @@ module chemistry_m
                             end if
                         end do
                     end do
+                    c_var_act_init(:,i)=c_var_act
                     u_init(:,i)=matmul(&
                         this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
                         c_var_act)
                 end associate
             end do
             deallocate(c_var_act)
-            write(10,"(2x,A)") "Aqueous component concentrations of initial water types: "
+            write(10,"(2x,A)") "Variable activity species concentrations of initial water types (primary rows first, then secondary): "
+            write(10,"(A)") ""
+            write(10,"(4x,*(A13,1x))") (adjustr(name_buf_assign2(this%wat_types(init_idx(i))%name)), i=1,n_init)
+            write(10,"(A)") ""
+            do j=1,num_var_act_ref
+                write(10,"(4x,*(ES13.5E2,1x))") (c_var_act_init(j,i), i=1,n_init)
+            end do
+            deallocate(c_var_act_init)
+            write(10,"(/,2x,A)") "Aqueous component concentrations of initial water types: "
             write(10,"(A)") ""
             write(10,"(4x,*(A13,1x))") (adjustr(name_buf_assign2(this%wat_types(init_idx(i))%name)), i=1,n_init)
             write(10,"(A)") ""
@@ -2389,6 +2259,7 @@ module chemistry_m
         !> Step 4: project external water types onto the reference component basis.
         if (n_ext>0) then
             allocate(u_ext(num_comps_ref,n_ext))
+            allocate(c_var_act_ext(num_var_act_ref,n_ext))
             allocate(c_var_act(num_var_act_ref))
             do i=1,n_ext
                 associate (it => ext_idx(i))
@@ -2405,12 +2276,21 @@ module chemistry_m
                             end if
                         end do
                     end do
+                    c_var_act_ext(:,i)=c_var_act
                     u_ext(:,i)=matmul(&
                         this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
                         c_var_act)
                 end associate
             end do
             deallocate(c_var_act)
+            write(10,"(/,2x,A)") "Variable activity species concentrations of external water types (primary rows first, then secondary): "
+            write(10,"(A)") ""
+            write(10,"(4x,*(A13,1x))") (adjustr(name_buf_assign2(this%wat_types(ext_idx(i))%name)), i=1,n_ext)
+            write(10,"(A)") ""
+            do j=1,num_var_act_ref
+                write(10,"(4x,*(ES13.5E2,1x))") (c_var_act_ext(j,i), i=1,n_ext)
+            end do
+            deallocate(c_var_act_ext)
             write(10,"(/,2x,A)") "Aqueous component concentrations of external water types: "
             write(10,"(A)") ""
             write(10,"(4x,*(A13,1x))") (adjustr(name_buf_assign2(this%wat_types(ext_idx(i))%name)), i=1,n_ext)
@@ -2906,52 +2786,6 @@ module chemistry_m
             deallocate(tar_sol_indices,old_conc_zero_flag,new_conc_zero_flag,ind_sol_conc_zero,new_react_zones,old_react_zones) !< Free all temporary working arrays
         end subroutine
         
-        !> @brief Main reactive mixing solver dispatcher
-        !> @details Selects and calls the appropriate reactive mixing solver based on the
-        !>          activity coefficient model and spatial lumping flag configuration:
-        !>          - act_coeffs_model=0 + lump=.true.:  solve_reactive_mixing_ideal_lump
-        !>          - act_coeffs_model=0 + lump=.false.: solve_reactive_mixing_ideal_cons
-        !>          - act_coeffs_model>0 + lump=.true.:  solve_reactive_mixing_lump (not yet implemented)
-        !>          - act_coeffs_model>0 + lump=.false.: solve_reactive_mixing_cons (not yet implemented)
-        !> @param[in,out] this Chemistry object coordinating the simulation
-        !> @param[in] dir_pb Problem directory path
-        !> @param[in] root Root name for output files
-        !> @param[in] mixing_ratios_conc Mixing ratios for concentrations
-        !> @param[in] mixing_ratios_R Mixing ratios for reaction rates
-        !> @param[in] mix_conc_indices Matrix of indices of target waters that mix
-        !> @param[in] mix_react_indices Matrix of indices of domain mixing waters
-        !> @param[in] time_discr Time discretization object
-        !> @param[in] theta_r Integration method parameter for chemical reactions
-        subroutine solve_reactive_mixing(this,dir_pb,root,mixing_ratios_conc,mixing_ratios_R, &
-            mix_conc_indices,mix_react_indices,time_discr,theta_r)
-            class(chemistry_c) :: this                    !< Chemistry object coordinating the simulation
-            character(len=*), intent(in) :: dir_pb        !< Problem directory path
-            character(len=*), intent(in) :: root          !< Root name for output files
-            class(real_array_c), intent(in) :: mixing_ratios_conc !< Mixing ratios for concentrations
-            class(real_array_c), intent(in) :: mixing_ratios_R !< Mixing ratios for reaction rates
-            class(int_array_c), intent(in) :: mix_conc_indices !< Matrix of indices of target waters that mix
-            class(int_array_c), intent(in) :: mix_react_indices !< Matrix of domain mixing water indices
-            class(time_discr_c), intent(in) :: time_discr !< Time discretization object
-            real(kind=8), intent(in) :: theta_r           !< Integration method parameter for chemical reactions
-            
-            procedure(solve_reactive_mixing_ideal_cons), pointer :: p_solver=>null() !< Procedure pointer to selected reactive mixing solver
-            
-            if (this%act_coeffs_model==0 .and. this%lump_flag .eqv. .true.) then !< Check for ideal activity with spatial lumping
-                p_solver=>solve_reactive_mixing_ideal_lump !< Select ideal lumped solver
-            else if (this%act_coeffs_model==0 .and. this%lump_flag .eqv. .false.) then !< Check for ideal activity without lumping
-                p_solver=>solve_reactive_mixing_ideal_cons !< Select ideal consistent solver
-            else if (this%act_coeffs_model>0 .and. this%lump_flag .eqv. .true.) then !< Check for non-ideal activity (extended Debye-HÃ¼ckel, Pitzer, etc.) with lumping
-                !p_solver=>solve_reactive_mixing_lump    
-            else if (this%act_coeffs_model>0 .and. this%lump_flag .eqv. .false.) then !< Check for non-ideal activity without lumping (most accurate, slowest)
-                !p_solver=>solve_reactive_mixing_cons    
-            else                                                               !< Invalid combination of act_coeffs_model and lump_flag
-                error stop "Error: act_coeffs_model and lump_flag not compatible" !< Terminate with error: check chemistry configuration
-            end if
-            call p_solver(this,dir_pb,root,mixing_ratios_conc,& !< Call the selected reactive mixing solver procedure
-                mixing_ratios_R,mix_conc_indices,mix_react_indices,& !< Pass reaction mixing ratios and water indices
-                time_discr,theta_r) !< Pass time discretization and integration method
-        end subroutine
-
         !> @brief Set upstream water indices using flow direction and grid topology
         !> @details For each target water, identifies the closest upstream water as the
         !>          mixing contributor whose displacement is most anti-parallel to the

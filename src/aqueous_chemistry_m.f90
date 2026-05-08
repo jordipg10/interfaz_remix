@@ -159,7 +159,6 @@ module aqueous_chemistry_m
         procedure :: compute_c2_from_c1_Picard                      !< Compute secondary from primary (Picard iteration)
         procedure :: compute_c_nc_from_u_Newton                     !< Compute non-constant concentrations from components (Newton method)
         procedure :: compute_c_nc_from_u_Newton_ideal               !< Compute non-constant concentrations (Newton, ideal solution)
-        procedure :: compute_c_nc_tilde_from_u_Newton_ideal         !< Compute pre-reaction c_tilde from u_tilde (Newton, ideal), preserving object state
         procedure :: compute_res_spec                               !< Compute residual function for equilibrium chemistry
         procedure :: compute_res_spec_cst_act                       !< Compute residual with constant activity coefficients
         procedure :: compute_dc2_dc1_ideal                          !< Jacobian computation for ideal solution assumption
@@ -358,18 +357,6 @@ module aqueous_chemistry_m
             logical, intent(out) :: CV_flag                                !< Convergence flag: TRUE if converges, FALSE otherwise
         end subroutine
 
-        !> Compute pre-reaction c_tilde from u_tilde (Newton, ideal solution), preserving object state
-        subroutine compute_c_nc_tilde_from_u_Newton_ideal(this,c1_ig,u_tilde,c_tilde,niter,CV_flag)
-            import aqueous_chemistry_c
-            implicit none
-            class(aqueous_chemistry_c) :: this                             !< Aqueous chemistry object (state preserved on exit)
-            real(kind=8), intent(in) :: c1_ig(:)                           !< Initial guess for primary concentrations [M/L³]
-            real(kind=8), intent(in) :: u_tilde(:)                         !< Component concentrations after conservative mixing [M/L³]
-            real(kind=8), intent(out) :: c_tilde(:)                        !< Variable activity species from speciation of u_tilde [M/L³]
-            integer(kind=4), intent(out) :: niter                          !< Number of Newton iterations performed [-]
-            logical, intent(out) :: CV_flag                                !< Convergence flag: TRUE if converged, FALSE otherwise
-        end subroutine
-                
         !> Initialize concentrations using incremental coefficients method
         subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,niter,CV_flag)
             import aqueous_chemistry_c                                      !< Import aqueous chemistry class

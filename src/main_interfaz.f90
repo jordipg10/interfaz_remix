@@ -120,7 +120,7 @@ program main_interfaz
     !> Write the initial and external water-type component concentrations to the chosen file.
     call my_chem%write_conc_comp_wat_types(dir_pb_trimmed,file_u_wat_types_trimmed)
     write(*,*) 'Archivo ' // trim(file_u_wat_types_trimmed) // ' generado correctamente.'
-    !> write file name 
+    !> write file name for u_tilde and u_new
     !> Prompt for the output file name for post-reactive-mixing concentrations.
     write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones despues de la mezcla reactiva?"
     !> Read the output filename for post-mixing concentrations.
