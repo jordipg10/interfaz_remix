@@ -715,6 +715,9 @@ subroutine read_master25(this,path,unit)
                 ! read(unit,*,iostat=int_var) surf_compl%name, num_reactants, ((this%eq_reacts(ind_reacts)%stoichiometry(j),&
 
                 !  this%eq_reacts(ind_reacts)%species(j)%name), j=1,num_reactants), log_K, surf_compl%valence
+                !> Fill product slot with surface complex name so the lookup in
+                !> `set_species_indices_from_names` doesn't see an empty string.
+                species_names(this%eq_reacts(ind_reacts)%num_species)=surf_compl%name
                 !> Set stoichiometric coefficients for the reaction
                 call this%eq_reacts(ind_reacts)%set_stoichiometry(stoich_coeffs)
                 !> Set species names for the reaction

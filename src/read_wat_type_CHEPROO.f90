@@ -472,8 +472,22 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
             call this%solid_chemistry%reactive_zone%gas_phase%compute_num_species_phase() !> compute number of gas species
             !call this%solid_chemistry%reactive_zone%rearrange_ind_non_flow_species() !> rearrange non-flowing species array
             call this%solid_chemistry%reactive_zone%set_num_solids() !> set total number of solid species
-            call this%solid_chemistry%reactive_zone%allocate_ind_non_flow_species(ll) !> allocate non-flowing species indices
-            call this%solid_chemistry%reactive_zone%set_ind_non_flow_species(ind_non_flow_species(1:ll)) !> set non-flowing species indices
+            !> Only allocate ind_non_flow_species from the icon=4 constraints
+            !> when there actually are some. Otherwise (e.g. a water in
+            !> equilibrium with surface complexes only, with no icon=4 lines)
+            !> the call would overwrite num_non_flow_species with 0 and wipe
+            !> out the surface complexes counted in cat_exch_zone, which then
+            !> breaks the reactive zone's speciation algebra dimensions.
+            if (ll>0) then
+                call this%solid_chemistry%reactive_zone%allocate_ind_non_flow_species(ll) !> allocate non-flowing species indices
+                call this%solid_chemistry%reactive_zone%set_ind_non_flow_species(ind_non_flow_species(1:ll)) !> set non-flowing species indices
+            else
+                !> Recompute num_non_flow_species and the index array from the
+                !> reactive zone's own components (minerals + surface complexes
+                !> + equilibrium gases).
+                call this%solid_chemistry%reactive_zone%allocate_ind_non_flow_species()
+                call this%solid_chemistry%reactive_zone%set_ind_non_flow_species()
+            end if
             call this%solid_chemistry%reactive_zone%allocate_ind_mins() !> allocate mineral indices array
             !> Set mineral indices in chemical system
             call this%solid_chemistry%reactive_zone%set_ind_mins_chem_syst(&
@@ -512,7 +526,17 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
 !> We set speciation algebra attribute in reactive zone
     allocate(swap(2)) !> allocate swap array for potential species swapping (dimension 2)
     flag_comp=.false. !> initialize to FALSE - we use the component matrix with constant activity species
-    call this%set_spec_alg_aq_chem(flag_comp,flag_surf,flag_Se,swap,ind_eq_reacts(1:n)) !> setup speciation algebra, returns flag_Se and swap if needed
+    !> Only forward an explicit ind_eq_reacts list when icon=4 actually contributed
+    !> heterogeneous reactions beyond the chem_syst's aqueous equilibrium reactions.
+    !> Otherwise the size of ind_eq_reacts(1:n) does not match the reactive zone's
+    !> num_eq_reactions (which now includes surface complex / mineral reactions
+    !> from cat_exch_zone), so let set_ind_eq_reacts auto-discover them via
+    !> ind_non_flow_species.
+    if (n>this%solid_chemistry%reactive_zone%chem_syst%num_aq_eq_reacts) then
+        call this%set_spec_alg_aq_chem(flag_comp,flag_surf,flag_Se,swap,ind_eq_reacts(1:n)) !> setup speciation algebra, returns flag_Se and swap if needed
+    else
+        call this%set_spec_alg_aq_chem(flag_comp,flag_surf,flag_Se,swap)
+    end if
     
     !> (COMMENTED) Alternative speciation algebra setup approach
     ! call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_comp(.false.) !> set component flag

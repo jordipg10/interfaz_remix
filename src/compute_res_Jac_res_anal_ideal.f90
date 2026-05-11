@@ -123,21 +123,5 @@ subroutine compute_res_Jac_res_anal_ideal(this,indices_icon,n_icon,indices_const
             Jac_res(indices_icon%cols(4)%col_1(i),this%ind_prim_species(j))=this%solid_chemistry%reactive_zone%chem_syst%Se(& !> Jacobian: ∂r/∂cⱼ = Sᵢⱼ/(cⱼ·ln(10)) (derivative of log term w.r.t. concentration) [1/C]
                 indices_constrains(ind_cstr,2),j)/(this%concentrations(this%ind_prim_species(j))*log(1d1)) !> Divide stoichiometric coefficient by (concentration × ln(10)) for log derivative
         end do
-        ! !> [DEBUG icon=4] dump residual / equilibrium info / Jacobian row for this constraint
-        ! print '(A,I0,A,I0,A,A,A,ES13.5,A,ES13.5,A,ES13.5)', &
-        !     '[DBG icon4] i=', i, &
-        !     ' eq_react_idx=', indices_constrains(ind_cstr,2), &
-        !     ' constrain_sp=', trim(this%aq_phase%aq_species(indices_icon%cols(4)%col_1(i))%name), &
-        !     ' res=', res(indices_icon%cols(4)%col_1(i)), &
-        !     ' ctot=', ctot(indices_icon%cols(4)%col_1(i)), &
-        !     ' eq_cst=', this%solid_chemistry%reactive_zone%chem_syst%eq_reacts(indices_constrains(ind_cstr,2))%eq_cst
-        ! print '(A)', '   Se row (prim cols):'
-        ! do j=1,this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species
-        !     print '(A,I0,A,A,A,ES13.5,A,ES13.5,A,ES13.5)', &
-        !         '     j=', j, ' prim_sp=', trim(this%aq_phase%aq_species(this%ind_prim_species(j))%name), &
-        !         ' Se=', this%solid_chemistry%reactive_zone%chem_syst%Se(indices_constrains(ind_cstr,2),j), &
-        !         ' c=', this%concentrations(this%ind_prim_species(j)), &
-        !         ' Jac=', Jac_res(indices_icon%cols(4)%col_1(i),this%ind_prim_species(j))
-        ! end do
     end do
 end subroutine !> End of compute_res_Jac_res_anal_ideal subroutine

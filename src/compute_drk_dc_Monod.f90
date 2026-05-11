@@ -45,27 +45,25 @@ subroutine compute_drk_dc_Monod(this,conc,rk,drk_dc)
     real(kind=8), allocatable :: conc_M(:) !> Electron acceptor and donor concentrations (not used in current implementation) [C]
     real(kind=8), allocatable :: prod_grad(:) !> Pre-factor for gradient computation: rₖ/c_M (temporary workaround for gradient calculation) [M/T/C]
     
-    !prod_cat=1d0 !> Commented: Initialize product of catalyser terms to 1
-    !prod_inh=1d0 !> Commented: Initialize product of inhibitor terms to 1
-    allocate(prod_grad(2)) !> Allocate array for gradient pre-factors: one for electron acceptor, one for electron donor (temporary workaround)
-    
-    !rk=this%params%rate_cst !> Commented: Initialize reaction rate with rate constant k₀
-    !prod_grad=this%params%rate_cst !> Commented: Initialize gradient pre-factor with rate constant
-!> Inhibition factors (COMMENTED OUT - alternative approach to compute rate)
-    !do j=1,this%params%n_inh !> Commented: Loop over all inhibitors
-    !    rk=rk*this%params%k_inh(j)/(this%params%k_inh(j)+conc(j)) !> Commented: Multiply rate by inhibition factor: K_inh/(K_inh + c_inh)
-    !end do
-    !prod_grad=rk !> Commented: Store rate after inhibition for gradient calculation
-    !rk=rk*prod_inh !> Commented: Multiply by product of all inhibition factors
-!> Electron acceptor & donor (COMMENTED OUT - alternative approach)
-    !do j=1,2 !> Commented: Loop over electron acceptor (j=1) and electron donor (j=2)
-    !    rk=rk*conc(this%params%n_inh+j)/(this%params%k_M(j)+conc(this%params%n_inh+j)) !> Commented: Multiply by Monod term: c_M/(K_M + c_M)
-    !end do
-!> Temporary workaround for gradient pre-factor computation
-    prod_grad(1)=prod_grad(1)*conc(this%params%n_inh+2)/((this%params%k_M(1)+conc(this%params%n_inh+1))*(this%params%k_M(2)+& !> Compute gradient pre-factor for electron acceptor: multiply by c_donor/(K_M,acceptor + c_acceptor)·(K_M,donor + c_donor)
-        conc(this%params%n_inh+2))) !> Complete denominator for acceptor gradient pre-factor
-    prod_grad(2)=prod_grad(2)*conc(this%params%n_inh+1)/((this%params%k_M(1)+conc(this%params%n_inh+1))*(this%params%k_M(2)+& !> Compute gradient pre-factor for electron donor: multiply by c_acceptor/(K_M,acceptor + c_acceptor)·(K_M,donor + c_donor)
-        conc(this%params%n_inh+2))) !> Complete denominator for donor gradient pre-factor
+    allocate(prod_grad(2)) !> Allocate array for gradient pre-factors: one for electron acceptor, one for electron donor
+
+!> BUGFIX: prod_grad was previously used uninitialised on the RHS below.
+!> Initialise it to the rate "base" = k0 * product of inhibition factors
+!> (i.e. rk before the acceptor/donor Monod terms are applied), matching
+!> compute_rk_drk_dc_Monod.f90.
+    prod_grad(1) = this%params%rate_cst !> Maximum rate constant k₀
+    do j=1,this%params%n_inh !> Apply inhibition factors K_inh,j/(K_inh,j + c_inh,j)
+        prod_grad(1) = prod_grad(1)*this%params%k_inh(j)/(this%params%k_inh(j)+conc(j))
+    end do
+    prod_grad(2) = prod_grad(1) !> Same base for donor pre-factor
+
+!> Gradient pre-factors for acceptor and donor:
+!>   prod_grad(1) = (k0 * F_inh) * c_don / ((K_acc + c_acc)*(K_don + c_don))
+!>   prod_grad(2) = (k0 * F_inh) * c_acc / ((K_acc + c_acc)*(K_don + c_don))
+    prod_grad(1)=prod_grad(1)*conc(this%params%n_inh+2)/((this%params%k_M(1)+conc(this%params%n_inh+1))*(this%params%k_M(2)+&
+        conc(this%params%n_inh+2)))
+    prod_grad(2)=prod_grad(2)*conc(this%params%n_inh+1)/((this%params%k_M(1)+conc(this%params%n_inh+1))*(this%params%k_M(2)+&
+        conc(this%params%n_inh+2)))
     !rk=rk*prod_cat !> Commented: Multiply by product of catalyser terms (not currently used)
     !rk=rk*(1d0-conc(this%params%n_t+1)/this%params%cb_max) !> Commented: Multiply by logistic factor for biomass limitation: (1 - c_biomass/c_max)
 !> Gradient computation: ∂rₖ/∂c for all species

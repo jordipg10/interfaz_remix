@@ -1,6 +1,6 @@
     !> Reads initial target gases from a file
     !> We assume file has not already been opened
-    subroutine read_tar_gas(this,root,ngrz,num_tar)
+    subroutine read_tar_gas(this,root,ngrz)
     use chemistry_m, only: chemistry_c
     use gas_chemistry_m, only: gas_chemistry_c
     use reactive_zone_m, only: reactive_zone_c
@@ -13,7 +13,6 @@
     !type(gas_chemistry_c), intent(in) :: init_gas_types(:) !> initial gas zones
     !integer(kind=4), intent(in) :: nsrz !> number of gas reactive zones
     integer(kind=4), intent(in) :: ngrz !> number of gas reactive zones
-    integer(kind=4), intent(in) :: num_tar !> expected number of targets in the mesh (upper bound for target gases)
     !integer(kind=4), intent(out) :: niter !> number of iterations
     !logical, intent(out) :: CV_flag !> TRUE if converges, FALSE otherwise
     
@@ -76,12 +75,6 @@
             exit
         else if (label=='TARGET GASES') then
             read(unit,*) num_tar_gas
-            !> Validate: cannot have more target gases than mesh targets
-            if (num_tar_gas>num_tar) then
-                write(*,*) 'Error: el numero de target gases en ',root//'_tar_gas.dat',&
-                    ' (',num_tar_gas,') es mayor que el numero de targets de la malla (',num_tar,').'
-                error stop "El numero de target gases no puede ser mayor que el numero de targets de la malla"
-            end if
             call this%allocate_target_gases(num_tar_gas)
             do
                 read(unit,*) interval, igzone !> interval of target gases and gas zone index

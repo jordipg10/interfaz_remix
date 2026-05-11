@@ -277,7 +277,11 @@ module speciation_algebra_m
             end if
             allocate(this%comp_mat_aq(this%num_aq_prim_species,this%num_aq_var_act_species))
             this%comp_mat_aq(:,1:this%num_aq_prim_species)=id_matrix(this%num_aq_prim_species)
-            this%comp_mat_aq(:,this%num_aq_prim_species+1:this%num_aq_var_act_species)=this%comp_mat(:,this%num_prim_species+1:&
+            !> Take only the aqueous-primary rows of comp_mat (the trailing rows
+            !> correspond to surface / mineral / gas primaries which do not
+            !> belong in the aqueous component matrix).
+            this%comp_mat_aq(:,this%num_aq_prim_species+1:this%num_aq_var_act_species)=&
+                this%comp_mat(1:this%num_aq_prim_species,this%num_prim_species+1:&
                 this%num_prim_species+this%num_aq_sec_var_act_species)
         end subroutine
         

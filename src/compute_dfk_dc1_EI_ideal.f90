@@ -19,11 +19,16 @@ subroutine compute_dfk_dc1_EI_ideal(this,c1,c2v,drk_dc,Delta_t,theta,mix_ratio_r
     real(kind=8), allocatable :: dc2v_dc1(:,:) !> Jacobian secondary variable activity concentrations - primary concentrations
     real(kind=8), allocatable :: drk_dc1(:,:) !> Jacobian kinetic reaction rates - primary concentrations
     real(kind=8), allocatable :: drk_dc2v(:,:) !> Jacobian kinetic reaction rates - secondary variable activity concentrations
+    real(kind=8), allocatable :: drk_dc_zone(:,:) !> drk_dc with columns permuted to zone-local primary-then-secondary order
     real(kind=8), allocatable :: d_log_gamma_d_I(:) !> derivative of log_10 activity coefficients of variable activity species with respect to ionic activity
     real(kind=8), allocatable :: out_prod(:,:) !> Outer product between d_log_gamma_d_I and squared charges of variable activity species
+    integer(kind=4) :: j_perm !> Loop index for permuting drk_dc columns into zone-local order
+    integer(kind=4) :: n_p_loc !> Cached number of primary species (zone-local)
+    integer(kind=4) :: n_v_loc !> Cached number of variable activity species (zone-local)
 !> Pre-process
-    allocate(dc2v_dc1(this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions,&
-    this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species))
+    n_p_loc = this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species
+    n_v_loc = this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species
+    allocate(dc2v_dc1(this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions, n_p_loc))
 !> Process
     !> First we compute d_log_gamma_d_I
         !call this%compute_d_log_gamma_d_I_aq_chem(d_log_gamma_d_I)
@@ -31,17 +36,38 @@ subroutine compute_dfk_dc1_EI_ideal(this,c1,c2v,drk_dc,Delta_t,theta,mix_ratio_r
         !out_prod=outer_prod_vec(d_log_gamma_d_I,this%solid_chemistry%reactive_zone%chem_syst%z2(1:this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species))
     !> Jacobian of secondary variable activity concentrations
         call this%compute_dc2v_dc1_ideal(c1,c2v,dc2v_dc1)
-    !> We separate primary and secondary variable activity species in Jacobian of kinetic reaction rates     
-        drk_dc1=drk_dc(:,1:this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)
-        drk_dc2v=drk_dc(:,this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species+1:&
-            this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species)
+    !> BUGFIX: drk_dc columns are indexed by chem_syst global species index
+    !> (set in set_indices_rk via chem_syst%species(j)). Newton uses zone-local
+    !> primary-then-secondary ordering, so we must permute the columns of
+    !> drk_dc into zone-local order before splitting into drk_dc1 / drk_dc2v.
+    !> Without this permutation the Jacobian carries the wrong sensitivities
+    !> whenever zone-local and chem_syst orderings differ (e.g. when a primary
+    !> is swapped past a secondary by the equilibrium-elimination algebra), and
+    !> Newton stalls with a residual stuck at the noise floor of the wrong
+    !> direction.
+    allocate(drk_dc_zone(size(drk_dc,1), n_v_loc))
+    do j_perm = 1, n_v_loc
+        !> Defensive bounds check: ind_var_act_species(j_perm) must index a valid
+        !> column of the chem_syst-wide drk_dc. Catches the case where a caller
+        !> passes a sliced drk_dc(:,1:n_v) instead of the full chem_syst matrix,
+        !> or where a multi-zone setup has zone slot indices exceeding drk_dc cols.
+        if (this%solid_chemistry%reactive_zone%ind_var_act_species(j_perm) < 1 .or. &
+            this%solid_chemistry%reactive_zone%ind_var_act_species(j_perm) > size(drk_dc,2)) then
+            print *, "compute_dfk_dc1_EI_ideal: ind_var_act_species(", j_perm, ") = ", &
+                this%solid_chemistry%reactive_zone%ind_var_act_species(j_perm), &
+                " out of range [1, ", size(drk_dc,2), "]"
+            error stop "compute_dfk_dc1_EI_ideal: ind_var_act_species index out of range for drk_dc"
+        end if
+        drk_dc_zone(:, j_perm) = drk_dc(:, this%solid_chemistry%reactive_zone%ind_var_act_species(j_perm))
+    end do
+    !> We separate primary and secondary variable activity species in Jacobian of kinetic reaction rates
+        drk_dc1  = drk_dc_zone(:, 1:n_p_loc)
+        drk_dc2v = drk_dc_zone(:, n_p_loc+1:n_v_loc)
     !> We compute Jacobian Newton residual
-        dfk_dc1=this%solid_chemistry%reactive_zone%speciation_alg%comp_mat(:,1:&
-            this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)+matmul(&
-            this%solid_chemistry%reactive_zone%speciation_alg%comp_mat(:,&
-            this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species+1:&
-            this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species),dc2v_dc1)-theta*Delta_t*mix_ratio_r*&
-            matmul(this%solid_chemistry%reactive_zone%U_SkT_prod,drk_dc1+matmul(drk_dc2v,dc2v_dc1))
+        dfk_dc1=this%solid_chemistry%reactive_zone%speciation_alg%comp_mat(:,1:n_p_loc) + matmul(&
+            this%solid_chemistry%reactive_zone%speciation_alg%comp_mat(:,n_p_loc+1:n_v_loc), dc2v_dc1) - &
+            theta*Delta_t*mix_ratio_r*matmul(this%solid_chemistry%reactive_zone%U_SkT_prod, &
+            drk_dc1 + matmul(drk_dc2v, dc2v_dc1))
 !> Post-process
-    deallocate(dc2v_dc1,drk_dc1,drk_dc2v)
+    deallocate(dc2v_dc1, drk_dc1, drk_dc2v, drk_dc_zone)
 end subroutine

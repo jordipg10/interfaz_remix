@@ -34,7 +34,7 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
     class(int_array_c), intent(in) :: mix_conc_indices      !< Mixing concentration indices
     class(real_array_c), intent(in) :: mixing_ratios_conc   !< Mixing ratios for concentrations
     real(kind=8), intent(in) :: lumped_lambdas(:)           !< Pre-computed lumped lambdas
-    real(kind=8), intent(in) :: all_conc_old(:,:)           !< Global cache of old concentrations
+    real(kind=8), intent(inout) :: all_conc_old(:,:)        !< Global cache of old concentrations (refreshed here after update_old_attributes)
     integer(kind=4), intent(in) :: all_ind_aq_sp(:,:)       !< Global cache of aq species indices
     real(kind=8), intent(inout) :: conc_comp(:)             !< Work buffer for component concentrations
     procedure(reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2) :: p_solver  !< Reactive mixing solver
@@ -49,10 +49,18 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
     real(kind=8), allocatable :: mal_residual(:)
     real(kind=8) :: mal_max
 
-    !> Update old attributes
+    !> Update old attributes (copies new conc from previous step into conc_old)
     do i = 1, this%num_target_waters
         call this%waters(this%tar_wat_indices(i))%update_old_attributes()
     end do
+    !> Refresh global conc_old cache AFTER updates so it reflects the previous step's new state
+    block
+        integer(kind=4) :: ww
+        do ww = 1, size(this%waters)
+            all_conc_old(1:size(this%waters(ww)%conc_old), ww) = &
+                this%waters(ww)%conc_old
+        end do
+    end block
     !> Target waters loop
     do i = 1, num_tar_wat
         idx = this%tar_wat_indices(ind_tar_wat(i))
@@ -78,10 +86,15 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
             Delta_t, theta_r, conc_nc, conc_comp(1:n_p))
         !> Mass action law check for equilibrium reactions (ideal solution)
         if (n_eq > 0) then
-            mal_residual = matmul(this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star, &
-                log10(conc_nc(1:n_p))) + &
-                this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%logK_star - &
-                log10(conc_nc(n_p+1:n_p+n_eq))
+            block
+                real(kind=8), allocatable :: log_gamma_mal(:)
+                log_gamma_mal = this%waters(idx)%compute_log_act_coeffs_var_act_ideal()
+                mal_residual = matmul(this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star, &
+                    log10(conc_nc(1:n_p)) + log_gamma_mal(1:n_p)) + &
+                    this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%logK_star - &
+                    log10(conc_nc(n_p+1:n_p+n_eq)) - log_gamma_mal(n_p+1:n_p+n_eq)
+                deallocate(log_gamma_mal)
+            end block
             mal_max = maxval(abs(mal_residual))
             if (mal_max > 1d-5) then
                 print *, "WARNING: mass action law violated after p_solver, water", idx, &

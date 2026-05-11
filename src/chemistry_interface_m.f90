@@ -1,4 +1,4 @@
-!> @file chemistry_m.f90
+!> @file chemistry_interface_m.f90
 !> @brief Main chemistry module for reactive transport modeling
 !> @details This module contains the main chemistry class that coordinates all chemical 
 !>          processes in reactive transport simulations. It manages water types, target 
@@ -93,6 +93,7 @@ module chemistry_m
         integer(kind=4) :: num_materials=0                                     !< Number of distinct material types (â‰¤ num_target_solids). Layout: materials(1..num_min_zones) = mineral zones, materials(num_min_zones+1..num_min_zones+num_init_cat_exch_zones) = surface (cation-exchange) zones.
         integer(kind=4) :: num_min_zones=0                                     !< Number of mineral zones stored at the head of `materials(:)` (= nmrz from quim_loc.dat)
         integer(kind=4) :: num_init_cat_exch_zones=0                           !< Number of initial cation exchange (surface) zones stored at the tail of `materials(:)`
+        type(solid_chemistry_c), allocatable :: init_cat_exch_zones(:)         !< Initial cation-exchange (surface) zones, indexed 1..num_init_cat_exch_zones
         type(solid_chemistry_c), allocatable :: materials(:)                   !< Array of distinct material types (solid compositions)
         type(solid_chemistry_c), allocatable :: wat_type_solids(:)             !< Solid chemistry templates associated with each water type (1..num_wat_types). Independent of `target_solids` and `materials`.
         type(solid_chemistry_c), allocatable :: target_solids(:)               !< Current target solid compositions at spatial locations
@@ -178,6 +179,7 @@ module chemistry_m
         procedure :: allocate_react_zones_wat_types   !< Allocate reactive zones for water types
         procedure :: allocate_mineral_zones           !< Allocate mineral zones array
         procedure :: allocate_materials               !< Allocate materials array
+        procedure :: allocate_init_cat_exch_zones     !< Allocate initial cation-exchange zones array
         procedure :: allocate_wat_types               !< Allocate water types array
         procedure :: allocate_wat_type_solids         !< Allocate per-water-type solid chemistry array
         procedure :: allocate_gas_zones               !< Allocate gas zones array
@@ -454,7 +456,7 @@ module chemistry_m
     !> @param[in] root Root name for input files
     !> @param[in] nsrz Number of solid reactive zones
     !> @param[in] ngrz Number of gas reactive zones
-        subroutine read_waters_init(this,root,nsrz,ngrz,num_tar)
+        subroutine read_waters_init(this,root,nsrz,ngrz)
             import chemistry_c                            !< Import chemistry class definition
             import aqueous_chemistry_c                    !< Import aqueous chemistry class
             import solid_chemistry_c                      !< Import solid chemistry class
@@ -465,7 +467,6 @@ module chemistry_m
             character(len=*), intent(in) :: root          !< Root name for input files
             integer(kind=4), intent(in) :: nsrz           !< Number of solid reactive zones
             integer(kind=4), intent(in) :: ngrz           !< Number of gas reactive zones
-            integer(kind=4), intent(in) :: num_tar        !< Expected number of target (domain) waters from the mesh
         end subroutine
         
     !> @brief Read domain waters with iterative equilibrium speciation
@@ -534,12 +535,11 @@ module chemistry_m
     !> @brief Read initial and boundary water types from CHEPROO input
     !> @details Reads initial and boundary water type definitions from CHEPROO format files,
     !>          optionally including gas phase chemistry for multiphase systems.
+    !>          Initial cation-exchange zones are read into `this%init_cat_exch_zones(:)`.
     !> @param[in,out] this Chemistry object to populate with water types
     !> @param[in] unit File unit number for reading
-    !> @param[in,out] init_cat_exch_zones Initial cation exchange zones (caller-owned, may be reallocated)
-    !> @param[in] gas_species_chem Optional gas chemistry for multiphase initialization
-        subroutine read_init_bd_wat_types_CHEPROO(this,unit,init_cat_exch_zones,&
-            gas_species_chem)
+    !> @param[in] gas_chem Optional gas chemistry for multiphase initialization
+        subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
             import chemistry_c                            !< Import chemistry class definition
             import aqueous_chemistry_c                    !< Import aqueous chemistry class
             import solid_chemistry_c                      !< Import solid chemistry class
@@ -547,8 +547,7 @@ module chemistry_m
             implicit none                                 !< Require explicit variable declarations
             class(chemistry_c) :: this                    !< Chemistry object to populate
             integer(kind=4), intent(in) :: unit           !< File unit number for reading
-            type(solid_chemistry_c), intent(inout), allocatable :: init_cat_exch_zones(:) !< Initial cation exchange zones (caller-owned)
-            type(gas_chemistry_c), intent(in), optional :: gas_species_chem !< Optional gas chemistry object
+            type(gas_chemistry_c), intent(in), optional :: gas_chem !< Optional gas chemistry object
         end subroutine
 
     !> @brief Read initial mineral zones from CHEPROO input
@@ -589,20 +588,17 @@ module chemistry_m
 
     !> @brief Read initial cation exchange zones from CHEPROO input
     !> @details Reads cation exchange zone definitions from CHEPROO format input files,
-    !>          returning the number of adsorption reactive zones found.
+    !>          populates `this%init_cat_exch_zones(:)`, and returns the number of
+    !>          adsorption reactive zones found.
     !> @param[in,out] this Chemistry object to populate
     !> @param[in] unit File unit number for reading
     !> @param[out] ndrz Number of adsorption reactive zones read from file
-    !> @param[out] init_cat_exch_zones Allocated and populated initial cation exchange zones
-        subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz,init_cat_exch_zones)
+        subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
             import chemistry_c                            !< Import chemistry class definition
-            import solid_chemistry_c                      !< Import solid chemistry class
-            import reactive_zone_c                        !< Import reactive zone class
             implicit none                                 !< Require explicit variable declarations
             class(chemistry_c) :: this                    !< Chemistry object to populate
             integer(kind=4), intent(in) :: unit           !< File unit number for reading
             integer(kind=4), intent(out):: ndrz           !< Number of adsorption reactive zones
-            type(solid_chemistry_c), intent(out), allocatable :: init_cat_exch_zones(:) !< Initial cation exchange zones (allocated here)
         end subroutine
         
     !> @brief Read gas boundary zones from CHEPROO input
@@ -700,13 +696,12 @@ module chemistry_m
     !> @param[in] root Root name for input files
     !> @param[in] nsrz Number of solid reactive zones
     !> @param[in] ngrz Number of gas reactive zones
-            subroutine read_tar_sol(this,root,nsrz,ngrz,num_tar)
+            subroutine read_tar_sol(this,root,nsrz,ngrz)
             import chemistry_c
             class(chemistry_c) :: this                    !< Chemistry object to populate
             character(len=*), intent(in) :: root          !< Root name for input files
             integer(kind=4), intent(in) :: nsrz           !< Number of solid reactive zones
             integer(kind=4), intent(in) :: ngrz           !< Number of gas reactive zones
-            integer(kind=4), intent(in) :: num_tar        !< Expected number of targets in the mesh (upper bound for target solids)
             end subroutine
             
     !> @brief Read target gas definitions from file
@@ -715,12 +710,11 @@ module chemistry_m
     !> @param[in,out] this Chemistry object to populate with target gases
     !> @param[in] root Root name for input files
     !> @param[in] ngrz Number of gas reactive zones
-            subroutine read_tar_gas(this,root,ngrz,num_tar)
+            subroutine read_tar_gas(this,root,ngrz)
             import chemistry_c
             class(chemistry_c) :: this                    !< Chemistry object to populate
             character(len=*), intent(in) :: root          !< Root name for input files
             integer(kind=4), intent(in) :: ngrz           !< Number of gas reactive zones
-            integer(kind=4), intent(in) :: num_tar        !< Expected number of targets in the mesh (upper bound for target gases)
             end subroutine
 
     !> @brief Initialize complete chemistry system
@@ -2469,6 +2463,23 @@ module chemistry_m
         subroutine allocate_materials(this)
         class(chemistry_c) :: this                        !< Chemistry object instance
         allocate(this%materials(this%num_materials))       !< Allocate materials array with size equal to the number of materials set previously
+        end subroutine
+
+        !> @brief Allocate memory for the initial cation-exchange (surface) zones array
+        !> @details (Re)allocates `init_cat_exch_zones(:)` with the requested size and
+        !>          updates `num_init_cat_exch_zones` accordingly. If the array was already
+        !>          allocated, it is deallocated first so callers can resize freely.
+        !> @param this Chemistry object
+        !> @param n Desired number of initial cation-exchange zones (must be >= 0)
+        subroutine allocate_init_cat_exch_zones(this,n)
+        class(chemistry_c) :: this                        !< Chemistry object instance
+        integer(kind=4), intent(in) :: n                  !< Number of initial cation-exchange zones to allocate
+        if (n<0) then                                     !< Validate non-negative size
+            error stop "Number of initial cation-exchange zones must be non-negative"
+        end if
+        if (allocated(this%init_cat_exch_zones)) deallocate(this%init_cat_exch_zones) !< Free previous allocation, if any
+        allocate(this%init_cat_exch_zones(n))             !< Allocate with requested size
+        this%num_init_cat_exch_zones=n                    !< Keep counter in sync with array size
         end subroutine
         
         !> @brief Get indices of target solids associated with a material

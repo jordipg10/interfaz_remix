@@ -412,9 +412,17 @@ module reactive_zone_m
                 counter=0
                 call this%allocate_ind_non_flow_species(this%num_solids+this%gas_phase%num_gases_eq)
                 !> First: surface complexes
-                do i=1,this%cat_exch_zone%num_surf_compl
+                !>   Slot 1 holds the master / free site (e.g. 'x-'), addressed
+                !>   as num_aq_prim_species+1 in the chemical system.
+                !>   Slots 2..num_exch_cats+1 hold the secondary cation-exchange
+                !>   complexes (e.g. 'x-na', 'x-k'), which live in the chem_syst
+                !>   right after the variable-activity aqueous secondary species
+                !>   and equilibrium variable-activity minerals.
+                if (this%cat_exch_zone%num_surf_compl>0) then
                     this%ind_non_flow_species(counter+1)=this%chem_syst%speciation_alg%num_aq_prim_species+1
-                    this%ind_non_flow_species(counter+this%num_minerals_var_act+i)=this%chem_syst%speciation_alg%num_prim_species+&
+                end if
+                do i=1,this%cat_exch_zone%num_exch_cats
+                    this%ind_non_flow_species(counter+this%num_minerals_var_act+i+1)=this%chem_syst%speciation_alg%num_prim_species+&
                         this%chem_syst%speciation_alg%num_aq_sec_var_act_species+&
                         this%chem_syst%num_minerals_eq_var_act+i    !> Indexing in chem system
                 end do
@@ -1487,9 +1495,9 @@ module reactive_zone_m
                     end if
                     !< Direct assignment: U_SkT_prod = S_k^T (transpose of kinetic stoichiometric matrix)
                     !< Extract rows for specified kinetic reactions (ind_kin)
-                    !< Extract columns for variable activity species (1:num_var_act_species)
+                    !< Extract columns in zone-local primary-then-secondary order via ind_var_act_species
                     !< Transpose to get [species × reactions]
-                    this%U_SkT_prod=transpose(this%chem_syst%Sk(ind_kin,1:this%speciation_alg%num_var_act_species)) !> chapuza
+                    this%U_SkT_prod=transpose(this%chem_syst%Sk(ind_kin,this%ind_var_act_species))
                     
                 !> Case A2: Equilibrium reactions present → Component matrix transformation (U * S_k^T)
                 else
@@ -1499,11 +1507,11 @@ module reactive_zone_m
                         allocate(this%U_SkT_prod(this%speciation_alg%num_prim_species,size(ind_kin)))
                     end if
                     !< Matrix multiplication: U_SkT_prod = U * S_k^T
-                    !< U: component matrix [num_prim × num_var_act]
-                    !< S_k^T: transposed kinetic stoich [num_var_act × num_kin_specified]
+                    !< U: component matrix [num_prim × num_var_act] in zone-local order
+                    !< S_k^T: transposed kinetic stoich, columns reordered to zone-local order
                     !< Result: [num_prim × num_kin_specified]
                     this%U_SkT_prod = matmul(this%speciation_alg%comp_mat, &
-                                    transpose(this%chem_syst%Sk(ind_kin, 1:this%speciation_alg%num_var_act_species)))
+                                    transpose(this%chem_syst%Sk(ind_kin, this%ind_var_act_species)))
                 end if
                 
             !> \subsection case_all_kin Case B: Use all kinetic reactions in chemical system (default)
@@ -1518,9 +1526,9 @@ module reactive_zone_m
                     end if
                     !< Direct assignment: U_SkT_prod = S_k^T (all kinetic reactions)
                     !< Extract all rows of S_k (all kinetic reactions)
-                    !< Extract columns for variable activity species only
+                    !< Extract columns in zone-local primary-then-secondary order via ind_var_act_species
                     !< Transpose to get [species × reactions]
-                    this%U_SkT_prod=transpose(this%chem_syst%Sk(:,1:this%speciation_alg%num_var_act_species)) !> chapuza
+                    this%U_SkT_prod=transpose(this%chem_syst%Sk(:,this%ind_var_act_species))
                     
                 !> Case B2: Both equilibrium and kinetic reactions present → Component transformation
                 else if (this%chem_syst%num_kin_reacts>0) then
@@ -1530,14 +1538,12 @@ module reactive_zone_m
                         allocate(this%U_SkT_prod(this%speciation_alg%num_prim_species,this%chem_syst%num_kin_reacts))
                     end if
                     !< Matrix multiplication: U_SkT_prod = U * S_k^T (all kinetic reactions)
-                    !< U: component matrix [num_prim × num_var_act]
-                    !< S_k^T: transposed full kinetic stoich [num_var_act × num_kin_reacts]
+                    !< U: component matrix [num_prim × num_var_act] in zone-local order
+                    !< S_k^T: transposed full kinetic stoich, columns reordered to zone-local order
                     !< Result: [num_prim × num_kin_reacts]
                     !< This transforms kinetic rates from concentration to component basis
                     this%U_SkT_prod = matmul(this%speciation_alg%comp_mat, &
-                                             transpose(this%chem_syst%Sk(:, 1:this%speciation_alg%num_var_act_species)))
-                    
-                !> Case B3: No kinetic reactions in system → Empty matrix
+                                             transpose(this%chem_syst%Sk(:, this%ind_var_act_species)))
                 else if (.not. allocated(this%U_SkT_prod)) then
                     !< Allocate zero-width matrix (no kinetic reactions to transform)
                     !< Dimensions: [num_prim_species × 0]
@@ -1728,12 +1734,21 @@ module reactive_zone_m
         !> \param[in,out] this Reactive zone object
         subroutine allocate_ind_var_act_species(this)
         class(reactive_zone_c) :: this !< Reactive zone to modify
+        integer(kind=4) :: i  !< Loop index for identity initialisation
         !< Deallocate if already exists
         if (allocated(this%ind_var_act_species)) then
             deallocate(this%ind_var_act_species) !< Free existing array
         end if
         !< Allocate with size from speciation algebra
         allocate(this%ind_var_act_species(this%speciation_alg%num_var_act_species))
+        !< Default-initialise to the identity permutation. Downstream code in
+        !< read_tar_wat_line uses ind_var_act_species(j) /= j to detect whether
+        !< compute_speciation_alg_arrays applied a column swap on a shared
+        !< reactive zone. Leaving the array at its uninitialised (zero) values
+        !< would falsely trigger swap(2) = 0 and an out-of-bounds access.
+        do i = 1, this%speciation_alg%num_var_act_species
+            this%ind_var_act_species(i) = i
+        end do
         end subroutine
         
         !> \brief Get non-constant activity stoichiometric matrix for reactive zone

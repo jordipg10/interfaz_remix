@@ -1180,7 +1180,12 @@ module chem_system_m
                     call this%species(this%speciation_alg%num_prim_species+i)%copy_species(&
                         this%aq_phase%aq_species(this%aq_phase%ind_diss_solids(this%speciation_alg%num_aq_prim_species+i))) !> secondary variable activity aqueous species (chapuza porque asumes que los iones ya están ordenados en primarios y secundarios)
                 end do
-                num_var_act_sp=num_var_act_sp+this%speciation_alg%num_aq_var_act_species
+                !> Secondaries were placed at absolute slots num_prim_species+i,
+                !> so the running counter only advances by the number of
+                !> *secondary* variable-activity aqueous species, not by
+                !> num_aq_var_act_species (which would double-count the
+                !> primaries already written at slots 1..num_aq_prim_species).
+                num_var_act_sp=num_var_act_sp+this%speciation_alg%num_aq_sec_var_act_species
                 do i=1,this%num_minerals_eq_var_act
                     call this%species(num_var_act_sp+i)%copy_species(this%minerals(this%num_minerals_kin+i)%mineral)
                 end do

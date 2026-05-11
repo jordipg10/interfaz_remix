@@ -18,7 +18,6 @@ module aqueous_chemistry_m
     implicit none                                                           !< Require explicit variable declaration (Fortran safety)
     save   !< Preserve module variables between procedure calls      
     private !< Make all entities private by default
-    public :: inf_norm_vec_real, outer_prod_vec, LU_lin_syst, diag_matrix_c, id_matrix !< Re-export utility symbols used by subprograms
     public ::  initialise_iterative_method                     !< Expose iterative method initialisation subroutine
     public :: mixing_iter_comp, reactive_mixing_iter_EE_eq_kin_ideal, reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, &
         compute_r_tilde_impl_opt4, mixing_iter_comp_ideal, compute_r_tilde_impl_opt1, reactive_mixing_iter_EI_eq_anal_ideal, &
@@ -356,7 +355,7 @@ module aqueous_chemistry_m
             integer(kind=4), intent(out) :: niter                          !< Number of iterations performed
             logical, intent(out) :: CV_flag                                !< Convergence flag: TRUE if converges, FALSE otherwise
         end subroutine
-
+                
         !> Initialize concentrations using incremental coefficients method
         subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,niter,CV_flag)
             import aqueous_chemistry_c                                      !< Import aqueous chemistry class
@@ -436,7 +435,7 @@ module aqueous_chemistry_m
         subroutine compute_dc2v_dc1_ideal(this,c1,c2v,dc2v_dc1)
             import aqueous_chemistry_c                                      !< Import aqueous chemistry class
             implicit none                                                   !< No implicit variable declarations
-            class(aqueous_chemistry_c) :: this                             !< Aqueous chemistry object (polymorphic)
+            class(aqueous_chemistry_c), intent(in) :: this                 !< Aqueous chemistry object (polymorphic)
             real(kind=8), intent(in) :: c1(:)                              !< Primary concentrations (dim=n_p)
             real(kind=8), intent(in) :: c2v(:)                            !< Non-constant secondary concentrations (dim=n_eq)
             real(kind=8), intent(out) :: dc2v_dc1(:,:)                    !< Non-constant Jacobian matrix
@@ -1031,11 +1030,11 @@ module aqueous_chemistry_m
             real(kind=8), intent(in) :: lambda_r !> mixing ratio factor for reaction rates
         end subroutine
 
-        subroutine compute_Re_kin(this,cv_hat,Delta_t,lambda_r)
+        subroutine compute_Re_kin(this,c2v_hat,Delta_t,lambda_r)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c) :: this
-            real(kind=8), intent(in) :: cv_hat(:) !> concentrations of ALL variable activity species (primary + secondary) after mixing at time step k
+            real(kind=8), intent(in) :: c2v_hat(:) !> concentrations secondary variable activity species after mixing at time step k
             real(kind=8), intent(in) :: Delta_t !> time step
             !real(kind=8), intent(in) :: theta !> time weighting factor for kinetic reactions
             real(kind=8), intent(in) :: lambda_r !> reaction mixing ratio associated to "this" argument [-]
@@ -1440,11 +1439,10 @@ module aqueous_chemistry_m
         subroutine set_conc_var_act_species(this,conc_var_act_species)
         !> variable activity species ordered in:
         !! aqueous primary species
-        !! solid primary species
+        !! solid primary species (master surface site)
         !! aqueous secondary variable activity species
-        !! eq minerals var act
-        !! surface complexes
-        !! eq gases var act
+        !! surface complex secondaries (cation-exchanged)
+        !! variable activity gases in equilibrium
         
         !! FALTA COMPROBAR CONCENTRACIONES NEGATIVAS                         !< TODO: Check for negative concentrations
             class(aqueous_chemistry_c) :: this                             !< Aqueous chemistry object (polymorphic)
@@ -1452,25 +1450,39 @@ module aqueous_chemistry_m
             if (size(conc_var_act_species)/=this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species) then
                 error stop "Dimension error in concentration of variable activity species" !< Dimension validation
             else                                                           !< If dimensions are correct
-                this%concentrations(this%ind_var_act_species)=&
-                    conc_var_act_species(1:this%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species)
-                                                                            !< Assign aqueous variable activity species concentrations
-                this%solid_chemistry%concentrations(this%solid_chemistry%mineral_zone%num_minerals+2:&
-                    this%solid_chemistry%num_solids)=&
-                    conc_var_act_species(this%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species+1:&
-                    this%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species+&
-                        this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl)
-                                                                            !< Assign solid surface complex concentrations
-                if (associated(this%gas_chemistry)) then                   !< If gas chemistry is present
-                    this%gas_chemistry%concentrations(this%solid_chemistry%reactive_zone%gas_phase%num_gases_eq_cst_act+1:&
-                        this%solid_chemistry%reactive_zone%gas_phase%num_gases_eq)=&
-                        conc_var_act_species(this%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species+&
-                        this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl+1:&
-                        this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species-&
-                        this%solid_chemistry%reactive_zone%gas_phase%num_gases_kin_var_act)
-                                                                            !< Assign gas phase variable activity concentrations
-                                                                            !< Additional gas phase assignments (commented)
+                !< Layout of conc_var_act_species (matches get_conc_nc / get_conc_nc_old):
+                !<   1..n_aq_prim                       : aqueous primary
+                !<   n_aq_prim+1..n_prim                : solid primary (master surface site)
+                !<   n_prim+1..n_prim+n_aq_sec          : aqueous secondary variable activity
+                !<   n_prim+n_aq_sec+1..+num_exch_cats  : surface complex secondaries (cations)
+                !<   <gas slots after that>
+                associate(spc => this%solid_chemistry%reactive_zone%speciation_alg, &
+                          rz  => this%solid_chemistry%reactive_zone, &
+                          sc  => this%solid_chemistry)
+                !< Aqueous primary
+                this%concentrations(this%ind_var_act_species(1:spc%num_aq_prim_species))=&
+                    conc_var_act_species(1:spc%num_aq_prim_species)
+                !< Aqueous secondary variable activity
+                if (spc%num_aq_sec_var_act_species>0) then
+                    this%concentrations(this%ind_var_act_species(spc%num_aq_prim_species+1:spc%num_aq_var_act_species))=&
+                        conc_var_act_species(spc%num_prim_species+1:spc%num_prim_species+spc%num_aq_sec_var_act_species)
                 end if
+                if (rz%cat_exch_zone%num_surf_compl>0) then
+                    !< Solid primary (master/free surface site) at slot n_prim
+                    sc%concentrations(sc%mineral_zone%num_minerals+1)=&
+                        conc_var_act_species(spc%num_prim_species)
+                    !< Surface complex secondaries (cation-exchanged)
+                    sc%concentrations(sc%mineral_zone%num_minerals+2:sc%num_solids)=&
+                        conc_var_act_species(spc%num_prim_species+spc%num_aq_sec_var_act_species+1:&
+                            spc%num_prim_species+spc%num_aq_sec_var_act_species+rz%cat_exch_zone%num_exch_cats)
+                end if
+                if (associated(this%gas_chemistry)) then                   !< If gas chemistry is present
+                    this%gas_chemistry%concentrations(rz%gas_phase%num_gases_eq_cst_act+1:&
+                        rz%gas_phase%num_gases_eq)=&
+                        conc_var_act_species(spc%num_aq_var_act_species+rz%cat_exch_zone%num_surf_compl+1:&
+                            spc%num_var_act_species-rz%gas_phase%num_gases_kin_var_act)
+                end if
+                end associate
             end if
         end subroutine
         
@@ -3585,11 +3597,19 @@ subroutine compute_c_mix_global(this, all_conc_old, all_ind_aq_sp, mix_col, &
     real(kind=8), intent(out), allocatable :: c_mix(:) !> mixed aqueous species concentrations (primary, sec var act, sec cst act)
 !> Variables
     integer(kind=4) :: i, j, w, aq_idx
-    integer(kind=4) :: n_aq, n_aq_prim, n_sec
+    integer(kind=4) :: n_aq, n_aq_prim, n_sec, n_vas, n_prim, n_aq_sec
     
     n_aq = this%aq_phase%num_species
     n_aq_prim = size(this%ind_prim_species)
     n_sec = size(this%ind_sec_species)
+    !> Full variable-activity vector layout (matches get_conc_nc_old):
+    !>   1..n_aq_prim                   : aqueous primary
+    !>   n_aq_prim+1..n_prim            : non-aqueous primary (e.g. free surface site)
+    !>   n_prim+1..n_prim+n_aq_sec      : aqueous secondary variable activity
+    !>   n_prim+n_aq_sec+1..n_vas       : non-aqueous secondary var act (e.g. surface complexes)
+    n_vas    = this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species
+    n_prim   = this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species
+    n_aq_sec = this%solid_chemistry%reactive_zone%speciation_alg%num_aq_sec_var_act_species
     
     block
     real(kind=8) :: c_tmp(n_aq)
@@ -3605,13 +3625,19 @@ subroutine compute_c_mix_global(this, all_conc_old, all_ind_aq_sp, mix_col, &
             c_tmp(i) = c_tmp(i) + mixing_ratios_conc(j+1) * all_conc_old(all_ind_aq_sp(aq_idx, w), w)
         end do
     end do
-    !> Step 2: Reorder from concentrations order to (primary, secondary) order
-    allocate(c_mix(n_aq))
+    !> Step 2: Allocate c_mix over the full variable-activity vector and
+    !>         prefill with the previous step's concentrations so that the
+    !>         non-aqueous slots (surface complexes / minerals / gases) carry
+    !>         their old values (mixing only acts on aqueous species).
+    allocate(c_mix(n_vas))
+    c_mix = this%get_conc_nc_old()
+    !> Step 3: Overwrite aqueous slots from the mixed values, reordered from
+    !>         "concentrations" order to (aq primary, aq secondary) order.
     do i = 1, n_aq_prim
         c_mix(i) = c_tmp(this%ind_prim_species(i))
     end do
-    do i = 1, n_sec
-        c_mix(n_aq_prim + i) = c_tmp(this%ind_sec_species(i))
+    do i = 1, n_aq_sec
+        c_mix(n_prim + i) = c_tmp(this%ind_sec_species(i))
     end do
     end block
 end subroutine compute_c_mix_global
@@ -5171,6 +5197,12 @@ end subroutine
 
         call this%solid_chemistry%reactive_zone%set_speciation_alg_dimensions(.true.)
         call this%set_ind_species()
+        !> The chemical system was just rearranged by change_spec_alg_chem_syst,
+        !> so the previously stored ind_non_flow_species point to stale chem_syst
+        !> positions. Regenerate them from the (now updated) chem_syst speciation
+        !> layout before using them in set_ind_eq_reacts.
+        call this%solid_chemistry%reactive_zone%allocate_ind_non_flow_species()
+        call this%solid_chemistry%reactive_zone%set_ind_non_flow_species()
         call this%solid_chemistry%reactive_zone%set_ind_eq_reacts()
         call this%solid_chemistry%reactive_zone%allocate_ind_var_act_species()
         call this%solid_chemistry%reactive_zone%set_stoich_mat_react_zone()

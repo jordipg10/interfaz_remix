@@ -477,7 +477,11 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r_old,mix_ratio
             else
             !> \subsubsection newton_ei_jacobian Jacobian assembly and log-space transformation
                 !> Compute the arithmetic Jacobian \f$\partial\mathbf{f}_k/\partial\mathbf{c}_1\f$ including kinetic-rate derivatives
-                call this%compute_dfk_dc1_EI_ideal(conc_nc(1:n_p),conc_nc(n_p+1:),drk_dc(:,1:n_v),Delta_t,theta,mix_ratio_r_new,&  !< Assembly: \f$\mathbf{U}_1 + \mathbf{U}_2\partial\mathbf{c}_2/\partial\mathbf{c}_1 - \Delta t\theta\lambda_{r}^{\mathrm{new}}(\mathbf{U}\mathbf{S}_k^T)^{\mathrm{new}}\partial\mathbf{r}_k/\partial\mathbf{c}_1\f$
+                !> Pass the full chem_syst-ordered drk_dc (NOT a slice to 1:n_v): the
+                !> callee permutes columns via reactive_zone%ind_var_act_species, whose
+                !> values can exceed n_v_zone in multi-zone setups where the zone is a
+                !> strict subset of the chem_syst variable-activity species.
+                call this%compute_dfk_dc1_EI_ideal(conc_nc(1:n_p),conc_nc(n_p+1:),drk_dc,Delta_t,theta,mix_ratio_r_new,&  !< Assembly: \f$\mathbf{U}_1 + \mathbf{U}_2\partial\mathbf{c}_2/\partial\mathbf{c}_1 - \Delta t\theta\lambda_{r}^{\mathrm{new}}(\mathbf{U}\mathbf{S}_k^T)^{\mathrm{new}}\partial\mathbf{r}_k/\partial\mathbf{c}_1\f$
                     dfk_dc1)                                     !< Output: arithmetic Jacobian (n_p \f$\times\f$ n_p)
                 !> Transform to log-space Jacobian:
                 !> \f$ (\partial\mathbf{f}_k/\partial\mathbf{p})_{:,j} = \ln(10)\,c_{1,j}\,(\partial\mathbf{f}_k/\partial c_{1,j}) \f$

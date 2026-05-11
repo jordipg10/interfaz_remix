@@ -1,6 +1,6 @@
     !> Reads initial target solids and their associated solid zones from a file
     !> We assume file has not already been opened
-    subroutine read_tar_sol(this,root,nsrz,ngrz,num_tar)
+    subroutine read_tar_sol(this,root,nsrz,ngrz)
     use chemistry_m, only: chemistry_c
     use solid_chemistry_m, only: solid_chemistry_c
     use reactive_zone_m, only: reactive_zone_c
@@ -13,7 +13,6 @@
     !type(gas_chemistry_c), intent(in) :: init_gas_types(:) !> initial gas zones
     integer(kind=4), intent(in) :: nsrz !> number of solid reactive zones
     integer(kind=4), intent(in) :: ngrz !> number of gas reactive zones
-    integer(kind=4), intent(in) :: num_tar !> expected number of targets in the mesh (upper bound for target solids)
     !integer(kind=4), intent(out) :: niter !> number of iterations
     !logical, intent(out) :: CV_flag !> TRUE if converges, FALSE otherwise
     
@@ -76,6 +75,17 @@
         call this%target_solids_dummy(i)%set_mineral_zone(this%min_zone_dummy) !> we set the dummy mineral zone pointer
         call this%react_zones_dummy(i)%set_CV_params(this%CV_params) !> we set the CV parameters in dummy mineral zone
         call this%react_zones_dummy(i)%set_chem_syst_react_zone(this%chem_syst) !> we set the chemical system in dummy reactive zone
+        !> Initialise the dummy reactive zone's speciation algebra so that
+        !> waters with no solid/gas phase (which point at target_solids_dummy)
+        !> have valid dimensions and indices when set_ind_species, etc. are
+        !> called later in read_tar_wat_line. Mirrors the dummy initialisation
+        !> in read_chemistry_CHEPROO's else branch.
+        call this%react_zones_dummy(i)%set_speciation_alg_dimensions(.true.)
+        call this%react_zones_dummy(i)%set_ind_eq_reacts()
+        call this%react_zones_dummy(i)%allocate_ind_var_act_species()
+        call this%react_zones_dummy(i)%set_stoich_mat_react_zone()
+        call this%react_zones_dummy(i)%set_ind_gases_stoich_mat()
+        call this%react_zones_dummy(i)%set_ind_mins_stoich_mat()
         call this%target_solids_dummy(i)%set_reactive_zone(this%react_zones_dummy(i)) !> we set the default reactive zone pointer
         !call this%target_solids_dummy(i)%reactive_zone%set_speciation_alg_dimensions(.true.) !< esto creo que no es necesario
         !call this%target_solids_dummy(i)%reactive_zone%set_ind_eq_reacts() !> chapuza
@@ -99,12 +109,6 @@
             exit
         else if (label=='TARGET SOLIDS') then
             read(unit,*) num_tar_sol
-            !> Validate: cannot have more target solids than mesh targets
-            if (num_tar_sol>num_tar) then
-                write(*,*) 'Error: el numero de target solids en ',root//'_tar_sol.dat',&
-                    ' (',num_tar_sol,') es mayor que el numero de targets de la malla (',num_tar,').'
-                error stop "El numero de target solids no puede ser mayor que el numero de targets de la malla"
-            end if
             call this%allocate_target_solids(num_tar_sol)
             do
                 read(unit,*) interval, iszone !> interval of target solids and solid zone index

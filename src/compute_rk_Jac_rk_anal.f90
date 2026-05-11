@@ -76,7 +76,6 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
         !     this%concentrations(this%indices_aq_species(&
         !     this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%indices_aq_phase(1)))
         !index=this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%indices_aq_phase(1)
-        allocate(drk_dc_loc(1)) !< Allocate temporary array for single derivative (linear kinetics has one reactant)
         !> Compute linear reaction rate: rk = k * c (first-order kinetics)
         !> Extract concentration of the single reactant species from full concentration array
         call this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%compute_rk_lin(&
@@ -85,7 +84,10 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
             this%rk_new(i)) !< Store rate in chemistry object
         rk_new(i)=this%rk_new(i) !< Copy rate to output array (temporary workaround - "chapuza")
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   rk_new(", i, ") =", rk_new(i)
-        allocate(drk_dc_loc(size(this%indices_rk%cols(num_rk)%col_1))) !< Reallocate for sparse Jacobian column
+        !> BUGFIX: previously this routine called allocate(drk_dc_loc(1)) above and
+        !> then allocate(...) again here without deallocating, which is a runtime
+        !> error under -fcheck=all. Allocate exactly once, with the right size.
+        allocate(drk_dc_loc(size(this%indices_rk%cols(num_rk)%col_1))) !< Sparse Jacobian column
         !> Compute Jacobian derivative drk/dc = k (constant for linear kinetics)
         call this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%compute_drk_dc_lin(drk_dc_loc)
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   drk_dc_loc =", drk_dc_loc
@@ -131,14 +133,16 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
             drk_dc_loc) !< Output: Jacobian derivatives [1/s]
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   rk_new(", num_rk, ") =", rk_new(num_rk)
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   drk_dc_loc =", drk_dc_loc
-        !> Apply minimum rate threshold to prevent numerical issues in stiff solvers
-        if (abs(rk_new(num_rk))<this%solid_chemistry%reactive_zone%CV_params%abs_tol**2) then !< Check if rate is below convergence tolerance squared
-            ! print *, "DEBUG compute_rk_Jac_rk_anal:   rate below threshold, clamping to abs_tol^2 =", &
-            !     this%solid_chemistry%reactive_zone%CV_params%abs_tol**2
-            this%rk_new(num_rk)=&
-                this%solid_chemistry%reactive_zone%CV_params%abs_tol**2 !< Set minimum rate floor (temporary workaround - "chapuza")
+        !> Apply minimum rate threshold to prevent numerical issues in stiff solvers.
+        !> BUGFIX: previously the clamp was written ONLY to this%rk_new(num_rk),
+        !> leaving the local rk_new(num_rk) (which Newton consumes via fk) at the
+        !> original tiny/possibly-negative value. Mirror the clamp into both so the
+        !> object state and the Newton residual stay consistent.
+        if (abs(rk_new(num_rk))<this%solid_chemistry%reactive_zone%CV_params%abs_tol**2) then
+            rk_new(num_rk)      = this%solid_chemistry%reactive_zone%CV_params%abs_tol**2
+            this%rk_new(num_rk) = rk_new(num_rk)
         else
-            this%rk_new(num_rk)=rk_new(num_rk) !< Use computed rate (temporary workaround - "chapuza")
+            this%rk_new(num_rk) = rk_new(num_rk)
         end if
         drk_dc(num_rk,this%indices_rk%cols(num_rk)%col_1)=drk_dc_loc !< Store Jacobian in sparse format (temporary workaround - "chapuza")
         deallocate(drk_dc_loc) !< Free temporary memory for next iteration
