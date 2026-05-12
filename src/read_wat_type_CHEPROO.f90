@@ -87,7 +87,7 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
     integer(kind=4), intent(in) :: unit !> file unit number for reading
     integer(kind=4), intent(out) :: niter !> number of iterations in speciation calculation (output)
     logical, intent(out) :: CV_flag !> convergence flag: TRUE if converged, FALSE otherwise (output)
-    type(gas_chemistry_c), intent(in), optional :: gas_chem !> gas chemistry object (optional) - chapuza (temporary fix)
+    type(gas_chemistry_c), intent(in), optional, target :: gas_chem !> gas chemistry object (optional) - chapuza (temporary fix)
     !type(solid_chemistry_c), intent(in), optional :: surf_chem !> (COMMENTED) surface chemistry for exchange reactions
     !real(kind=8), intent(in), optional :: c1_surf !> (COMMENTED) surface species concentration - chapuza
     !real(kind=8), intent(in), optional :: CEC !> (COMMENTED) cation exchange capacity - chapuza

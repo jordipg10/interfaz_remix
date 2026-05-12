@@ -7,25 +7,25 @@
 'pulso'						! name
 '       icon        guess         ctot          constrain'
 'h2o(p)'		3	1d0	1d0		''
-'ca+2'      1         1d-1       1d-1           ''
-'cl-'		1	1d-1		1d-1		''
+'ca+2'      1         2.000000002d2       2.000000002d2           ''
+'cl-'		1	2d2		2d2		''
 'so4-2'    4         1d-9		1d0		'gypsum'
 '*'      0         0.0           0.0              ' '
 2     25.0					!iwtype, temp (C)
 'inicial'						! name
 '       icon        guess         ctot          constrain'
 'h2o(p)'		3	1d0	1d0		''
-'ca+2'      1         1d-16       1d-16           ''
-'cl-'		1	1d-16		1d-16		''
-'so4-2'    1         1d-16		1d-16		''
+'ca+2'      1         1.000032937d0       1.000032937d0           ''
+'cl-'		1	1d0		1d0		''
+'so4-2'    4         1d-6		1d0		'gypsum'
 '*'      0         0.0           0.0              ' '
 3     25.0					!iwtype, temp (C)
 'entrada'						! name
 '       icon        guess         ctot          constrain'
 'h2o(p)'		3	1d0	1d0		''
-'ca+2'      1         1d-16       1d-16           ''
-'cl-'		1	1d-16		1d-16		''
-'so4-2'    1         1d-16		1d-16		''
+'ca+2'      1         1.000032937d0       1.000032937d0           ''
+'cl-'		1	1d0		1d0		''
+'so4-2'    4         1d-6		1d0		'gypsum'
 '*'      0         0.0           0.0              ' '
 '----------------------------------------------------------------------------'
 'INITIAL MINERAL ZONES'

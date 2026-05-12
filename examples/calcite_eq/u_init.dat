@@ -1,48 +1,36 @@
   Number of aqueous components: 3
 
-  Variable activity species (rows 1 to 3: primary; rows 4 to 4: secondary):
+  Aqueous components:
+    u1 = h+ + hco3-
+    u2 = ca+2 - hco3-
+    u3 = o2(aq)
 
+  Aqueous variable activity species:
     1: h+
     2: ca+2
     3: o2(aq)
     4: hco3-
 
-  Aqueous components:
 
-    u1 = h+ + hco3-
-    u2 = ca+2 - hco3-
-    u3 = o2(aq)
+  Aqueous component concentrations in the domain: 
+      7.05840E-01   7.05840E-01   7.05840E-01   7.05840E-01   7.05840E-01   7.05840E-01   7.05840E-01   7.05840E-01   7.05840E-01   7.05840E-01
+     -7.04830E-01  -7.04830E-01  -7.04830E-01  -7.04830E-01  -7.04830E-01  -7.04830E-01  -7.04830E-01  -7.04830E-01  -7.04830E-01  -7.04830E-01
+      1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06
 
-  Variable activity species concentrations of initial water types (primary rows first, then secondary): 
+  Aqueous variable activity species concentrations in the domain: 
+      1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05
+      1.00000E-03   1.00000E-03   1.00000E-03   1.00000E-03   1.00000E-03   1.00000E-03   1.00000E-03   1.00000E-03   1.00000E-03   1.00000E-03
+      1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06
+      7.05830E-01   7.05830E-01   7.05830E-01   7.05830E-01   7.05830E-01   7.05830E-01   7.05830E-01   7.05830E-01   7.05830E-01   7.05830E-01
 
-         resident
-
-      1.00000E-05
-      1.00000E-03
-      1.00000E-06
-      7.05830E-01
-
-  Aqueous component concentrations of initial water types: 
-
-         resident
-
-      7.05840E-01
-     -7.04830E-01
-      1.00000E-06
-
-  Variable activity species concentrations of external water types (primary rows first, then secondary): 
-
+  Aqueous component concentrations of external waters: 
            inflow
+      5.38611E-05
+     -5.37601E-05
+      2.52947E-04
 
+  Aqueous variable activity species concentrations of external waters: 
       1.00000E-07
       1.00000E-09
       2.52947E-04
       5.37611E-05
-
-  Aqueous component concentrations of external water types: 
-
-           inflow
-
-      5.38611E-05
-     -5.37601E-05
-      2.52947E-04

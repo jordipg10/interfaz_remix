@@ -8,7 +8,8 @@
 program main_interfaz
     !> Import chemistry container type and the three interface procedures:
     !> equilibrium+kinetic, equilibrium-only, and kinetic-only (no equilibrium).
-    use chemistry_m, only: chemistry_c, interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch
+    use chemistry_m, only: chemistry_c, interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch, &
+        interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T
     !> Standard intrinsic module providing IEEE arithmetic helpers.
     use, intrinsic :: ieee_arithmetic
     !> Standard intrinsic module providing IEEE floating-point exception flags.
@@ -23,6 +24,7 @@ program main_interfaz
     integer(kind=4) :: num_tar !>< Number of targets in the mesh.
     integer(kind=4) :: flag !>< Loop continuation flag (1: continue, 0: exit).
     integer(kind=4) :: flag_Delta_t !>< Whether the time step is constant (1) or variable (0).
+    integer(kind=4) :: flag_transpose !>< Whether the input file has rows=targets & columns=components (1) or rows=components & columns=targets (0).
     integer(kind=4), allocatable :: ind_can_vec(:) !>< Indices of canonical vectors in mixing ratios.
     integer(kind=4), allocatable :: ind_non_can_vec(:) !>< Indices of non-canonical vectors in mixing ratios.
     real(kind=8), allocatable :: u_tilde_init(:,:) !>< Component concentrations u_tilde at the initial time step.
@@ -116,9 +118,9 @@ program main_interfaz
     num_aq_comps=my_chem%get_num_aq_comps_tar_wat()
     !> Echo the number of aqueous components for diagnostics.
     !print *, "Numero de componentes acuosas: ", num_aq_comps
-    !> we write concentrations of initial and external water types
-    !> Write the initial and external water-type component concentrations to the chosen file.
-    call my_chem%write_conc_comp_wat_types(dir_pb_trimmed,file_u_wat_types_trimmed)
+    !> we write concentrations of target waters (domain and external)
+    !> Write the aqueous component and variable activity species concentrations for all target waters.
+    call my_chem%write_conc_comp_tar_wat(dir_pb_trimmed,file_u_wat_types_trimmed)
     write(*,*) 'Archivo ' // trim(file_u_wat_types_trimmed) // ' generado correctamente.'
     !> write file name for u_tilde and u_new
     !> Prompt for the output file name for post-reactive-mixing concentrations.
@@ -133,15 +135,23 @@ program main_interfaz
     file_u_new_trimmed = trim(file_u_new)
     !> Prompt for the input file containing u_tilde (post conservative-transport concentrations).
     write(*,*) "Nombre del archivo que contiene las concentraciones de componentes acuosas despues de resolver una iteracion de &
-        transporte conservativo? & 
-        IMPORTANTE: El archivo debe estar en el directorio del problema, el numero de filas tiene que ser el numero &
-        de componentes y el numero de columnas el numero de targets."
+        transporte conservativo? &
+        IMPORTANTE: El archivo debe estar en el directorio del problema."
     !> Read the input filename providing u_tilde.
     read(*,*, iostat=ios) file_u_tilde !> file with u_tilde
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo file_u_tilde. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
+        write(*,*) 'Error/EOF leyendo file_u_tilde. Ejecuta en una terminal interactiva o redirige desde fort.5'; call &
             safe_stop(1)
+    end if
+    !> Ask the user whether the input matrix is transposed (rows=targets, columns=components).
+    write(*,*) "El archivo " // trim(file_u_tilde) // " tiene filas como targets y columnas como componentes? (1: si, 0: no)"
+    read(*,*, iostat=ios) flag_transpose
+    if (ios /= 0) then
+        write(*,*) 'Error/EOF leyendo flag_transpose. Ejecuta en una terminal interactiva o redirige desde fort.5'; call &
+            safe_stop(1)
+    else if (flag_transpose /= 0 .and. flag_transpose /= 1) then
+        error stop "Opcion no valida. Tiene que ser 1 (matriz de componentes transpuesta) o 0 (no transpuesta)."
     end if
     !> Prompt for the initial time step value.
     write(*,*) "Paso de tiempo inicial?"
@@ -173,9 +183,17 @@ program main_interfaz
         if (tw0%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions == 0) then
             p_interfaz => interfaz_esp_arch
         else if (tw0%solid_chemistry%reactive_zone%chem_syst%num_kin_reacts == 0) then
-            p_interfaz => interfaz_comps_arch_eq
+            if (flag_transpose == 1) then
+                p_interfaz => interfaz_comps_arch_eq_T
+            else
+                p_interfaz => interfaz_comps_arch_eq
+            end if
         else
-            p_interfaz => interfaz_comps_arch_eq_kin
+            if (flag_transpose == 1) then
+                p_interfaz => interfaz_comps_arch_eq_kin_T
+            else
+                p_interfaz => interfaz_comps_arch_eq_kin
+            end if
         end if
     end associate
     !> Inform the user that the reactive mixing loop is about to start.

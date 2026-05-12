@@ -30,6 +30,7 @@ module chemistry_m
     public :: chemistry_c !< Make chemistry class public
     public :: reactive_zone_c !< Re-export reactive zone class for use by subprograms
     public :: interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch !< External interface subroutines for reactive mixing iterations
+    public :: interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T !< Transposed-input variants (rows: targets, columns: components)
     !> @brief Main chemistry class - central coordinator for all chemical processes
     !> @details This class manages the complete chemical system including:
     !>          - Water types and target waters at spatial locations
@@ -123,6 +124,7 @@ module chemistry_m
         integer(kind=4) :: num_mineral_zones=0                                 !< Number of mineral zones (â‰¤num_target_solids)
         type(mineral_zone_c), allocatable :: mineral_zones(:)                  !< Array of mineral zone definitions
         type(mineral_zone_c) :: min_zone_dummy                                 !< Dummy mineral zone for locations without minerals
+        type(mineral_zone_c), allocatable :: min_zones_wat_types(:)            !< Mineral zones associated with water types (persistent, avoids dangling pointers)
         !> @}
     contains
         !> @name Configuration and Setup Methods
@@ -177,6 +179,7 @@ module chemistry_m
         procedure :: allocate_target_gases            !< Allocate target gases array
         procedure :: allocate_reactive_zones          !< Allocate reactive zones array
         procedure :: allocate_react_zones_wat_types   !< Allocate reactive zones for water types
+        procedure :: allocate_min_zones_wat_types     !< Allocate mineral zones for water types
         procedure :: allocate_mineral_zones           !< Allocate mineral zones array
         procedure :: allocate_materials               !< Allocate materials array
         procedure :: allocate_init_cat_exch_zones     !< Allocate initial cation-exchange zones array
@@ -657,6 +660,30 @@ module chemistry_m
             character(len=*), intent(in) :: path          !< Path for input and output files
             integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
             character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
+            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
+            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
+        end subroutine
+
+    !> @brief Interface for component concentrations (equilibrium + kinetic reactions) via file I/O - transposed input
+    !> @details Same as interfaz_comps_arch_eq_kin but file_in has rows=targets and columns=components.
+        subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
+            import chemistry_c
+            class(chemistry_c) :: this                    !< Chemistry object
+            character(len=*), intent(in) :: path          !< Path for input and output files
+            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
+            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations (rows: targets, columns: components)
+            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
+            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
+        end subroutine
+
+    !> @brief Interface for component concentrations (equilibrium reactions only) via file I/O - transposed input
+    !> @details Same as interfaz_comps_arch_eq but file_in has rows=targets and columns=components.
+        subroutine interfaz_comps_arch_eq_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
+            import chemistry_c
+            class(chemistry_c) :: this                    !< Chemistry object
+            character(len=*), intent(in) :: path          !< Path for input and output files
+            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
+            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations (rows: targets, columns: components)
             real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
             character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
         end subroutine
@@ -1898,16 +1925,26 @@ module chemistry_m
                 write(10,"(4x,A,I0,A,A)") "u",j," = ", trim(comp_expr)
             end do
         end block
+        !> List variable-activity species names once so each concentration row can be identified.
+        write(10,"(/,2x,A)") "Aqueous variable activity species:"
+        do j=1,num_var_act_ref
+            write(10,"(4x,I0,': ',A)") j, trim(this%wat_types(ref_idx)%aq_phase%aq_species(&
+                this%wat_types(ref_idx)%indices_aq_phase(&
+                this%wat_types(ref_idx)%ind_var_act_species(j)))%name)
+        end do
+        write(10,"(A)") ""
         write(10,"(/,2x,A)") "Aqueous component concentrations in the domain: " !< Heading for the target-waters block
         !> Build a 2D matrix (num_comps_ref rows x n_dom cols) and write it row by
         !> row so that each column corresponds to one target water, matching the
         !> u_tilde input layout (rows=components, cols=targets).
         if (allocated(this%tar_wat_indices) .and. size(this%tar_wat_indices)>0) then
             block
-                real(kind=8), allocatable :: u_dom(:,:) !< Component matrix: rows=components, cols=target waters
-                integer(kind=4) :: n_dom                 !< Number of target (domain) waters
+                real(kind=8), allocatable :: u_dom(:,:)          !< Component matrix: rows=components, cols=target waters
+                real(kind=8), allocatable :: c_var_act_dom(:,:)  !< Variable-activity concentrations: rows=species, cols=target waters
+                integer(kind=4) :: n_dom                          !< Number of target (domain) waters
                 n_dom=size(this%tar_wat_indices)
                 allocate(u_dom(num_comps_ref,n_dom))
+                allocate(c_var_act_dom(num_var_act_ref,n_dom))
                 allocate(c_var_act(num_var_act_ref))
                 do i=1,n_dom !< Fill column i with components of the i-th target water
                     associate (iw => this%tar_wat_indices(i))
@@ -1924,6 +1961,7 @@ module chemistry_m
                                 end if
                             end do
                         end do
+                        c_var_act_dom(:,i)=c_var_act
                         u_dom(:,i)=matmul(&
                             this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
                             c_var_act)
@@ -1935,6 +1973,12 @@ module chemistry_m
                     write(10,"(4x,*(ES13.5E2,1x))") (u_dom(j,i), i=1,n_dom)
                 end do
                 deallocate(u_dom)
+                !> Write variable-activity species concentrations for domain waters.
+                write(10,"(/,2x,A)") "Aqueous variable activity species concentrations in the domain: "
+                do j=1,num_var_act_ref
+                    write(10,"(4x,*(ES13.5E2,1x))") (c_var_act_dom(j,i), i=1,n_dom)
+                end do
+                deallocate(c_var_act_dom)
             end block
         end if
         !> External (boundary + recharge) waters block. Same projection onto the
@@ -1949,6 +1993,7 @@ module chemistry_m
         if (allocated(this%ext_waters_indices) .and. size(this%ext_waters_indices)>0) then
             block
                 real(kind=8), allocatable :: u_ext(:,:)            !< Component matrix: rows=components, cols=true external waters
+                real(kind=8), allocatable :: c_var_act_ext(:,:)    !< Variable-activity concentrations: rows=species, cols=true external waters
                 integer(kind=4), allocatable :: ext_keep(:)        !< Filtered indices (drops waters of reference type)
                 integer(kind=4) :: n_ext                            !< Number of true external waters
                 character(len=:), allocatable :: ref_name_lc        !< Lowercased reference wat_type name
@@ -1978,6 +2023,7 @@ module chemistry_m
                     end do
                     write(10,"(/,2x,A)") "Aqueous component concentrations of external waters: " !< Heading for the external-waters block
                     allocate(u_ext(num_comps_ref,n_ext))
+                    allocate(c_var_act_ext(num_var_act_ref,n_ext))
                     allocate(c_var_act(num_var_act_ref))
                     do i=1,n_ext !< Fill column i with components of the i-th true external water
                         associate (iw => ext_keep(i))
@@ -1994,6 +2040,7 @@ module chemistry_m
                                     end if
                                 end do
                             end do
+                            c_var_act_ext(:,i)=c_var_act
                             u_ext(:,i)=matmul(&
                                 this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
                                 c_var_act)
@@ -2006,7 +2053,14 @@ module chemistry_m
                     do j=1,num_comps_ref
                         write(10,"(4x,*(ES13.5E2,1x))") (u_ext(j,i), i=1,n_ext)
                     end do
-                    deallocate(u_ext,ext_keep)
+                    deallocate(u_ext)
+                    !> Write variable-activity species concentrations for external waters.
+                    write(10,"(/,2x,A)") "Aqueous variable activity species concentrations of external waters: "
+                    write(10,"(4x,*(A13,1x))") (adjustr(name_buf_assign(this%waters(ext_keep(i))%name)), i=1,n_ext)
+                    do j=1,num_var_act_ref
+                        write(10,"(4x,*(ES13.5E2,1x))") (c_var_act_ext(j,i), i=1,n_ext)
+                    end do
+                    deallocate(c_var_act_ext,ext_keep)
                 end if
             end block
         end if
@@ -2578,6 +2632,13 @@ module chemistry_m
         if (allocated(this%react_zones_wat_types)) deallocate(this%react_zones_wat_types) !< Deallocate existing reactive zones array if previously allocated to prevent memory leak
         allocate(this%react_zones_wat_types(this%num_wat_types)) !< Allocate reactive zones array with size equal to number of water types (assuming 1-to-1 correspondence)
         end subroutine allocate_react_zones_wat_types
+
+        subroutine allocate_min_zones_wat_types(this)
+        implicit none
+        class(chemistry_c) :: this !< Chemistry object to modify
+        if (allocated(this%min_zones_wat_types)) deallocate(this%min_zones_wat_types)
+        allocate(this%min_zones_wat_types(this%num_wat_types))
+        end subroutine allocate_min_zones_wat_types
 
         !> @brief Allocate memory for gas zones associated with water types
         !> @details Safely allocates memory for the gas zones array associated with water types,

@@ -48,20 +48,20 @@ module CV_params_m
         !> Convergence criterion: ||f(x)|| < abs_tol where f is residual (mass balance error)
         !> Default: 1×10⁻¹⁴ [M/L³] - very strict for accurate chemical equilibrium
         !> Physical meaning: maximum acceptable mass balance error in aqueous speciation
-        real(kind=8) :: abs_tol !< [M/L³] absolute tolerance for Newton residuals (mass balance errors)
-        real(kind=8) :: log_abs_tol !< [M/L³] absolute tolerance for Picard residuals (mass balance errors)
+        real(kind=8) :: abs_tol=1d-14 !< [M/L³] absolute tolerance for Newton residuals (mass balance errors)
+        real(kind=8) :: log_abs_tol=-14 !< [M/L³] absolute tolerance for Picard residuals (mass balance errors)
         !> \var log_rel_tol Logarithmic relative tolerance for Newton residuals
         !> Convergence criterion: |log₁₀(Δc)/log₁₀(c)| < log_rel_tol for concentrations
         !> Default: 1×10⁻⁹ [-] - ensures logarithmic concentration changes negligible
         !> Physical meaning: acceptable change in orders of magnitude for concentrations
         !> Important for trace species where absolute changes are tiny but relative changes significant
-        real(kind=8) :: log_rel_tol !< [-] logarithmic relative tolerance for concentration changes
+        real(kind=8) :: log_rel_tol=-14 !< [-] logarithmic relative tolerance for concentration changes
         
         !> \var rel_tol Relative tolerance for convergence
         !> Convergence criterion: ||Δx||/||x|| < rel_tol where Δx is Newton update
         !> Default: 1×10⁻¹⁶ [-] - extremely strict relative convergence
         !> Physical meaning: fractional change in solution vector between iterations
-        real(kind=8) :: rel_tol !< [-] relative tolerance for solution updates (dimensionless ratio)
+        real(kind=8) :: rel_tol=1d-14 !< [-] relative tolerance for solution updates (dimensionless ratio)
         
         !> \var eps Epsilon for incremental coefficients
         !> Used in finite difference approximations: df/dx ≈ [f(x+ε) - f(x)]/ε

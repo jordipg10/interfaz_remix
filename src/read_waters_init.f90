@@ -94,6 +94,7 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
     integer(kind=4) :: bwtype        !> boundary water type index (unused)
     integer(kind=4) :: num_wat_rech !> number of recharge target waters
     integer(kind=4) :: num_wat_bd   !> number of boundary target waters
+    integer(kind=4) :: num_tar_wat  !> number of domain (target) waters = num_wat - num_wat_rech - num_wat_bd
     integer(kind=4) :: ind_bd        !> counter for boundary waters processed
     integer(kind=4) :: ind_bar_wat   !> position of '-' character in water range string
     
@@ -101,11 +102,6 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
     integer(kind=4) :: first_wat     !> first water index in a range
     integer(kind=4) :: last_wat      !> last water index in a range
     integer(kind=4) :: int_wat_size  !> size of water index range
-    integer(kind=4) :: flag_wat_type !> flag: 0=boundary, 1=domain, 2=recharge
-    
-    !> Mixing and auxiliary variables
-    integer(kind=4) :: mix_wat_ind   !> mixing water index (unused)
-    integer(kind=4) :: aux_col       !> auxiliary column index (unused)
     integer(kind=4) :: aux_istype    !> auxiliary solid type from previous iteration
     integer(kind=4) :: aux_igzn      !> auxiliary gas zone from previous iteration
     integer(kind=4) :: unit          !> file unit number for I/O
@@ -263,11 +259,12 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
             read(unit,*) num_wat !> read total number of waters from file
             call this%allocate_waters(num_wat) !> allocate array for current target waters
             call this%allocate_waters_init(num_wat) !> allocate array for initial target waters (t=0)
-            read(unit,*) num_wat_rech !> read number of recharge (infiltration) waters
-            call this%allocate_rech_waters_indices(num_wat_rech) !> allocate array for recharge water indices
             read(unit,*) num_wat_bd !> read number of boundary waters
             call this%allocate_bd_waters_indices(num_wat_bd) !> allocate array for boundary water indices
-            call this%allocate_tar_wat_indices(num_wat-num_wat_rech-num_wat_bd) !> allocate array for boundary water indices
+            read(unit,*) num_wat_rech !> read number of recharge (infiltration) waters
+            call this%allocate_rech_waters_indices(num_wat_rech) !> allocate array for recharge water indices
+            num_tar_wat = num_wat - num_wat_bd - num_wat_rech !> compute number of domain (target) waters
+            call this%allocate_tar_wat_indices(num_tar_wat) !> allocate array for domain (target) water indices
             !call this%allocate_ext_waters_indices(num_wat_bd+num_wat_rech) !> allocate external waters (boundary + recharge)
             !call this%allocate_waters(this%num_target_waters+this%num_rech_waters+this%num_bd_waters) !> allocate domain waters (total - external)
             !call this%allocate_waters_init(this%num_target_waters_init+this%num_rech_waters+this%num_bd_waters) !> allocate initial domain waters
@@ -291,9 +288,9 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
             !if (num_wat_rech>0 .or. num_tar_wat_bd>0) then !> (commented) old check for external waters
                 !> Step 4.5: Main loop - read and process each target water line
                 do !> loop until all target waters processed (exits when last_wat or tar_wat_ind == num_tar_wat)
-                    !> Read one data line from file: water_id water_type solid_id gas_id flag
-                    read(unit,*) int_wat, wtype, int_sol, int_gas, flag_wat_type
-                    !print *, int_wat, wtype, public, int_sol, int_gas, flag_wat_type !> (commented) debug output
+                    !> Read one data line from file: water_id water_type solid_id gas_id
+                    read(unit,*) int_wat, wtype, int_sol, int_gas
+                    !print *, int_wat, wtype, int_sol, int_gas !> (commented) debug output
                     
                     flag=.true. !> initialize flag to true (will be set false for domain waters later)
                     
@@ -310,24 +307,6 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                     !> Validate water type index
                     if (wtype<1 .or. wtype>nwtype) then !> water type must be in valid range
                         error stop "Water type index out of bounds" !> abort if invalid
-                    !> (COMMENTED BLOCK) Additional validation options - not currently enforced
-                    ! else if (int_sol<0 .or. int_sol>this%num_materials) then
-                    !     error stop "Solid zone index out of bounds"
-                    ! else if (int_gas<0 .or. int_gas>this%num_gas_zones) then
-                    !     error stop "Gas zone index out of bounds"
-                    !> (COMMENTED BLOCK) Old water type flag handling - replaced by logic below
-                    !else if (flag_wat_type==0) then !> boundary water
-                    !    !ind_bd=ind_bd+1 !> counter boundary waters
-                    !    !this%bd_waters_indices(ind_bd)=tar_wat_ind
-                    !else if (flag_wat_type==2) then !> external water
-                    !    !ind_ext=ind_ext+1 !> counter external waters
-                    !    !this%ext_waters_indices(ind_ext)=tar_wat_ind
-                    !else if (flag_wat_type==1) then !> domain water
-                    !    !ind_dom=ind_dom+1 !> counter domain waters
-                        !this%tar_wat_indices(ind_dom)=tar_wat_ind
-                        !flag=.false.
-                    else if (flag_wat_type<0 .or. flag_wat_type>2) then !> validate flag value
-                        error stop "Water type flag not implemented" !> flag must be 0, 1, or 2
                     end if
                     
                     !> ================================================================
@@ -354,29 +333,23 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                         !else if (int_gas<0 .or. int_gas>ngzns) then
                         !    error stop "Gas type index out of bounds"
                         
-                        !> Assign water indices to appropriate category based on flag
-                        else if (flag_wat_type==0) then !> BOUNDARY WATER
+                        !> Assign water indices to appropriate category based on position in file
+                        else if (first_wat<=num_tar_wat) then !> DOMAIN (TARGET) WATER
+                            do i=1,int_wat_size !> loop over all waters in range
+                                this%tar_wat_indices(ind_dom+i)=first_wat+i-1 !> store target water index
+                            end do
+                            ind_dom=ind_dom+int_wat_size !> increment domain water counter by range size
+                            flag=.false. !> set flag to false for domain waters
+                        else if (first_wat<=num_tar_wat+num_wat_bd) then !> BOUNDARY WATER
                             do i=1,int_wat_size !> loop over all waters in range
                                 this%bd_waters_indices(ind_bd+i)=first_wat+i-1 !> store boundary water index
                             end do
-                            !this%bd_waters_indices_init=this%bd_waters_indices !> copy current to initial array
                             ind_bd=ind_bd+int_wat_size !> increment boundary water counter by range size
-                        else if (flag_wat_type==2) then !> RECHARGE WATER (infiltration/precipitation)
-                            !this%ext_waters_indices(ind_ext)=tar_wat_ind !> (commented) old single index approach
+                        else !> RECHARGE WATER (infiltration/precipitation)
                             do i=1,int_wat_size !> loop over all waters in range
                                 this%rech_waters_indices(ind_rech+i)=first_wat+i-1 !> store recharge water index
                             end do
                             ind_rech=ind_rech+int_wat_size !> increment recharge water counter by range size
-                        else if (flag_wat_type==1) then !> TARGET WATER (internal)
-                            !this%tar_wat_indices(ind_dom)=tar_wat_ind !> (commented) old single index approach
-                            do i=1,int_wat_size !> loop over all waters in range
-                                this%tar_wat_indices(ind_dom+i)=first_wat+i-1 !> store target water index
-                            end do
-                            !this%tar_wat_indices_init=this%tar_wat_indices !> copy current to initial array
-                            ind_dom=ind_dom+int_wat_size !> increment domain water counter by range size
-                            flag=.false. !> set flag to false for domain waters
-                        !else
-                        !    error stop "Water type flag out of bounds"
                         end if
                         
                         !> ============================================================
@@ -459,14 +432,18 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                             read(int_gas_trim,*) tar_gas_ind !> convert gas index string to integer
                             
                             !> Validate single gas index
-                            if (tar_gas_ind<0 .or. tar_gas_ind>this%num_target_gases) then
+                            if (tar_gas_ind<0 .or. tar_gas_ind>max(this%num_target_gases,this%num_gas_zones)) then
                                 error stop "Target gas index out of bounds" !> gas index must be valid
                             else
                                 !> All waters in range point to same single gas
                                 allocate(ind_tar_gases(int_wat_size),ind_gas_zones(int_wat_size)) !> allocate arrays sized for water range
                                 ind_tar_gases=tar_gas_ind !> set all elements to same gas index
                                 if (tar_gas_ind>0) then !> gas index is valid (>0 means gas present)
-                                    ind_gas_zones=this%target_gases(tar_gas_ind)%id !> get gas zone ID for this gas
+                                    if (this%num_target_gases>=tar_gas_ind) then
+                                        ind_gas_zones=this%target_gases(tar_gas_ind)%id !> get gas zone ID from target gas
+                                    else
+                                        ind_gas_zones=tar_gas_ind !> direct reference to boundary gas zone
+                                    end if
                                 else !> tar_gas_ind=0 means no gas phase
                                     ind_gas_zones=0 !> set zone ID to 0 (no gas chemistry)
                                 end if
@@ -540,24 +517,20 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                             error stop "Dimension error: a single target water cannot point to a range of target gases"
                         else if (tar_sol_ind<0 .or. tar_sol_ind>this%num_target_solids) then
                             error stop "Target solid index out of bounds" !> solid index must be valid
-                        else if (tar_gas_ind<0 .or. tar_gas_ind>this%num_target_gases) then
+                        else if (tar_gas_ind<0 .or. tar_gas_ind>max(this%num_target_gases,this%num_gas_zones)) then
                             error stop "Target gas index out of bounds" !> gas index must be valid
-                        !> Assign single water to appropriate category based on flag
-                        else if (flag_wat_type==0) then !> BOUNDARY WATER (Dirichlet BC)
-                            ind_bd=ind_bd+1 !> increment boundary water counter
-                            this%bd_waters_indices(ind_bd)=tar_wat_ind !> store boundary water index
-                            !this%bd_waters_indices_init(ind_bd)=this%bd_waters_indices(ind_bd) !> copy to initial array
-                        else if (flag_wat_type==2) then !> RECHARGE WATER (infiltration/precipitation)
-                            ind_rech=ind_rech+1 !> increment recharge water counter
-                            this%rech_waters_indices(ind_rech)=tar_wat_ind !> store recharge water index
-                        else if (flag_wat_type==1) then !> DOMAIN WATER (internal/mobile)
+                        end if
+                        !> Assign single water to appropriate category based on position in file
+                        if (tar_wat_ind<=num_tar_wat) then !> DOMAIN (TARGET) WATER
                             ind_dom=ind_dom+1 !> increment domain water counter
                             this%tar_wat_indices(ind_dom)=tar_wat_ind !> store domain water index
-                            !this%tar_wat_indices_init(ind_dom)=tar_wat_ind !> store domain water index
                             flag=.false. !> set flag to false for domain waters
-                            !> (COMMENTED) Old approach using loop_read_tar_wat_init - replaced by read_tar_wat_line
-                            !call this%loop_read_tar_wat_init(flag,this%wat_types,init_sol_types,init_gas_types,nsrz,ngrz,tar_wat_ind,wtype, public,&
-                            !    istype, public,int_gas,aux_istype, public,aux_int_gas,solid_chem)
+                        else if (tar_wat_ind<=num_tar_wat+num_wat_bd) then !> BOUNDARY WATER (Dirichlet BC)
+                            ind_bd=ind_bd+1 !> increment boundary water counter
+                            this%bd_waters_indices(ind_bd)=tar_wat_ind !> store boundary water index
+                        else !> RECHARGE WATER (infiltration/precipitation)
+                            ind_rech=ind_rech+1 !> increment recharge water counter
+                            this%rech_waters_indices(ind_rech)=tar_wat_ind !> store recharge water index
                         end if
                         
                         !> Extract solid zone index from target solid
@@ -574,7 +547,11 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                         
                         !> Extract gas zone index from target gas
                         if (tar_gas_ind>0) then !> gas index is valid (>0 means gas present)
-                            igzn=this%target_gases(tar_gas_ind)%id !> get gas zone ID from target gas
+                            if (this%num_target_gases>=tar_gas_ind) then
+                                igzn=this%target_gases(tar_gas_ind)%id !> get gas zone ID from target gas
+                            else
+                                igzn=tar_gas_ind !> direct reference to boundary gas zone
+                            end if
                             !> (COMMENTED) Old validation approach
                             ! if (size(ind_tar_gases)/=1) then
                             !     error stop "Dimension error: number of target gases associated to gas zone must be 1"

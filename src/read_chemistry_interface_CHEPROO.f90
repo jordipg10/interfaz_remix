@@ -1,5 +1,5 @@
 !> Lectura quimica CHEPROO
-subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,unit_loc_chem_file)
+subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,unit_loc_chem_file,num_tar)
     use chemistry_m, only: chemistry_c
     implicit none
     class(chemistry_c) :: this
@@ -8,6 +8,7 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
     character(len=*), intent(in) :: path_DB
     integer(kind=4), intent(in) :: unit_chem_syst_file
     integer(kind=4), intent(in) :: unit_loc_chem_file
+    integer(kind=4), intent(in) :: num_tar !> expected number of domain (target) waters from the mesh
     
     integer(kind=4) :: i,ngrz,nmrz,nsrz,ndrz
     integer(kind=4), allocatable :: ind_wat_type(:),num_aq_prim_array(:),num_cstr_array(:)
@@ -244,9 +245,13 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
         end do
     end if
 !> Target gases
-    if (ngrz>0) then
-        call this%read_tar_gas(path_pb//root,ngrz)
-    end if
+    block
+        logical :: tar_gas_file_exists
+        inquire(file=path_pb//root//'_tar_gas.dat', exist=tar_gas_file_exists)
+        if (tar_gas_file_exists) then
+            call this%read_tar_gas(path_pb//root,ngrz)
+        end if
+    end block
 !> Target waters
     call this%read_waters_init(path_pb//root,nsrz,ngrz)
     ! print *, this%waters(this%tar_wat_indices(1))%solid_chemistry%rk_new

@@ -29,7 +29,7 @@ The linked executable is `bin/interfaz_remix.exe` on Windows or
   hard-code the path
 
   ```
-  C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
+  C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
   ```
 
   Edit the `command` field of every task in

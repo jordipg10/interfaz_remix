@@ -80,7 +80,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
     class(chemistry_c) :: this !> chemistry object (contains all chemical system data)
     integer(kind=4), intent(in) :: unit !> file unit number for reading input file
     !type(solid_chemistry_c), intent(inout), allocatable :: init_cat_exch_zones(:) !> (COMMENTED) initial cation exchange zones
-    type(gas_chemistry_c), intent(in), optional :: gas_chem !> optional gas chemistry object (chapuza/workaround)
+    type(gas_chemistry_c), intent(in), optional, target :: gas_chem !> optional gas chemistry object (chapuza/workaround)
     
 !> ================================================================
 !> LOCAL VARIABLES - Counters and Indices
@@ -136,7 +136,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
 !> ================================================================
     type(reactive_zone_c) :: react_zone !> default reactive zone object (unused)
     type(reactive_zone_c), allocatable :: react_zones(:) !> array of reactive zones (one per water type)
-    type(mineral_zone_c), allocatable :: min_zones(:) !> array of mineral zones (one per water type)
+    !type(mineral_zone_c), allocatable :: min_zones(:) !> moved to this%min_zones_wat_types for persistence
     type(solid_chemistry_c) :: solid_chem !> default solid chemistry object (unused)
     !type(solid_chemistry_c), allocatable :: solid_chems(:) !> (COMMENTED) array of solid chemistry objects
     type(solid_chemistry_c), allocatable :: cat_exch_zones(:) !> cation exchange zones array
@@ -191,9 +191,12 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
     
     !> Allocate gas zones associated with water types
     call this%allocate_gas_zones_wat_types() !> allocate gas zones (chapuza - one per water type)
+
+    !> Allocate persistent mineral zones for water types
+    call this%allocate_min_zones_wat_types() !> allocate mineral zones (one per water type, persistent)
     
     !> Allocate local temporary arrays
-    allocate(react_zones(nwtype),min_zones(nwtype)) !> allocate reactive and mineral zones (size = nwtype)
+    allocate(react_zones(nwtype)) !> allocate reactive zones (size = nwtype)
     allocate(cols(2)) !> allocate column indices array (size 2, purpose unclear)
     allocate(num_aq_prim_array(nwtype),num_cstr_array(nwtype)) !> allocate counters for species and constraints
     
@@ -428,7 +431,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
                 !> Set up mineral zone for this water type
                 !> ------------------------------------------------------------
                 !> Set chemical system in mineral zone
-                call min_zones(j)%set_chem_syst_min_zone(this%chem_syst)
+                call this%min_zones_wat_types(j)%set_chem_syst_min_zone(this%chem_syst)
                     !> copy chemical system definition to mineral zone
                 
                 !> ------------------------------------------------------------
@@ -467,7 +470,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
                             !> chapuza (use empty/dummy mineral zone)
                     else !> mineral zones exist
                         !> Use actual mineral zone
-                        call this%wat_type_solids(j)%set_mineral_zone(min_zones(j))
+                        call this%wat_type_solids(j)%set_mineral_zone(this%min_zones_wat_types(j))
                             !> chapuza (set mineral zone for this water type)
                     end if
                     
@@ -489,7 +492,7 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit,gas_chem)
                     !> --------------------------------------------------------
                     !> Set mineral zone without cation exchange
                     !> --------------------------------------------------------
-                    call this%wat_type_solids(j)%set_mineral_zone(min_zones(j))
+                    call this%wat_type_solids(j)%set_mineral_zone(this%min_zones_wat_types(j))
                         !> set mineral zone for this solid type
                     
                     !> --------------------------------------------------------
