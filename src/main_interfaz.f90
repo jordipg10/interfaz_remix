@@ -1,13 +1,18 @@
 !> @file main_interfaz.f90
 !> @brief Interactive driver for 1D reactive mixing iterations using the WMA
-!>        (Water Mixing Approach) with explicit Euler time integration.
+!>        (Water Mixing Approach), with explicit time integration of kinetics
+!>        when applicable.
 !> @details Reads chemistry/database paths and problem inputs from the user,
 !>          loads the chemical system, writes initial/external water type
 !>          component concentrations, and runs a loop of reactive mixing
 !>          iterations using either a constant or variable time step.
 program main_interfaz
-    !> Import chemistry container type and the three interface procedures:
-    !> equilibrium+kinetic, equilibrium-only, and kinetic-only (no equilibrium).
+    !> Import chemistry container type and the five reactive-mixing interface procedures:
+    !>   - interfaz_esp_arch              : kinetic-only (no equilibrium reactions).
+    !>   - interfaz_comps_arch_eq         : equilibrium-only, u_tilde with rows=components, cols=targets.
+    !>   - interfaz_comps_arch_eq_T       : equilibrium-only, u_tilde transposed (rows=targets, cols=components).
+    !>   - interfaz_comps_arch_eq_kin     : equilibrium + kinetic, u_tilde with rows=components, cols=targets.
+    !>   - interfaz_comps_arch_eq_kin_T   : equilibrium + kinetic, u_tilde transposed (rows=targets, cols=components).
     use chemistry_m, only: chemistry_c, interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch, &
         interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T
     !> Standard intrinsic module providing IEEE arithmetic helpers.
@@ -19,15 +24,11 @@ program main_interfaz
     !> Objects
     type(chemistry_c) :: my_chem !>< Chemistry container holding chemical system, waters and reactive zones.
     !> Variables
-    integer(kind=4) :: int_method_chem !>< Integration method for chemical reactions (1: Euler explicit, 2: Euler fully implicit, 3: Crank-Nicolson).
     integer(kind=4) :: num_aq_comps !>< Number of aqueous components in the chemical system.
     integer(kind=4) :: num_tar !>< Number of targets in the mesh.
     integer(kind=4) :: flag !>< Loop continuation flag (1: continue, 0: exit).
     integer(kind=4) :: flag_Delta_t !>< Whether the time step is constant (1) or variable (0).
     integer(kind=4) :: flag_transpose !>< Whether the input file has rows=targets & columns=components (1) or rows=components & columns=targets (0).
-    integer(kind=4), allocatable :: ind_can_vec(:) !>< Indices of canonical vectors in mixing ratios.
-    integer(kind=4), allocatable :: ind_non_can_vec(:) !>< Indices of non-canonical vectors in mixing ratios.
-    real(kind=8), allocatable :: u_tilde_init(:,:) !>< Component concentrations u_tilde at the initial time step.
     real(kind=8) :: Delta_t !>< Current time step value.
     character(len=100) :: dir_DB,dir_pb, root_files,file_u_tilde,file_u_new,file_u_wat_types !>< Raw fixed-length directory and file name inputs.
     character(len=:), allocatable :: dir_DB_trimmed, dir_pb_trimmed, root_files_trimmed, file_u_tilde_trimmed, file_u_new_trimmed,&
@@ -112,9 +113,9 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the water-types output filename.
     file_u_wat_types_trimmed = trim(file_u_wat_types)
-    !> We get number of aqueous components in the first target water,
-    !> which is needed to choose the interface and to read the input file with u_tilde.
     !> Query the first target water for its number of aqueous components.
+    !> This value is passed to the reactive-mixing interface so it can correctly
+    !> read the u_tilde input file (one entry per aqueous component per target).
     num_aq_comps=my_chem%get_num_aq_comps_tar_wat()
     !> Echo the number of aqueous components for diagnostics.
     !print *, "Numero de componentes acuosas: ", num_aq_comps
@@ -175,10 +176,15 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the u_tilde input filename.
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
-    !> Select the reactive-mixing interface via procedure pointer using three-way polymorphism:
-    !>   - no equilibrium reactions               → interfaz_esp_arch         (kinetic only)
-    !>   - equilibrium reactions, no kinetics      → interfaz_comps_arch_eq    (equilibrium only)
-    !>   - equilibrium reactions AND kinetics      → interfaz_comps_arch_eq_kin (full)
+    !> Select the reactive-mixing interface via procedure pointer based on the
+    !> chemical system and on the orientation of the u_tilde input file:
+    !>   - no equilibrium reactions                  → interfaz_esp_arch (kinetic only)
+    !>   - equilibrium reactions, no kinetics:
+    !>       * flag_transpose == 0 (rows=components) → interfaz_comps_arch_eq
+    !>       * flag_transpose == 1 (rows=targets)    → interfaz_comps_arch_eq_T
+    !>   - equilibrium reactions AND kinetics:
+    !>       * flag_transpose == 0 (rows=components) → interfaz_comps_arch_eq_kin
+    !>       * flag_transpose == 1 (rows=targets)    → interfaz_comps_arch_eq_kin_T
     associate(tw0 => my_chem%waters(my_chem%tar_wat_indices(1)))
         if (tw0%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions == 0) then
             p_interfaz => interfaz_esp_arch

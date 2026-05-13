@@ -49,7 +49,7 @@ You can also launch it from VS Code with the `run` task defined in
 The VS Code tasks currently hard-code the path
 
 ```
-C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
+C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
 ```
 
 If your gfortran lives somewhere else (for example `C:\TDM-GCC-64\bin\` or
@@ -114,23 +114,30 @@ The `DB/` folder contains the chemical databases used by the program.
 1. Launch the executable (`./bin/interfaz_remix.exe`).
 2. Provide the database directory, the problem directory and the `root` for
    the input/output files.
-3. Provide the file where the initial and external water-type concentrations
-   should be written.
-4. Provide the file where the post-mixing concentrations should be written.
-5. Provide the file (inside the problem directory) that contains `u_tilde` —
-   the concentrations after one conservative-transport step. It must have one
-   row per component and one column per target.
-6. Enter the initial time step (`Δt > 0`) and choose whether it is constant
+3. Enter the number of targets in the mesh.
+4. Provide the file where the initial and external water-type component
+   concentrations should be written.
+5. Provide the file where the post-mixing concentrations should be written.
+6. Provide the file (inside the problem directory) that contains `u_tilde` —
+   the concentrations after one conservative-transport step.
+7. Specify the layout of that file: enter `1` if rows are targets and columns
+   are components, or `0` if rows are components and columns are targets.
+8. Enter the initial time step (`Δt > 0`) and choose whether it is constant
    (`1`) or variable (`0`).
-7. At every iteration, refresh the `u_tilde` file with the new transport
+9. At every iteration, refresh the `u_tilde` file with the new transport
    solution and answer `1` to continue or `0` to stop. With a variable time
    step, the new `Δt` is requested at every iteration.
 
-The program automatically picks the right interface based on the chemical
-system:
+The program automatically picks the right reactive-mixing interface based on
+the chemical system, and on the orientation flag of step 7 when applicable:
 
-- `interfaz_esp_arch` when there are no equilibrium reactions.
-- `interfaz_comps_arch` when there are equilibrium reactions.
+- `interfaz_esp_arch` — no equilibrium reactions (kinetic only).
+- `interfaz_comps_arch_eq` / `interfaz_comps_arch_eq_T` — equilibrium
+  reactions only (no kinetics). The `_T` variant is used when the input
+  matrix is transposed (rows = targets).
+- `interfaz_comps_arch_eq_kin` / `interfaz_comps_arch_eq_kin_T` — both
+  equilibrium and kinetic reactions. The `_T` variant is used when the input
+  matrix is transposed (rows = targets).
 
 ## Notes
 
