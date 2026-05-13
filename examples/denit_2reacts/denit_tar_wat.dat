@@ -1,12 +1,12 @@
 'TITLE OF THE PROBLEM: Denitrification with 2 reactions'
 '------------------------------------------------------------------------------------------------------------------'
 'WATERS'
-12					! number of target waters
-0					! number of recharge waters
+12					! number of waters
 2					! number of boundary waters
-1	1	0	1	0	! water, water type, target solid, target gas, flag
-2-11	2	0	0	1
-12	2	0	0	0
+0					! number of recharge waters
+1-10	2	0	0		! water, water type, target solid, target gas
+11	1	0	0	
+12	2	0	0	
 '------------------------------------------------------------------------------------------------------------------'
 'end'
 
