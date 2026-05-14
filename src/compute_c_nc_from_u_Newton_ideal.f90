@@ -175,7 +175,9 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
             if (best_res_norm<=sqrt_eps_d*conc_comp_scale) then  !< Within conditioning noise?
                 CV_flag=.true.                          !< Accept as converged
             else                                        !< Best residual exceeds noise threshold
-                print *, "Too many Newton iterations in speciation, best residual: ", best_res_norm  !< Report failure
+                print *, "Too many Newton iters, niter=", niter, " best_res=", best_res_norm, " scale=", conc_comp_scale
+                print *, "  conc_comp:", conc_comp
+                print *, "  best c1:  ", conc_nc_best(1:n_p)
             end if                                      !< End conditioning-noise acceptance
             exit newton_loop                            !< Leave Newton loop (converged or failed)
         end if                                          !< End max-iteration guard
@@ -234,7 +236,9 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
                 if (best_res_norm<=sqrt_eps_d*conc_comp_scale) then  !< Within conditioning noise?
                     CV_flag=.true.                      !< Accept as converged
                 else                                    !< Best residual exceeds noise threshold
-                    !print *, "Newton speciation stagnated after", niter, "iterations, residual: ", best_res_norm  !< Report failure (disabled)
+                    print *, "Newton stagnated, niter=", niter, " best_res=", best_res_norm, " scale=", conc_comp_scale
+                    print *, "  conc_comp:", conc_comp
+                    print *, "  best c1:  ", conc_nc_best(1:n_p)
                 end if                                  !< End conditioning-noise acceptance at stagnation
                 exit newton_loop                        !< Leave Newton loop (converged or stagnated)
             end if                                      !< End stagnation-limit check
