@@ -1,0 +1,38 @@
+! ============================================================
+! Inputs for interfaz_remix - example: denit_2reacts
+! Lines starting with '!' or '#' are ignored. Blank lines too.
+! Do NOT put inline comments after a value, use their own line.
+! ============================================================
+
+! Database directory
+C:\Users\user2319\source\repos\jordipg10\interfaz_remix\DB\
+
+! Problem directory
+C:\Users\user2319\source\repos\jordipg10\interfaz_remix\examples\denit_2reacts\
+
+! Common root of input/output files
+denit
+
+! Number of targets in the mesh
+10
+
+! Output file for initial/external water-type concentrations
+u_init.dat
+
+! Output file for post-mixing concentrations
+u_new.out
+
+! Input file with u_tilde (must live in the problem directory)
+u_tilde.dat
+
+! Is u_tilde transposed? (1: rows=targets, 0: rows=components)
+0
+
+! Initial time step
+1d-2
+
+! Constant time step? (1: yes, 0: no)
+1
+
+! Continue with another reactive-mixing iteration? (1: yes, 0: no)
+0

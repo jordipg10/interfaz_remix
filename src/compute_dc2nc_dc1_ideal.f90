@@ -33,7 +33,7 @@ subroutine compute_dc2v_dc1_ideal(this,c1,c2v,dc2v_dc1)
 !> Process: compute each Jacobian entry analytically from mass-action law
     do i=1,this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions      !< Loop over each equilibrium reaction \f$ i = 1, \ldots, n_e \f$
         do j=1,this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species  !< Loop over each primary species \f$ j = 1, \ldots, n_p \f$
-            dc2v_dc1(i,j)=c2v(i)*this%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star(i,j)/c1(j)  !< \f$ \frac{\partial c_{2,v,i}}{\partial c_{1,j}} = \frac{c_{2,v,i} \cdot S^*_{e,v,1}(i,j)}{c_{1,j}} \f$
+            dc2v_dc1(i,j)=c2v(i)*this%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star(i,j)/max(c1(j),1d-30)  !< \f$ \frac{\partial c_{2,v,i}}{\partial c_{1,j}} = \frac{c_{2,v,i} \cdot S^*_{e,v,1}(i,j)}{c_{1,j}} \f$
         end do                                          !< End primary species loop
     end do                                              !< End equilibrium reactions loop
 end subroutine                                          !< End compute_dc2v_dc1_ideal

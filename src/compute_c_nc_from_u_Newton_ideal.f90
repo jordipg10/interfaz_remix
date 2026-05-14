@@ -145,8 +145,8 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
     retry_applied=.false.                              !< Perturbation retry not yet attempted
     skip_eval=.false.                                  !< No accepted step yet; must compute residual
 
-!> Initialize primary species concentrations \f$ \mathbf{c}_1 \f$ with the user-supplied initial guess
-    conc_nc(1:n_p)=c1_ig
+!> Initialize primary species concentrations \f$ \mathbf{c}_1 \f$ with the user-supplied initial guess, clamped to 1d-30 to ensure positivity for log-space operations without underflow
+    conc_nc(1:n_p)=max(c1_ig,1d-30)
 
 !> Process: Newton-Raphson iteration loop with LM damping, line search, and log-space formulation
     newton_loop: do                                    !< Begin main Newton iteration loop
@@ -154,10 +154,10 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
         if (niter>niter_max) then                      !< Exceeded iteration budget?
             if (.not. retry_applied) then               !< Has perturbation retry been tried yet?
                 !> Perturbation retry: restart from geometric mean of initial guess and best iterate (log-space midpoint)
-                !> \f$ c_{1,j}^{\text{retry}} = \sqrt{\max(c_{1,j}^{\text{ig}},\,\texttt{tiny}) \cdot \max(c_{1,j}^{\text{best}},\,\texttt{tiny})} \f$
+                !> \f$ c_{1,j}^{\text{retry}} = \sqrt{\max(c_{1,j}^{\text{ig}},\,10^{-30}) \cdot \max(c_{1,j}^{\text{best}},\,10^{-30})} \f$
                 retry_applied = .true.                  !< Mark retry as used (only one attempt allowed per call)
                 do i = 1, n_p                           !< Loop over each primary species
-                    conc_nc(i) = sqrt(max(c1_ig(i), tiny(1d0)) * max(conc_nc_best(i), tiny(1d0)))  !< Geometric mean of initial guess and best iterate
+                    conc_nc(i) = sqrt(max(c1_ig(i), 1d-30) * max(conc_nc_best(i), 1d-30))  !< Geometric mean of initial guess and best iterate
                 end do                                  !< End primary species perturbation loop
                 niter = 0                               !< Reset Newton iteration counter for fresh restart
                 n_stag = 0                              !< Reset stagnation counter
@@ -216,7 +216,7 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
                     !> Geometric mean: \f$ c_{1,j}^{\text{retry}} = \sqrt{c_{1,j}^{\text{ig}} \cdot c_{1,j}^{\text{best}}} \f$
                     retry_applied = .true.              !< Mark retry as used (only one attempt allowed per call)
                     do i = 1, n_p                       !< Loop over each primary species
-                        conc_nc(i) = sqrt(max(c1_ig(i), tiny(1d0)) * max(conc_nc_best(i), tiny(1d0)))  !< Geometric mean of initial guess and best iterate
+                        conc_nc(i) = sqrt(max(c1_ig(i), 1d-30) * max(conc_nc_best(i), 1d-30))  !< Geometric mean of initial guess and best iterate
                     end do                              !< End primary species perturbation loop
                     niter = 0                           !< Reset Newton iteration counter for fresh restart
                     n_stag = 0                          !< Reset stagnation counter
@@ -244,7 +244,7 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
     !> Assemble log-space Jacobian directly: \f$ J_p(:,j) = \ln(10)\,c_{1,j}\,(\mathbf{U}_1 + \mathbf{U}_2\,\partial\mathbf{c}_{2,v}/\partial\mathbf{c}_1)_{:,j} \f$
         mat_lin_syst_p=U1+matmul(U2,dc2v_dc1)         !< J = U1 + U2 * dc2v/dc1 using cached slices
         do i=1,n_p
-            log_c1(i)=log10(max(conc_nc(i),tiny(1d0))) !< Clamp to tiny to avoid log(0)
+            log_c1(i)=log10(max(conc_nc(i),1d-30)) !< Clamp to 1d-30 to avoid log(0) and underflow in mass-action
             mat_lin_syst_p(:,i)=ln10*conc_nc(i)*mat_lin_syst_p(:,i) !< Transform column j to log-space in-place
         end do
     !> Save current concentrations for line search recovery

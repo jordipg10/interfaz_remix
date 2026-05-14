@@ -35,6 +35,7 @@ program main_interfaz
         file_u_wat_types_trimmed !>< Trimmed deferred-length versions of the input strings.
     integer :: ios !>< I/O status code returned by safe read statements.
     logical :: has_ieee !>< True if the runtime supports the IEEE intrinsic standard.
+    character(len=512) :: buf !>< Line buffer used by read_clean_line to skip comments/blank lines.
     procedure(interfaz_esp_arch), pointer :: p_interfaz=>null() !>< Procedure pointer dispatching to the appropriate reactive-mixing interface.
     !> Pre-Process
     !> Query whether IEEE intrinsic support is available in this build.
@@ -60,8 +61,9 @@ program main_interfaz
         Euler explícito."
     !> Prompt the user for the database directory.
     write(*,*) "Directorio de las bases de datos: "
-    !> Read the database directory from standard input.
-    read(*,*, iostat=ios) dir_DB
+    !> Read the database directory from standard input (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) dir_DB
     !> If the read failed (e.g. EOF when running non-interactively), abort gracefully.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo dir_DB. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
@@ -70,8 +72,9 @@ program main_interfaz
     dir_DB_trimmed = trim(dir_DB)
     !> Prompt the user for the problem directory.
     write(*,*) "Directorio del problema: "
-    !> Read the problem directory from standard input.
-    read(*,*, iostat=ios) dir_pb
+    !> Read the problem directory from standard input (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) dir_pb
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo dir_pb. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
@@ -80,8 +83,9 @@ program main_interfaz
     dir_pb_trimmed = trim(dir_pb)
     !> Prompt the user for the common root of input/output filenames.
     write(*,*) "Root de los archivos de entrada y salida: "
-    !> Read the file root from standard input.
-    read(*,*, iostat=ios) root_files
+    !> Read the file root from standard input (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) root_files
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo root_files. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
@@ -90,8 +94,9 @@ program main_interfaz
     root_files_trimmed = trim(root_files)
     !> Prompt the user for the number of targets in the mesh.
     write(*,*) "Cuantos targets tiene la malla?"
-    !> Read the number of targets.
-    read(*,*, iostat=ios) num_tar
+    !> Read the number of targets (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) num_tar
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo num_tar. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
@@ -104,8 +109,9 @@ program main_interfaz
     !> Prompt for the output file name for initial/external water-type concentrations.
     write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones de las componentes acuosas &
         de los tipos de agua iniciales y externas?"
-    !> Read the output filename for water-type concentrations.
-    read(*,*, iostat=ios) file_u_wat_types !> file with initial and external water types
+    !> Read the output filename for water-type concentrations (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) file_u_wat_types !> file with initial and external water types
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo file_u_wat_types. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
@@ -126,8 +132,9 @@ program main_interfaz
     !> write file name for u_tilde and u_new
     !> Prompt for the output file name for post-reactive-mixing concentrations.
     write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones despues de la mezcla reactiva?"
-    !> Read the output filename for post-mixing concentrations.
-    read(*,*, iostat=ios) file_u_new
+    !> Read the output filename for post-mixing concentrations (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) file_u_new
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo file_u_new. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
@@ -138,8 +145,9 @@ program main_interfaz
     write(*,*) "Nombre del archivo que contiene las concentraciones de componentes acuosas despues de resolver una iteracion de &
         transporte conservativo? &
         IMPORTANTE: El archivo debe estar en el directorio del problema."
-    !> Read the input filename providing u_tilde.
-    read(*,*, iostat=ios) file_u_tilde !> file with u_tilde
+    !> Read the input filename providing u_tilde (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) file_u_tilde !> file with u_tilde
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo file_u_tilde. Ejecuta en una terminal interactiva o redirige desde fort.5'; call &
@@ -147,7 +155,8 @@ program main_interfaz
     end if
     !> Ask the user whether the input matrix is transposed (rows=targets, columns=components).
     write(*,*) "El archivo " // trim(file_u_tilde) // " tiene filas como targets y columnas como componentes? (1: si, 0: no)"
-    read(*,*, iostat=ios) flag_transpose
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) flag_transpose
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo flag_transpose. Ejecuta en una terminal interactiva o redirige desde fort.5'; call &
             safe_stop(1)
@@ -156,8 +165,9 @@ program main_interfaz
     end if
     !> Prompt for the initial time step value.
     write(*,*) "Paso de tiempo inicial?"
-    !> Read the initial time step.
-    read(*,*, iostat=ios) Delta_t !> initial time step
+    !> Read the initial time step (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) Delta_t !> initial time step
     !> Validate the read: report I/O failure or non-positive time step.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
@@ -167,12 +177,15 @@ program main_interfaz
     end if
     !> Prompt the user to choose constant or variable time step mode.
     write(*,*) "Paso de tiempo constante? (1: si, 0: no)"
-    !> Read the constant/variable time step flag.
-    read(*,*, iostat=ios) flag_Delta_t !> whether time step is constant (1) or variable (0)
+    !> Read the constant/variable time step flag (skipping comment/blank lines).
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) flag_Delta_t !> whether time step is constant (1) or variable (0)
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
         write(*,*) 'Error/EOF leyendo flag_Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
             safe_stop(1)
+    else if (flag_Delta_t /= 0 .and. flag_Delta_t /= 1) then
+        error stop "Opcion no valida. Tiene que ser 1 (paso de tiempo constante) o 0 (variable)."
     end if
     !> Trim trailing blanks from the u_tilde input filename.
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
@@ -213,8 +226,9 @@ program main_interfaz
             call p_interfaz(my_chem,dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
             !> Ask the user whether to perform another iteration.
             write(*,*) "Quieres hacer otra iteración de mezcla reactiva? (1: si, 0: no)"
-            !> Read the loop continuation flag.
-            read(*,*, iostat=ios) flag !> loop flag
+            !> Read the loop continuation flag (skipping comment/blank lines).
+            call read_clean_line(buf, ios)
+            if (ios == 0) read(buf, *, iostat=ios) flag !> loop flag
             !> Abort gracefully on read error or EOF.
             if (ios /= 0) then
                 write(*,*) 'Error/EOF leyendo flag. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
@@ -233,8 +247,9 @@ program main_interfaz
             call p_interfaz(my_chem,dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
             !> Ask the user whether to perform another iteration.
             write(*,*) "Quieres hacer otra iteración de mezcla reactiva? (1: si, 0: no)"
-            !> Read the loop continuation flag.
-            read(*,*, iostat=ios) flag !> loop flag
+            !> Read the loop continuation flag (skipping comment/blank lines).
+            call read_clean_line(buf, ios)
+            if (ios == 0) read(buf, *, iostat=ios) flag !> loop flag
             !> Abort gracefully on read error or EOF.
             if (ios /= 0) then
                 write(*,*) 'Error/EOF leyendo flag. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
@@ -247,8 +262,9 @@ program main_interfaz
             else
                 !> Prompt the user for the next time step.
                 write(*,*) "Nuevo paso de tiempo?"
-                !> Read the new time step.
-                read(*,*, iostat=ios) Delta_t !> new time step
+                !> Read the new time step (skipping comment/blank lines).
+                call read_clean_line(buf, ios)
+                if (ios == 0) read(buf, *, iostat=ios) Delta_t !> new time step
                 !> Validate the read: report I/O failure or non-positive time step.
                 if (ios /= 0) then
                     write(*,*) 'Error/EOF leyendo Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
@@ -265,6 +281,35 @@ program main_interfaz
     !> Notify the user that execution finished successfully.
     write(*,*) "El programa ha terminado."
 contains
+    !> @brief Read the next non-blank, non-comment line from standard input.
+    !> @details Skips lines that are empty (after trimming) or whose first non-blank
+    !>          character is '!' or '#'. This lets the user annotate input files
+    !>          (e.g. fort.5 redirection) with comments without breaking the
+    !>          list-directed reads in the main program.
+    !>          Only FULL-LINE comments are stripped; '!' or '#' that appear in
+    !>          the middle of a line are kept verbatim, so file paths containing
+    !>          those characters are preserved. Place comments on their own line.
+    !>          The caller is expected to parse @p line with an internal read,
+    !>          e.g.  read(line, *, iostat=ios) value.
+    !> @param[out] line Buffer that receives the next clean input line.
+    !> @param[out] ios  I/O status: 0 on success, /= 0 on read error or end of file.
+    subroutine read_clean_line(line, ios)
+        character(len=*), intent(out) :: line
+        integer, intent(out)          :: ios
+        character(len=:), allocatable :: trimmed
+        integer :: n
+        do
+            read(*, '(A)', iostat=ios) line
+            if (ios /= 0) return                 !> propagate error / EOF to the caller
+            trimmed = adjustl(line)
+            n = len_trim(trimmed)
+            if (n == 0) cycle                    !> skip blank lines
+            if (trimmed(1:1) == '!' .or. trimmed(1:1) == '#') cycle  !> skip full-line comments
+            line = trimmed
+            return
+        end do
+    end subroutine read_clean_line
+
     !> @brief Clear all IEEE floating-point exception flags if IEEE support is available.
     !> @details Used both before normal termination and inside @ref safe_stop to avoid
     !>          spurious end-of-program warnings about pending floating-point exceptions.

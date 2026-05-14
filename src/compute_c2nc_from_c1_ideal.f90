@@ -51,7 +51,7 @@ subroutine compute_c2v_from_c1_ideal(this,c1,log_act_coeffs,c2v)
     !print *, this%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star
     !print *, this%solid_chemistry%reactive_zone%speciation_alg%logK_star
     log_c2v=matmul(this%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star,&
-        log10(c1)+log_act_coeffs(1:n_p))+& !> Compute log₁₀(c₂nc) = Se_nc_1_star·log₁₀(c₁) + logK_star (mass action law in logarithmic form for ideal solution where a = c) [-]
+        log10(max(c1,1d-30))+log_act_coeffs(1:n_p))+& !> Compute log₁₀(c₂nc) = Se_nc_1_star·log₁₀(c₁) + logK_star (mass action law in logarithmic form for ideal solution where a = c) [-]
         this%solid_chemistry%reactive_zone%speciation_alg%logK_star - & !> Add log₁₀ of modified equilibrium constants (logK_star) for non-component secondary species [-]
         log_act_coeffs(n_p+1:) !> Subtract log₁₀ of activity coefficients for non-component secondary species (0 for ideal solution) [-]
     c2v=10**log_c2v !> Compute secondary non-component variable activity species concentrations by taking antilog: c₂nc = 10^(log₁₀(c₂nc)) [C]

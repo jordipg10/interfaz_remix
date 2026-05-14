@@ -1,0 +1,9 @@
+.\JORDI\interfaz_remix-main1\DB\
+.\
+denit
+u_init.dat
+u_new.out
+u_tilde.dat
+1
+1
+0
