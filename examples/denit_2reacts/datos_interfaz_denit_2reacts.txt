@@ -1,0 +1,108 @@
+# =========================================================================
+# Input file for interfaz_remix.exe -- case: denit_2reacts
+# Comments below each block are the EXACT prompts written by
+# main_interfaz.f90 (write(*,*) statements), in order.
+#
+# Usage:
+#   The '<' redirection is handled by the Windows shell (cmd/PowerShell),
+#   NOT by the Fortran program. The shell opens this file and pipes its
+#   contents to stdin of interfaz_remix.exe -- the program does not know
+#   or care where this file physically lives, only that bytes arrive on
+#   stdin. So you can keep this file anywhere; just tell the shell where.
+#
+#   (a) Same folder as the .exe (simplest):
+#         cd C:\...\interfaz_remix\bin
+#         interfaz_remix.exe < datos_interfaz_denit_2reacts.txt
+#
+#   (b) Different folder, absolute path:
+#         cd C:\...\interfaz_remix\bin
+#         interfaz_remix.exe < C:\Users\user2319\inputs\datos_interfaz_denit_2reacts.txt
+#
+#   (c) Different folder, relative path (here input is in ..\runs\denit_2reacts):
+#         cd C:\...\interfaz_remix\bin
+#         interfaz_remix.exe < ..\runs\denit_2reacts\datos_interfaz_denit_2reacts.txt
+#
+#   (d) Path contains spaces -- quote it:
+#         interfaz_remix.exe < "C:\My Runs\datos_interfaz_denit_2reacts.txt"
+#
+#   (e) PowerShell idiom:
+#         Get-Content "C:\path\to\datos_interfaz_denit_2reacts.txt" | .\interfaz_remix.exe
+#
+#   IMPORTANT: the location of THIS file is independent of the paths
+#   WRITTEN INSIDE it (sections 1 and 2 below). Those are read by the
+#   Fortran code as absolute paths and used directly to open the DB and
+#   problem folders -- they must always be valid from the .exe's point
+#   of view, no matter where you save this input file.
+#
+# Rules for the contents:
+#   - One answer per line, in the exact order the program prompts for it.
+#   - Blank lines and lines starting with '!' or '#' are skipped
+#     (handled by read_clean_line in main_interfaz.f90).
+#   - List-directed reads of CHARACTER values require the value to be quoted
+#     if it contains spaces or special chars; plain tokens work without quotes.
+# =========================================================================
+
+# Banner (no input needed):
+#   "Esta es la interfaz para resolver la parte reactiva de una iteración
+#    de mezcla reactiva en 1D usando Euler explícito."
+
+# ---- 1 ----
+# "Directorio de las bases de datos: "
+'C:\Users\user2319\source\repos\jordipg10\interfaz_remix\DB\'
+
+# ---- 2 ----
+# "Directorio del problema: "
+'C:\Users\user2319\source\repos\jordipg10\interfaz_remix\examples\denit_2reacts\'
+
+# ---- 3 ----
+# "Root de los archivos de entrada y salida: "
+denit
+
+# ---- 4 ----
+# "Cuantos targets tiene la malla?"
+10
+
+# ---- 5 ----
+# "Nombre del archivo donde quieres que escriba las concentraciones de las
+#  componentes acuosas de los tipos de agua iniciales y externas?"
+u_init.dat
+
+# ---- 6 ----
+# "Nombre del archivo donde quieres que escriba las concentraciones despues
+#  de la mezcla reactiva?"
+u_new.out
+
+# ---- 7 ----
+# "Nombre del archivo que contiene las concentraciones de componentes
+#  acuosas despues de resolver una iteracion de transporte conservativo?
+#  IMPORTANTE: El archivo debe estar en el directorio del problema."
+'u_tilde.dat'
+
+# ---- 8 ----
+# "El archivo <file_u_tilde> tiene filas como targets y columnas como
+#  componentes? (1: si, 0: no)"
+0
+
+# ---- 9 ----
+# "Paso de tiempo inicial?"
+1d-2
+
+# ---- 10 ----
+# "Paso de tiempo constante? (1: si, 0: no)"
+1
+
+# Informational message (no input needed):
+#   "Procedemos al bucle de mezcla reactiva. Tendrás que actualizar el archivo
+#    con las concentraciones obtenidas despues de resolver el transporte
+#    conservativo en cada iteración."
+
+# ---- Loop ----
+# After each iteration the program asks:
+#   "Quieres hacer otra iteración de mezcla reactiva? (1: si, 0: no)"
+# If flag_Delta_t = 0 (variable), after each '1' it also asks:
+#   "Nuevo paso de tiempo?"
+# Here: single iteration, then exit.
+0
+
+# Final message (no input needed):
+#   "El programa ha terminado."

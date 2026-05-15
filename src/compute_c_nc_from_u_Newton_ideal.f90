@@ -106,6 +106,7 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
     real(kind=8) :: eps_d                               !< Machine epsilon (cached)
     real(kind=8) :: sqrt_eps_d                           !< eps^(1/2) — practical conditioning noise floor for double precision
     real(kind=8) :: conc_comp_scale                     !< max(||conc_comp||_inf, 1) — loop-invariant
+    real(kind=8) :: neg_comp_floor                       !< max(|min(u_i,0)|) — irreducible residual floor from negative component values
     real(kind=8), allocatable :: comp_mat(:,:)          !< Full component matrix (cached, n_p x n_v) for residual computation
     real(kind=8), allocatable :: U1(:,:)                !< Component matrix slice for primary species comp_mat(:,1:n_p) (cached)
     real(kind=8), allocatable :: U2(:,:)                !< Component matrix slice for secondary species comp_mat(:,n_p+1:n_v) (cached)
@@ -125,6 +126,7 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
     eps_d=epsilon(1d0)                                 !< Cache machine epsilon
     sqrt_eps_d=sqrt(eps_d)                              !< Cache eps^(1/2) ≈ 1.49e-8 (practical noise floor)
     conc_comp_scale=max(inf_norm_vec_real(conc_comp),1d0) !< Cache scaled norm for convergence checks
+    neg_comp_floor=maxval(-min(conc_comp,0d0))          !< Irreducible residual: if any u_i<0, log-space Newton cannot achieve r=0
     !> Cache component matrix slices (avoid repeated deep dereference + slicing each iteration)
     comp_mat=this%solid_chemistry%reactive_zone%speciation_alg%comp_mat !< Cache full component matrix
     U1=comp_mat(:,1:n_p) !< Primary species slice
@@ -145,8 +147,12 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
     retry_applied=.false.                              !< Perturbation retry not yet attempted
     skip_eval=.false.                                  !< No accepted step yet; must compute residual
 
-!> Initialize primary species concentrations \f$ \mathbf{c}_1 \f$ with the user-supplied initial guess, clamped to 1d-30 to ensure positivity for log-space operations without underflow
-    conc_nc(1:n_p)=max(c1_ig,1d-30)
+!> Initialize primary species concentrations: since comp_mat = [I | Se^T], conc_comp(i) is the
+!> exact solution for uncoupled species (Se column i = 0). For coupled species with negative
+!> component values (e.g. u1 = h+ - co3-2), c1_ig provides the physically meaningful fallback.
+    do i=1,n_p
+        conc_nc(i)=max(c1_ig(i),conc_comp(i),1d-30)
+    end do
 
 !> Process: Newton-Raphson iteration loop with LM damping, line search, and log-space formulation
     newton_loop: do                                    !< Begin main Newton iteration loop
@@ -157,7 +163,7 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
                 !> \f$ c_{1,j}^{\text{retry}} = \sqrt{\max(c_{1,j}^{\text{ig}},\,10^{-30}) \cdot \max(c_{1,j}^{\text{best}},\,10^{-30})} \f$
                 retry_applied = .true.                  !< Mark retry as used (only one attempt allowed per call)
                 do i = 1, n_p                           !< Loop over each primary species
-                    conc_nc(i) = sqrt(max(c1_ig(i), 1d-30) * max(conc_nc_best(i), 1d-30))  !< Geometric mean of initial guess and best iterate
+                    conc_nc(i) = sqrt(max(c1_ig(i),conc_comp(i),1d-30) * max(conc_nc_best(i),conc_comp(i),1d-30))  !< Geometric mean; conc_comp lower bound improves uncoupled-species retry
                 end do                                  !< End primary species perturbation loop
                 niter = 0                               !< Reset Newton iteration counter for fresh restart
                 n_stag = 0                              !< Reset stagnation counter
@@ -171,8 +177,9 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
             conc_nc=conc_nc_best                        !< Restore best-seen concentrations
             call this%set_conc_prim_species(conc_nc(1:n_p))  !< Push best primary concentrations into chemistry object
             call this%compute_c2v_from_c1_ideal(conc_nc(1:n_p),log_gamma_var_act,conc_nc(n_p+1:n_v))  !< Recompute secondary species at best point for consistency
-        !> Accept if best residual is within conditioning noise: \f$\|\mathbf{r}_{\text{best}}\|_\infty \le \sqrt{\varepsilon}\cdot\max(\|\mathbf{u}\|,1)\f$
-            if (best_res_norm<=sqrt_eps_d*conc_comp_scale) then  !< Within conditioning noise?
+        !> Accept if best residual is within conditioning noise, OR if it is fully explained by negative components
+            if (best_res_norm<=sqrt_eps_d*conc_comp_scale .or. &
+                best_res_norm<=neg_comp_floor*(1d0+sqrt_eps_d)) then  !< Within noise or explained by negative components?
                 CV_flag=.true.                          !< Accept as converged
             else                                        !< Best residual exceeds noise threshold
                 print *, "Too many Newton iters, niter=", niter, " best_res=", best_res_norm, " scale=", conc_comp_scale
@@ -218,7 +225,7 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
                     !> Geometric mean: \f$ c_{1,j}^{\text{retry}} = \sqrt{c_{1,j}^{\text{ig}} \cdot c_{1,j}^{\text{best}}} \f$
                     retry_applied = .true.              !< Mark retry as used (only one attempt allowed per call)
                     do i = 1, n_p                       !< Loop over each primary species
-                        conc_nc(i) = sqrt(max(c1_ig(i), 1d-30) * max(conc_nc_best(i), 1d-30))  !< Geometric mean of initial guess and best iterate
+                        conc_nc(i) = sqrt(max(c1_ig(i),conc_comp(i),1d-30) * max(conc_nc_best(i),conc_comp(i),1d-30))  !< Geometric mean; conc_comp lower bound improves uncoupled-species retry
                     end do                              !< End primary species perturbation loop
                     niter = 0                           !< Reset Newton iteration counter for fresh restart
                     n_stag = 0                          !< Reset stagnation counter
@@ -232,8 +239,9 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
                 conc_nc=conc_nc_best                    !< Restore best-seen concentrations
                 call this%set_conc_prim_species(conc_nc(1:n_p))  !< Push best primary concentrations into chemistry object
                 call this%compute_c2v_from_c1_ideal(conc_nc(1:n_p),log_gamma_var_act,conc_nc(n_p+1:n_v))  !< Recompute secondary species at best point for consistency
-            !> Accept if best residual is within conditioning noise: \f$\|\mathbf{r}_{\text{best}}\|_\infty \le \sqrt{\varepsilon}\cdot\max(\|\mathbf{u}\|,1)\f$
-                if (best_res_norm<=sqrt_eps_d*conc_comp_scale) then  !< Within conditioning noise?
+            !> Accept if best residual is within conditioning noise, OR if it is fully explained by negative components
+                if (best_res_norm<=sqrt_eps_d*conc_comp_scale .or. &
+                    best_res_norm<=neg_comp_floor*(1d0+sqrt_eps_d)) then  !< Within noise or explained by negative components?
                     CV_flag=.true.                      !< Accept as converged
                 else                                    !< Best residual exceeds noise threshold
                     print *, "Newton stagnated, niter=", niter, " best_res=", best_res_norm, " scale=", conc_comp_scale
@@ -259,7 +267,7 @@ subroutine compute_c_nc_from_u_Newton_ideal(this,c1_ig,conc_comp,conc_nc,niter,C
         !> Apply LM damping: solve \f$ (\mathbf{J}_p + \lambda\mathbf{I})\,\Delta\mathbf{p} = -\mathbf{r} \f$
             mat_lin_syst_LM=mat_lin_syst_p             !< Copy log-space Jacobian
             do i=1,n_p
-                mat_lin_syst_LM(i,i)=mat_lin_syst_LM(i,i)+lambda_LM !< Add \f$ \lambda \f$ to diagonal
+                mat_lin_syst_LM(i,i)=mat_lin_syst_LM(i,i)+lambda_LM*max(abs(mat_lin_syst_p(i,i)),sqrt_eps_d) !< Marquardt-scaled LM: proportional to Jacobian diagonal, scale-invariant across species magnitudes
             end do
             Delta_p = -residual                        !< Set RHS = -r (dgesv overwrites with solution)
             call dgesv(n_p, 1, mat_lin_syst_LM, n_p, ipiv_dgesv, Delta_p, n_p, info_dgesv)  !< LAPACK LU with partial pivoting
