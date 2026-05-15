@@ -60,6 +60,7 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
         !> --------------------------------------------------------------------
         call tw%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react)
         u_new(:,j)=u_tilde(:,j)+u_react
+        u_new(:,j)=max(u_new(:,j),0d0) !> physical lower bound: total component concentrations cannot be negative (explicit-Euler overshoot clamp)
         call tw%compute_c_nc_from_u_Newton_ideal(tw%get_c1(),u_new(:,j),conc_nc(:,j),niter,CV_flag)
         if (.not.CV_flag) then
             print *, "Target water index: ", tw_idx
@@ -244,6 +245,7 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
         !> --------------------------------------------------------------------
         call tw%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react)
         u_new(:,j)=u_tilde(:,j)+u_react
+        u_new(:,j)=max(u_new(:,j),0d0) !> physical lower bound: total component concentrations cannot be negative (explicit-Euler overshoot clamp)
         call tw%compute_c_nc_from_u_Newton_ideal(tw%get_c1(),u_new(:,j),conc_nc(:,j),niter,CV_flag)
         if (.not.CV_flag) then
             print *, "Target water index: ", tw_idx
