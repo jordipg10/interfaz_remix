@@ -27,6 +27,7 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
     real(kind=8), allocatable :: u_new(:,:) !> concentration components after solving reactive mixing
     real(kind=8), allocatable :: conc_nc(:,:) !> concentrations of variable activity species after solving reactive mixing
     real(kind=8), allocatable :: rk_out(:,:) !> kinetic reaction rates per target water [n_kin_tot, num_target_waters]
+    character(len=256), allocatable :: react_names(:) !> names of kinetic reactions, in the same row order as rk_out
 !> Pre-process
     allocate(u_tilde(num_aq_comps,this%num_target_waters),u_new(num_aq_comps,this%num_target_waters))
     allocate(u_react(num_aq_comps))
@@ -43,6 +44,29 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
     n_kin_tot = n_aq_kin + n_min_kin + n_gas_kin
     allocate(rk_out(n_kin_tot,this%num_target_waters))
     rk_out=0d0
+    !> Build reaction-name labels (aqueous linear, then aqueous redox, then
+    !> kinetic minerals, then gas kinetic). Taken from the first target water
+    !> since the chemical system is shared across all target waters.
+    allocate(react_names(n_kin_tot))
+    associate(tw0 => this%waters(this%tar_wat_indices(1)))
+        k=0
+        do i=1,tw0%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts
+            react_names(k+i)=tw0%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%name
+        end do
+        k=k+tw0%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts
+        do i=1,tw0%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
+            react_names(k+i)=tw0%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%name
+        end do
+        k=k+tw0%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
+        do i=1,n_min_kin
+            react_names(k+i)=tw0%solid_chemistry%reactive_zone%chem_syst%minerals( &
+                tw0%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%mineral%name
+        end do
+        k=k+n_min_kin
+        do i=1,n_gas_kin
+            write(react_names(k+i),'("gas_kin_",i0)') i
+        end do
+    end associate
 !> Process
     !> We read the component concentrations after solving conservative transport
     open(unit=1,file=path//file_in,status='old',action='read')
@@ -60,12 +84,55 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
         !> --------------------------------------------------------------------
         call tw%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react)
         u_new(:,j)=u_tilde(:,j)+u_react
-        u_new(:,j)=max(u_new(:,j),0d0) !> physical lower bound: total component concentrations cannot be negative (explicit-Euler overshoot clamp)
+        !> Components are linear combinations of species and may legitimately be
+        !> negative. However, a component whose row in comp_mat_aq is a single
+        !> +1 entry IS a species concentration and must stay non-negative; clamp
+        !> only those (explicit-Euler overshoot guard).
+        block
+            integer(kind=4) :: ic, nz_idx, nz_cnt
+            real(kind=8)    :: cval
+            do ic=1,num_aq_comps
+                nz_cnt=0; nz_idx=0
+                do k=1,size(tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq,2)
+                    cval=tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(ic,k)
+                    if (cval/=0d0) then
+                        nz_cnt=nz_cnt+1
+                        nz_idx=k
+                        if (nz_cnt>1) exit
+                    end if
+                end do
+                if (nz_cnt==1 .and. &
+                    tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(ic,nz_idx)==1d0) then
+                    if (u_new(ic,j)<0d0) u_new(ic,j)=0d0
+                end if
+            end do
+        end block
         call tw%compute_c_nc_from_u_Newton_ideal(tw%get_c1(),u_new(:,j),conc_nc(:,j),niter,CV_flag)
         if (.not.CV_flag) then
             print *, "Target water index: ", tw_idx
             print *, "No convergence in speciation after reactive mixing iteration"
-            print *, "Try reducing the time step"
+            print *, "Try reducing the time step, or solve the reactive mixing implicitly."
+            error stop
+        end if
+        !> Make u_new consistent with the speciated state: recompute it from the
+        !> aqueous variable-activity species concentrations using comp_mat_aq.
+        !> Without this step, a species-equivalent component that was clamped to
+        !> 0 above can disagree with the small positive species concentration
+        !> recovered by Newton (e.g. ~1e-15 for dissolved O2).
+        u_new(:,j) = matmul( &
+            tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
+            conc_nc(1:tw%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species, j))
+        !> Sanity check: kinetic reactions must not drive any species
+        !> concentration negative. If they do, the time step is too large.
+        if (any(conc_nc(:,j) < 0d0)) then
+            print *, "Target water index: ", tw_idx
+            do i=1,n_nc
+                if (conc_nc(i,j) < 0d0) then
+                    print *, "  Species index ", i, " concentration: ", conc_nc(i,j)
+                end if
+            end do
+            print *, "Kinetic reactions produced a negative species concentration."
+            print *, "Try reducing the time step, or solve the reactive mixing implicitly."
             error stop
         end if
         !> --------------------------------------------------------------------
@@ -99,14 +166,15 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
         write(2,"(2x,*(ES15.5))") (conc_nc(i,j), j=1,this%num_target_waters)
     end do
     write(2,*)
-    write(2,*) "Kinetic reaction rates (rows: reactions [aqueous (linear+redox) | minerals], & 
-        columns: targets):"
+    write(2,*) "Kinetic reaction rates (rows: reactions [aqueous (linear+redox) | minerals | gas], & 
+        first column: reaction name, remaining columns: targets):"
     write(2,*)
     do i=1,n_kin_tot
-        write(2,"(2x,*(ES15.5))") (rk_out(i,j), j=1,this%num_target_waters)
+        write(2,'(2x,a30)',advance='no') react_names(i)(1:min(30,len_trim(react_names(i))))
+        write(2,"(*(ES15.5))") (rk_out(i,j), j=1,this%num_target_waters)
     end do
     close(2)
-    deallocate(u_tilde,u_react,u_new,conc_nc,rk_out)
+    deallocate(u_tilde,u_react,u_new,conc_nc,rk_out,react_names)
 end subroutine
 
 !> This subroutine is the interface to solve a reactive mixing iteration for components
@@ -211,6 +279,7 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
     real(kind=8), allocatable :: u_new(:,:) !> concentration components after solving reactive mixing
     real(kind=8), allocatable :: conc_nc(:,:) !> concentrations of variable activity species after solving reactive mixing
     real(kind=8), allocatable :: rk_out(:,:) !> kinetic reaction rates per target water [n_kin_tot, num_target_waters]
+    character(len=256), allocatable :: react_names(:) !> names of kinetic reactions, in the same row order as rk_out
 !> Pre-process
     allocate(u_tilde(num_aq_comps,this%num_target_waters),u_new(num_aq_comps,this%num_target_waters))
     allocate(u_react(num_aq_comps))
@@ -227,6 +296,29 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
     n_kin_tot = n_aq_kin + n_min_kin + n_gas_kin
     allocate(rk_out(n_kin_tot,this%num_target_waters))
     rk_out=0d0
+    !> Build reaction-name labels (aqueous linear, then aqueous redox, then
+    !> kinetic minerals, then gas kinetic). Taken from the first target water
+    !> since the chemical system is shared across all target waters.
+    allocate(react_names(n_kin_tot))
+    associate(tw0 => this%waters(this%tar_wat_indices(1)))
+        k=0
+        do i=1,tw0%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts
+            react_names(k+i)=tw0%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%name
+        end do
+        k=k+tw0%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts
+        do i=1,tw0%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
+            react_names(k+i)=tw0%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%name
+        end do
+        k=k+tw0%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
+        do i=1,n_min_kin
+            react_names(k+i)=tw0%solid_chemistry%reactive_zone%chem_syst%minerals( &
+                tw0%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%mineral%name
+        end do
+        k=k+n_min_kin
+        do i=1,n_gas_kin
+            write(react_names(k+i),'("gas_kin_",i0)') i
+        end do
+    end associate
 !> Process
     !> We read the component concentrations after solving conservative transport
     !> (rows: targets, columns: components)
@@ -245,12 +337,55 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
         !> --------------------------------------------------------------------
         call tw%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react)
         u_new(:,j)=u_tilde(:,j)+u_react
-        u_new(:,j)=max(u_new(:,j),0d0) !> physical lower bound: total component concentrations cannot be negative (explicit-Euler overshoot clamp)
+        !> Components are linear combinations of species and may legitimately be
+        !> negative. However, a component whose row in comp_mat_aq is a single
+        !> +1 entry IS a species concentration and must stay non-negative; clamp
+        !> only those (explicit-Euler overshoot guard).
+        block
+            integer(kind=4) :: ic, nz_idx, nz_cnt
+            real(kind=8)    :: cval
+            do ic=1,num_aq_comps
+                nz_cnt=0; nz_idx=0
+                do k=1,size(tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq,2)
+                    cval=tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(ic,k)
+                    if (cval/=0d0) then
+                        nz_cnt=nz_cnt+1
+                        nz_idx=k
+                        if (nz_cnt>1) exit
+                    end if
+                end do
+                if (nz_cnt==1 .and. &
+                    tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(ic,nz_idx)==1d0) then
+                    if (u_new(ic,j)<0d0) u_new(ic,j)=0d0
+                end if
+            end do
+        end block
         call tw%compute_c_nc_from_u_Newton_ideal(tw%get_c1(),u_new(:,j),conc_nc(:,j),niter,CV_flag)
         if (.not.CV_flag) then
             print *, "Target water index: ", tw_idx
             print *, "No convergence in speciation after reactive mixing iteration"
-            print *, "Try reducing the time step"
+            print *, "Try reducing the time step, or solve the reactive mixing implicitly."
+            error stop
+        end if
+        !> Make u_new consistent with the speciated state: recompute it from the
+        !> aqueous variable-activity species concentrations using comp_mat_aq.
+        !> Without this step, a species-equivalent component that was clamped to
+        !> 0 above can disagree with the small positive species concentration
+        !> recovered by Newton (e.g. ~1e-15 for dissolved O2).
+        u_new(:,j) = matmul( &
+            tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
+            conc_nc(1:tw%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species, j))
+        !> Sanity check: kinetic reactions must not drive any species
+        !> concentration negative. If they do, the time step is too large.
+        if (any(conc_nc(:,j) < 0d0)) then
+            print *, "Target water index: ", tw_idx
+            do i=1,n_nc
+                if (conc_nc(i,j) < 0d0) then
+                    print *, "  Species index ", i, " concentration: ", conc_nc(i,j)
+                end if
+            end do
+            print *, "Kinetic reactions produced a negative species concentration."
+            print *, "Try reducing the time step, or solve the reactive mixing implicitly."
             error stop
         end if
         !> --------------------------------------------------------------------
@@ -284,14 +419,15 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
         write(2,"(2x,*(ES15.5))") (conc_nc(i,j), j=1,this%num_target_waters)
     end do
     write(2,*)
-    write(2,*) "Kinetic reaction rates (rows: reactions [aqueous (linear+redox) | minerals], & 
-        columns: targets):"
+    write(2,*) "Kinetic reaction rates (rows: reactions [aqueous (linear+redox) | minerals | gas], & 
+        first column: reaction name, remaining columns: targets):"
     write(2,*)
     do i=1,n_kin_tot
-        write(2,"(2x,*(ES15.5))") (rk_out(i,j), j=1,this%num_target_waters)
+        write(2,'(2x,a30)',advance='no') react_names(i)(1:min(30,len_trim(react_names(i))))
+        write(2,"(*(ES15.5))") (rk_out(i,j), j=1,this%num_target_waters)
     end do
     close(2)
-    deallocate(u_tilde,u_react,u_new,conc_nc,rk_out)
+    deallocate(u_tilde,u_react,u_new,conc_nc,rk_out,react_names)
 end subroutine
 
 !> This subroutine is the interface to solve a reactive mixing iteration for components

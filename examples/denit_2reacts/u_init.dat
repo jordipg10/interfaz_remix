@@ -20,7 +20,7 @@
     8: co3-2
 
 
-  Aqueous component concentrations in the domain: 
+  Aqueous component concentrations in the domain (rows = components, cols = target waters): 
      -3.69029E-07  -3.69029E-07  -3.69029E-07  -3.69029E-07  -3.69029E-07  -3.69029E-07  -3.69029E-07  -3.69029E-07  -3.69029E-07  -3.69029E-07
       1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16
       1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05
@@ -29,7 +29,7 @@
       1.00047E-03   1.00047E-03   1.00047E-03   1.00047E-03   1.00047E-03   1.00047E-03   1.00047E-03   1.00047E-03   1.00047E-03   1.00047E-03
       1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06
 
-  Aqueous variable activity species concentrations in the domain: 
+  Aqueous variable activity species concentrations in the domain (rows = species, cols = target waters): 
       1.00000E-07   1.00000E-07   1.00000E-07   1.00000E-07   1.00000E-07   1.00000E-07   1.00000E-07   1.00000E-07   1.00000E-07   1.00000E-07
       1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16   1.00000E-16
       1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05   1.00000E-05
@@ -39,7 +39,7 @@
       1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06   1.00000E-06
       4.69029E-07   4.69029E-07   4.69029E-07   4.69029E-07   4.69029E-07   4.69029E-07   4.69029E-07   4.69029E-07   4.69029E-07   4.69029E-07
 
-  Aqueous component concentrations of external waters: 
+  Aqueous component concentrations of external waters (rows = components, cols = external waters): 
           entrada
      -2.51155E-06
       1.00000E-03
@@ -49,7 +49,7 @@
       5.40132E-04
       2.52947E-04
 
-  Aqueous variable activity species concentrations of external waters: 
+  Aqueous variable activity species concentrations of external waters (rows = species, cols = external waters): 
           entrada
       1.00000E-08
       1.00000E-03

@@ -1933,7 +1933,7 @@ module chemistry_m
                 this%wat_types(ref_idx)%ind_var_act_species(j)))%name)
         end do
         write(10,"(A)") ""
-        write(10,"(/,2x,A)") "Aqueous component concentrations in the domain: " !< Heading for the target-waters block
+        write(10,"(/,2x,A)") "Aqueous component concentrations in the domain (rows = components, cols = target waters): " !< Heading for the target-waters block
         !> Build a 2D matrix (num_comps_ref rows x n_dom cols) and write it row by
         !> row so that each column corresponds to one target water, matching the
         !> u_tilde input layout (rows=components, cols=targets).
@@ -1974,7 +1974,7 @@ module chemistry_m
                 end do
                 deallocate(u_dom)
                 !> Write variable-activity species concentrations for domain waters.
-                write(10,"(/,2x,A)") "Aqueous variable activity species concentrations in the domain: "
+                write(10,"(/,2x,A)") "Aqueous variable activity species concentrations in the domain (rows = species, cols = target waters): "
                 do j=1,num_var_act_ref
                     write(10,"(4x,*(ES13.5E2,1x))") (c_var_act_dom(j,i), i=1,n_dom)
                 end do
@@ -2021,7 +2021,7 @@ module chemistry_m
                             ext_keep(j)=this%ext_waters_indices(i)
                         end if
                     end do
-                    write(10,"(/,2x,A)") "Aqueous component concentrations of external waters: " !< Heading for the external-waters block
+                    write(10,"(/,2x,A)") "Aqueous component concentrations of external waters (rows = components, cols = external waters): " !< Heading for the external-waters block
                     allocate(u_ext(num_comps_ref,n_ext))
                     allocate(c_var_act_ext(num_var_act_ref,n_ext))
                     allocate(c_var_act(num_var_act_ref))
@@ -2055,7 +2055,7 @@ module chemistry_m
                     end do
                     deallocate(u_ext)
                     !> Write variable-activity species concentrations for external waters.
-                    write(10,"(/,2x,A)") "Aqueous variable activity species concentrations of external waters: "
+                    write(10,"(/,2x,A)") "Aqueous variable activity species concentrations of external waters (rows = species, cols = external waters): "
                     write(10,"(4x,*(A13,1x))") (adjustr(name_buf_assign(this%waters(ext_keep(i))%name)), i=1,n_ext)
                     do j=1,num_var_act_ref
                         write(10,"(4x,*(ES13.5E2,1x))") (c_var_act_ext(j,i), i=1,n_ext)

@@ -26,12 +26,11 @@ program main_interfaz
     !> Variables
     integer(kind=4) :: num_aq_comps !>< Number of aqueous components in the chemical system.
     integer(kind=4) :: num_tar !>< Number of targets in the mesh.
-    integer(kind=4) :: flag !>< Loop continuation flag (1: continue, 0: exit).
-    integer(kind=4) :: flag_Delta_t !>< Whether the time step is constant (1) or variable (0).
     integer(kind=4) :: flag_transpose !>< Whether the input file has rows=targets & columns=components (1) or rows=components & columns=targets (0).
-    real(kind=8) :: Delta_t !>< Current time step value.
-    character(len=100) :: dir_DB,dir_pb, root_files,file_u_tilde,file_u_new,file_u_wat_types !>< Raw fixed-length directory and file name inputs.
-    character(len=:), allocatable :: dir_DB_trimmed, dir_pb_trimmed, root_files_trimmed, file_u_tilde_trimmed, file_u_new_trimmed,&
+    integer(kind=4) :: flag_wat_types !>< Whether file_u_wat_types has already been generated (1) or must be generated now (0).
+    real(kind=8) :: Delta_t !>< Time step value (single reactive-mixing iteration).
+    character(len=100) :: path_DB,path_pb,root_files,file_u_tilde,file_u_new,file_u_wat_types !>< Raw fixed-length path and file name inputs.
+    character(len=:), allocatable :: path_DB_trimmed, path_pb_trimmed, root_files_trimmed, file_u_tilde_trimmed, file_u_new_trimmed,&
         file_u_wat_types_trimmed !>< Trimmed deferred-length versions of the input strings.
     integer :: ios !>< I/O status code returned by safe read statements.
     logical :: has_ieee !>< True if the runtime supports the IEEE intrinsic standard.
@@ -57,64 +56,80 @@ program main_interfaz
     end if
     !> Process
     !> Banner describing what the interactive program does.
-    write(*,*) "Esta es la interfaz para resolver la parte reactiva de una iteración de mezcla reactiva en 1D usando &
-        Euler explícito."
-    !> Prompt the user for the database directory.
-    write(*,*) "Directorio de las bases de datos: "
-    !> Read the database directory from standard input (skipping comment/blank lines).
+    write(*,*) "This is the interface to solve the reactive part of a 1D reactive mixing iteration using &
+        explicit Euler."
+    !> Prompt the user for the database path.
+    write(*,*) "Database path: "
+    !> Read the database path from standard input (skipping comment/blank lines).
     call read_clean_line(buf, ios)
-    if (ios == 0) read(buf, *, iostat=ios) dir_DB
+    if (ios == 0) read(buf, *, iostat=ios) path_DB
     !> If the read failed (e.g. EOF when running non-interactively), abort gracefully.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo dir_DB. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+        write(*,*) 'Error/EOF reading path_DB. Run in an interactive terminal or redirect from fort.5'; call safe_stop(1)
     end if
-    !> Trim trailing blanks from the database directory string.
-    dir_DB_trimmed = trim(dir_DB)
-    !> Prompt the user for the problem directory.
-    write(*,*) "Directorio del problema: "
-    !> Read the problem directory from standard input (skipping comment/blank lines).
+    !> Trim trailing blanks from the database path string.
+    path_DB_trimmed = trim(path_DB)
+    !> Prompt the user for the problem path.
+    write(*,*) "Problem path: "
+    !> Read the problem path from standard input (skipping comment/blank lines).
     call read_clean_line(buf, ios)
-    if (ios == 0) read(buf, *, iostat=ios) dir_pb
+    if (ios == 0) read(buf, *, iostat=ios) path_pb
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo dir_pb. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+        write(*,*) 'Error/EOF reading path_pb. Run in an interactive terminal or redirect from fort.5'; call safe_stop(1)
     end if
-    !> Trim trailing blanks from the problem directory string.
-    dir_pb_trimmed = trim(dir_pb)
+    !> Trim trailing blanks from the problem path string.
+    path_pb_trimmed = trim(path_pb)
     !> Prompt the user for the common root of input/output filenames.
-    write(*,*) "Root de los archivos de entrada y salida: "
+    write(*,*) "Root of the input and output files: "
     !> Read the file root from standard input (skipping comment/blank lines).
     call read_clean_line(buf, ios)
     if (ios == 0) read(buf, *, iostat=ios) root_files
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo root_files. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+        write(*,*) 'Error/EOF reading root_files. Run in an interactive terminal or redirect from fort.5'; call safe_stop(1)
     end if
     !> Trim trailing blanks from the file root string.
     root_files_trimmed = trim(root_files)
     !> Prompt the user for the number of targets in the mesh.
-    write(*,*) "Cuantos targets tiene la malla?"
+    write(*,*) "How many targets does the mesh have?"
     !> Read the number of targets (skipping comment/blank lines).
     call read_clean_line(buf, ios)
     if (ios == 0) read(buf, *, iostat=ios) num_tar
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo num_tar. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+        write(*,*) 'Error/EOF reading num_tar. Run in an interactive terminal or redirect from fort.5'; call safe_stop(1)
     end if
     !> we read chemistry
     !> Load the chemical system, water types and reactive zones from disk.
     !> num_tar is passed so that the target waters file can be validated against the mesh size.
-    call my_chem%read_chemistry_interface(root_files_trimmed,dir_pb_trimmed,dir_DB_trimmed,num_tar)
-    !> write file name
-    !> Prompt for the output file name for initial/external water-type concentrations.
-    write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones de las componentes acuosas &
-        de los tipos de agua iniciales y externas?"
-    !> Read the output filename for water-type concentrations (skipping comment/blank lines).
+    call my_chem%read_chemistry_interface(root_files_trimmed,path_pb_trimmed,path_DB_trimmed,num_tar)
+    !> Ask whether the water-types concentration file has already been generated
+    !> in a previous run. If yes (1) we just read its name to display it; if no
+    !> (0) we generate it now via write_conc_comp_tar_wat.
+    write(*,*) "Has the file with the aqueous component concentrations of the initial and external water types &
+        already been generated? (1: yes, 0: no)"
+    call read_clean_line(buf, ios)
+    if (ios == 0) read(buf, *, iostat=ios) flag_wat_types
+    if (ios /= 0) then
+        write(*,*) 'Error/EOF reading flag_wat_types. Run in an interactive terminal or redirect from fort.5'; call &
+            safe_stop(1)
+    else if (flag_wat_types /= 0 .and. flag_wat_types /= 1) then
+        error stop "Invalid option. It must be 1 (file already generated) or 0 (generate it now)."
+    end if
+    !> Prompt for the file name (used either as output to write, or just as info).
+    if (flag_wat_types == 0) then
+        write(*,*) "Name of the file where you want me to write the aqueous component concentrations &
+            of the initial and external water types?"
+    else
+        write(*,*) "Name of the already-generated file with the water-type concentrations:"
+    end if
+    !> Read the water-types filename (skipping comment/blank lines).
     call read_clean_line(buf, ios)
     if (ios == 0) read(buf, *, iostat=ios) file_u_wat_types !> file with initial and external water types
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo file_u_wat_types. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
+        write(*,*) 'Error/EOF reading file_u_wat_types. Run in an interactive terminal or redirect from fort.5'; call & 
             safe_stop(1)
     end if
     !> Trim trailing blanks from the water-types output filename.
@@ -124,68 +139,60 @@ program main_interfaz
     !> read the u_tilde input file (one entry per aqueous component per target).
     num_aq_comps=my_chem%get_num_aq_comps_tar_wat()
     !> Echo the number of aqueous components for diagnostics.
-    !print *, "Numero de componentes acuosas: ", num_aq_comps
-    !> we write concentrations of target waters (domain and external)
-    !> Write the aqueous component and variable activity species concentrations for all target waters.
-    call my_chem%write_conc_comp_tar_wat(dir_pb_trimmed,file_u_wat_types_trimmed)
-    write(*,*) 'Archivo ' // trim(file_u_wat_types_trimmed) // ' generado correctamente.'
+    !print *, "Number of aqueous components: ", num_aq_comps
+    !> Generate the water-types concentration file only when requested.
+    if (flag_wat_types == 0) then
+        !> we write concentrations of target waters (domain and external)
+        call my_chem%write_conc_comp_tar_wat(path_pb_trimmed,file_u_wat_types_trimmed)
+        write(*,*) 'File ' // trim(file_u_wat_types_trimmed) // ' generated successfully.'
+    else
+        write(*,*) 'Using the existing file ' // trim(file_u_wat_types_trimmed) // '.'
+    end if
     !> write file name for u_tilde and u_new
     !> Prompt for the output file name for post-reactive-mixing concentrations.
-    write(*,*) "Nombre del archivo donde quieres que escriba las concentraciones despues de la mezcla reactiva?"
+    write(*,*) "Name of the file where you want me to write the concentrations after the reactive mixing?"
     !> Read the output filename for post-mixing concentrations (skipping comment/blank lines).
     call read_clean_line(buf, ios)
     if (ios == 0) read(buf, *, iostat=ios) file_u_new
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo file_u_new. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+        write(*,*) 'Error/EOF reading file_u_new. Run in an interactive terminal or redirect from fort.5'; call safe_stop(1)
     end if
     !> Trim trailing blanks from the post-mixing output filename.
     file_u_new_trimmed = trim(file_u_new)
     !> Prompt for the input file containing u_tilde (post conservative-transport concentrations).
-    write(*,*) "Nombre del archivo que contiene las concentraciones de componentes acuosas despues de resolver una iteracion de &
-        transporte conservativo? &
-        IMPORTANTE: El archivo debe estar en el directorio del problema."
+    write(*,*) "Name of the file containing the aqueous component concentrations after solving one iteration of &
+        conservative transport? &
+        IMPORTANT: The file must be located in the problem path."
     !> Read the input filename providing u_tilde (skipping comment/blank lines).
     call read_clean_line(buf, ios)
     if (ios == 0) read(buf, *, iostat=ios) file_u_tilde !> file with u_tilde
     !> Abort gracefully on read error or EOF.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo file_u_tilde. Ejecuta en una terminal interactiva o redirige desde fort.5'; call &
+        write(*,*) 'Error/EOF reading file_u_tilde. Run in an interactive terminal or redirect from fort.5'; call &
             safe_stop(1)
     end if
     !> Ask the user whether the input matrix is transposed (rows=targets, columns=components).
-    write(*,*) "El archivo " // trim(file_u_tilde) // " tiene filas como targets y columnas como componentes? (1: si, 0: no)"
+    write(*,*) "Does the file " // trim(file_u_tilde) // " have rows as targets and columns as components? (1: yes, 0: no)"
     call read_clean_line(buf, ios)
     if (ios == 0) read(buf, *, iostat=ios) flag_transpose
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo flag_transpose. Ejecuta en una terminal interactiva o redirige desde fort.5'; call &
+        write(*,*) 'Error/EOF reading flag_transpose. Run in an interactive terminal or redirect from fort.5'; call &
             safe_stop(1)
     else if (flag_transpose /= 0 .and. flag_transpose /= 1) then
-        error stop "Opcion no valida. Tiene que ser 1 (matriz de componentes transpuesta) o 0 (no transpuesta)."
+        error stop "Invalid option. It must be 1 (transposed component matrix) or 0 (not transposed)."
     end if
-    !> Prompt for the initial time step value.
-    write(*,*) "Paso de tiempo inicial?"
-    !> Read the initial time step (skipping comment/blank lines).
+    !> Prompt for the time step value (single iteration).
+    write(*,*) "Time step?"
+    !> Read the time step (skipping comment/blank lines).
     call read_clean_line(buf, ios)
-    if (ios == 0) read(buf, *, iostat=ios) Delta_t !> initial time step
+    if (ios == 0) read(buf, *, iostat=ios) Delta_t !> time step
     !> Validate the read: report I/O failure or non-positive time step.
     if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
+        write(*,*) 'Error/EOF reading Delta_t. Run in an interactive terminal or redirect from fort.5'; call safe_stop(1)
     else if (Delta_t <= 0d0) then
         !> Time step must be strictly positive.
-        error stop "El paso de tiempo debe ser mayor que cero"
-    end if
-    !> Prompt the user to choose constant or variable time step mode.
-    write(*,*) "Paso de tiempo constante? (1: si, 0: no)"
-    !> Read the constant/variable time step flag (skipping comment/blank lines).
-    call read_clean_line(buf, ios)
-    if (ios == 0) read(buf, *, iostat=ios) flag_Delta_t !> whether time step is constant (1) or variable (0)
-    !> Abort gracefully on read error or EOF.
-    if (ios /= 0) then
-        write(*,*) 'Error/EOF leyendo flag_Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
-            safe_stop(1)
-    else if (flag_Delta_t /= 0 .and. flag_Delta_t /= 1) then
-        error stop "Opcion no valida. Tiene que ser 1 (paso de tiempo constante) o 0 (variable)."
+        error stop "The time step must be greater than zero"
     end if
     !> Trim trailing blanks from the u_tilde input filename.
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
@@ -215,71 +222,14 @@ program main_interfaz
             end if
         end if
     end associate
-    !> Inform the user that the reactive mixing loop is about to start.
-    write(*,*) "Procedemos al bucle de mezcla reactiva. Tendrás que actualizar el archivo con las concentraciones & 
-        obtenidas despues de resolver el transporte conservativo en cada iteración."
-    !> Branch on time-step mode: constant vs variable.
-    if (flag_Delta_t.eq.1) then !> constant time step
-        !> Constant-time-step iteration loop.
-        do
-            !> Perform one reactive mixing iteration using the selected interface.
-            call p_interfaz(my_chem,dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
-            !> Ask the user whether to perform another iteration.
-            write(*,*) "Quieres hacer otra iteración de mezcla reactiva? (1: si, 0: no)"
-            !> Read the loop continuation flag (skipping comment/blank lines).
-            call read_clean_line(buf, ios)
-            if (ios == 0) read(buf, *, iostat=ios) flag !> loop flag
-            !> Abort gracefully on read error or EOF.
-            if (ios /= 0) then
-                write(*,*) 'Error/EOF leyendo flag. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
-            end if
-            !> Exit on 0; reject any value other than 0 or 1.
-            if (flag.eq.0) then
-                exit
-            else if (flag.ne.1) then
-                error stop "Opción no válida. Tiene que ser 1 o 0."
-            end if
-        end do
-    else if (flag_Delta_t.eq.0) then !> variable time step
-        !> Variable-time-step iteration loop.
-        do
-            !> Perform one reactive mixing iteration using the selected interface.
-            call p_interfaz(my_chem,dir_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
-            !> Ask the user whether to perform another iteration.
-            write(*,*) "Quieres hacer otra iteración de mezcla reactiva? (1: si, 0: no)"
-            !> Read the loop continuation flag (skipping comment/blank lines).
-            call read_clean_line(buf, ios)
-            if (ios == 0) read(buf, *, iostat=ios) flag !> loop flag
-            !> Abort gracefully on read error or EOF.
-            if (ios /= 0) then
-                write(*,*) 'Error/EOF leyendo flag. Ejecuta en una terminal interactiva o redirige desde fort.5'; call safe_stop(1)
-            end if
-            !> Exit on 0, reject invalid values, otherwise prompt for a new time step.
-            if (flag.eq.0) then
-                exit
-            else if (flag.ne.1) then
-                error stop "Opción no válida. Tiene que ser 1 o 0."
-            else
-                !> Prompt the user for the next time step.
-                write(*,*) "Nuevo paso de tiempo?"
-                !> Read the new time step (skipping comment/blank lines).
-                call read_clean_line(buf, ios)
-                if (ios == 0) read(buf, *, iostat=ios) Delta_t !> new time step
-                !> Validate the read: report I/O failure or non-positive time step.
-                if (ios /= 0) then
-                    write(*,*) 'Error/EOF leyendo Delta_t. Ejecuta en una terminal interactiva o redirige desde fort.5'; call & 
-                        safe_stop(1)
-                else if (Delta_t <= 0d0) then
-                    error stop "El paso de tiempo debe ser mayor que cero"
-                end if
-            end if
-        end do
-    end if
+    !> Run a single reactive-mixing iteration using the selected interface.
+    write(*,*) "Proceeding with one reactive mixing iteration."
+    call p_interfaz(my_chem,path_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,Delta_t,file_u_new_trimmed)
     !> Post-Process
     !> Clear any pending IEEE flags before normal termination.
     if (has_ieee) call clear_ieee_flags()
     !> Notify the user that execution finished successfully.
-    write(*,*) "El programa ha terminado."
+    write(*,*) "The program has finished."
 contains
     !> @brief Read the next non-blank, non-comment line from standard input.
     !> @details Skips lines that are empty (after trimming) or whose first non-blank
