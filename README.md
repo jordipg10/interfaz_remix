@@ -10,17 +10,22 @@ be called from a reactive transport simulation. The intended workflow is:
 
 ## Repository layout
 
-| Folder           | Purpose                                                                 |
-|------------------|-------------------------------------------------------------------------|
-| `src/`           | Fortran source code (`.f90`).                                           |
-| `obj/`           | Compiled object files (build output).                                   |
-| `mod/`           | Generated Fortran module files (build output).                          |
-| `bin/`           | Linked Windows executable plus the runtime DLLs.                        |
-| `lib/`           | Backup copy of the Windows runtime DLLs.                                |
-| `DB/`            | Chemical databases used by the program.                                 |
-| `examples/`      | Sample reactive-transport problems.                                     |
-| `documentation/` | Documentation for the main program, the interfaces and the input files. |
-| `.vscode/`       | VS Code build/run tasks.                                                |
+| Folder / file               | Purpose                                                                 |
+|-----------------------------|-------------------------------------------------------------------------|
+| `src/`                      | Fortran source code (`.f90`).                                           |
+| `obj/`                      | Compiled object files (build output).                                   |
+| `mod/`                      | Generated Fortran module files (build output).                          |
+| `bin/`                      | Linked Windows executable plus the runtime DLLs.                        |
+| `lib/`                      | Backup copy of the Windows runtime DLLs.                                |
+| `DB/`                       | Chemical databases used by the program.                                 |
+| `examples/`                 | Sample reactive-transport problems.                                     |
+| `documentation/`            | Documentation for the main program, the interfaces and the input files. |
+| `.vscode/`                  | VS Code build/run/debug tasks.                                          |
+| `BUILD_GUIDE.md`            | Cross-platform build instructions.                                      |
+| `PORTABLE_SETUP.md`         | How to ship the executable to machines without gfortran.                |
+| `build_multiplatform.ps1`   | Helper script for multi-platform builds.                                |
+| `copy_dlls.ps1`             | Copy gfortran runtime DLLs from the toolchain next to the executable.   |
+| `copy_local_dlls.ps1`       | Copy the in-repo runtime DLLs (`lib/`) next to the executable.          |
 
 ## Quick start (Windows)
 
@@ -49,7 +54,7 @@ You can also launch it from VS Code with the `run` task defined in
 The VS Code tasks currently hard-code the path
 
 ```
-C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
+C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
 ```
 
 If your gfortran lives somewhere else (for example `C:\TDM-GCC-64\bin\` or
@@ -65,18 +70,21 @@ On Linux/macOS, install gfortran through your package manager
 Detailed cross-platform build instructions live in
 [BUILD_GUIDE.md](BUILD_GUIDE.md). The most useful VS Code tasks are:
 
-| Task                              | Purpose                                                                 |
-|-----------------------------------|-------------------------------------------------------------------------|
-| `compile-discr`                   | Compile the discretization / utilities layer.                           |
-| `compile-chem`                    | Compile the chemistry layer.                                            |
-| `compile-main`                    | Compile `src/main_interfaz.f90`.                                        |
-| `compile`                         | Compile the full source tree in the correct order.                      |
-| `link`                            | Link `obj/*.o` into `bin/interfaz_remix.exe`.                           |
-| `clean`                           | Remove `obj/*.o` and `mod/*.mod`.                                       |
-| `rebuild`                         | `clean` → `compile-discr` → `compile-chem` → `compile-main` → `link`.   |
-| `run`                             | Run `./bin/interfaz_remix.exe`.                                         |
-| `link-and-run`                    | `link` → `run`.                                                         |
-| `compile-main-and-link-and-run`   | `compile-main` → `link` → `run`.                                        |
+| Task                     | Purpose                                                                 |
+|--------------------------|-------------------------------------------------------------------------|
+| `create-obj-dir`         | Create the `obj/` folder if it does not exist.                          |
+| `create-mod-dir`         | Create the `mod/` folder if it does not exist.                          |
+| `compile-discr`          | Compile the discretization / utilities layer.                           |
+| `compile-chem`           | Compile the chemistry layer.                                            |
+| `compile-main`           | Compile `src/main_interfaz.f90`.                                        |
+| `compile`                | Compile the full source tree in the correct order.                      |
+| `link`                   | Link `obj/*.o` into `bin/interfaz_remix.exe`.                           |
+| `clean`                  | Remove `obj/*.o` and `mod/*.mod`.                                       |
+| `rebuild`                | `clean` → `compile-discr` → `compile-chem` → `compile-main` → `link`.   |
+| `run`                    | Run `./bin/interfaz_remix.exe`.                                         |
+| `debug`                  | Launch `gdb` on `./bin/interfaz_remix.exe`.                             |
+| `link-and-run`           | `link` → `run`.                                                         |
+| `compile-main-and-link`  | `compile-main` → `link`.                                                |
 
 ## Distributing the executable
 
@@ -111,25 +119,35 @@ The `DB/` folder contains the chemical databases used by the program.
 
 ## Execution flow (summary)
 
+The driver in [src/main_interfaz.f90](src/main_interfaz.f90) runs **one**
+reactive-mixing iteration. The prompts (in order) are:
+
 1. Launch the executable (`./bin/interfaz_remix.exe`).
-2. Provide the database directory, the problem directory and the `root` for
-   the input/output files.
-3. Enter the number of targets in the mesh.
-4. Provide the file where the initial and external water-type component
-   concentrations should be written.
-5. Provide the file where the post-mixing concentrations should be written.
-6. Provide the file (inside the problem directory) that contains `u_tilde` —
+2. Database path: directory containing the chemical database.
+3. Problem path: directory containing the problem-specific input files.
+4. Root of the input and output files (filename prefix used by the driver).
+5. Number of targets in the mesh.
+6. Whether the file with the aqueous component concentrations of the initial
+   and external water types has already been generated (`1`: yes, `0`: no).
+   - If `0`, provide the name of the file to **write** those concentrations to.
+   - If `1`, provide the name of the **existing** file to read them from.
+7. Name of the file where post-mixing concentrations should be written.
+8. Name of the file (inside the problem directory) that contains `u_tilde` —
    the concentrations after one conservative-transport step.
-7. Specify the layout of that file: enter `1` if rows are targets and columns
-   are components, or `0` if rows are components and columns are targets.
-8. Enter the initial time step (`Δt > 0`) and choose whether it is constant
-   (`1`) or variable (`0`).
-9. At every iteration, refresh the `u_tilde` file with the new transport
-   solution and answer `1` to continue or `0` to stop. With a variable time
-   step, the new `Δt` is requested at every iteration.
+9. Layout of the `u_tilde` file: `1` if rows are targets and columns are
+   components, `0` if rows are components and columns are targets.
+10. Time step (`Δt > 0`).
+
+The program then runs one reactive-mixing iteration and exits. To drive
+multiple time steps, invoke `interfaz_remix.exe` once per step from the
+outer transport loop (refreshing the `u_tilde` file between calls).
+
+Input can also be redirected from a file (e.g. `interfaz_remix.exe < fort.5`).
+Blank lines and full-line comments starting with `!` or `#` are ignored, so
+the input file can be annotated.
 
 The program automatically picks the right reactive-mixing interface based on
-the chemical system, and on the orientation flag of step 7 when applicable:
+the chemical system, and on the orientation flag of step 9 when applicable:
 
 - `interfaz_esp_arch` — no equilibrium reactions (kinetic only).
 - `interfaz_comps_arch_eq` / `interfaz_comps_arch_eq_T` — equilibrium
@@ -170,6 +188,7 @@ the chemical system, and on the orientation flag of step 7 when applicable:
 
 ## License
 
-No license file is currently included in this repository. Until one is added,
-treat the source as "all rights reserved" and contact the author before
-redistributing or reusing it.
+This repository does not yet ship a `LICENSE` file. Until one is added, the
+source code is to be treated as **"all rights reserved"**: please contact the
+author before redistributing, reusing or publishing derivative work based on
+it.

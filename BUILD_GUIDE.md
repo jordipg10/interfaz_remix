@@ -29,7 +29,7 @@ The linked executable is `bin/interfaz_remix.exe` on Windows or
   hard-code the path
 
   ```
-  C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
+  C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
   ```
 
   Edit the `command` field of every task in
@@ -184,9 +184,56 @@ Note: fully static linking is generally not supported on macOS.
   gfortran / libc shared libraries exist on the target system.
 - Set the executable bit: `chmod +x bin/interfaz_remix`.
 
+## Running on another PC
+
+The target PC does **not** need gfortran installed, and any gfortran it may
+happen to have installed is irrelevant: Windows looks for DLLs next to the
+`.exe` first, so the runtime DLLs shipped in `bin/` are the ones actually
+used.
+
+What the target PC **does** need:
+
+- 64-bit Windows (the shipped DLLs are 64-bit SEH → x86_64). For 32-bit
+  Windows or non-Windows systems, rebuild from source on that platform.
+- The Microsoft Universal C Runtime (present by default on Windows 10/11 and
+  on fully-updated Windows 7/8).
+- The four DLLs listed above sitting in the **same folder** as
+  `interfaz_remix.exe`.
+
+Things that can break it:
+
+- Deleting/moving the DLLs while a different, ABI-incompatible `libgfortran`
+  is reachable via `PATH` (e.g. an older `libgfortran-3.dll` from another
+  MinGW). The loader may then pick the wrong DLL and fail with
+  *"entry point not found"*.
+- Renaming or replacing only some of the four DLLs — they must all come from
+  the same MinGW-w64 build that linked the executable.
+
+### Static linking (fully self-contained Windows executable)
+
+If you want the `.exe` to carry no external runtime dependency at all, relink
+with static flags:
+
+```powershell
+cd obj
+gfortran -static -static-libgfortran -static-libgcc `
+         -o ..\bin\interfaz_remix.exe *.o
+```
+
+Notes:
+
+- The resulting executable is larger but needs none of the four DLLs.
+- Static linking is supported on Windows and Linux. On macOS, fully static
+  linking against the system libc is generally not supported — distribute
+  the dynamic build instead and rely on Homebrew's `gcc` runtime.
+
 ## Helper scripts
 
-- `build_multiplatform.ps1` — multi-platform build driver (Docker-based for Linux).
+- `build_multiplatform.ps1` — packages the existing `bin/interfaz_remix.exe`
+  and its DLLs into `dist/` for Windows, and (if Docker plus a
+  `Dockerfile.linux` are available) builds a Linux executable in the same
+  `dist/` folder. It does **not** rebuild the Windows binary itself — run the
+  `rebuild` VS Code task first.
 - `copy_dlls.ps1` — copy gfortran runtime DLLs from your installation into `bin/`.
 - `copy_local_dlls.ps1` — copy DLLs from the in-repo `lib/` folder into `bin/`.
 

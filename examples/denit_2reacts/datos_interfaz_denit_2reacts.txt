@@ -56,7 +56,7 @@
 
 # ---- 3 ----
 # "Root of the input and output files: "
-denit
+'denit'
 
 # ---- 4 ----
 # "How many targets does the mesh have?"
