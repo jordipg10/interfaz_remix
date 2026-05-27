@@ -81,6 +81,11 @@
             "args": [
                 "-o",
                 "../bin/interfaz_remix.exe",
+                // Statically embed the gfortran / GCC / quadmath / winpthread
+                // runtimes so the resulting .exe runs on Windows machines that
+                // do not have gfortran (or its DLLs) installed. With -static
+                // only system DLLs (KERNEL32 + UCRT) remain as dependencies.
+                "-static",
                 "array_ops_m.o",
                 "strings_m.o",
                 "vectors_m.o",
