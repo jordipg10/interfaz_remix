@@ -30,7 +30,7 @@
         {
             "label": "compile-to-obj-dir-cwd",
             "type": "shell",
-            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -52,7 +52,7 @@
         {
             "label": "compile-to-obj-dir",
             "type": "shell",
-            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -77,7 +77,7 @@
         {
             "label": "link",
             "type": "shell",
-            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-o",
                 "../bin/interfaz_remix.exe",
@@ -445,7 +445,7 @@
         {
             "label": "compile",
             "type": "shell",
-            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -820,7 +820,7 @@
         {
             "label": "compile-discr",
             "type": "shell",
-            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -866,7 +866,7 @@
         {
             "label": "compile-chem",
             "type": "shell",
-            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -1192,7 +1192,7 @@
         {
             "label": "compile-main",
             "type": "shell",
-            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",

@@ -8,8 +8,8 @@ operating systems.
 | `src/` | Fortran sources (`.f90`).                                 |
 | `obj/` | Compiled objects (`.o`) — build output.                   |
 | `mod/` | Generated Fortran modules (`.mod`) — build output.        |
-| `bin/` | Linked executable (+ Windows runtime DLLs).               |
-| `lib/` | In-repo backup of the runtime DLLs (used by helper scripts). |
+| `bin/` | Linked executable (standalone — no extra DLLs required).  |
+| `lib/` | Static LAPACK/BLAS archives used at link time.            |
 
 The linked executable is `bin/interfaz_remix.exe` on Windows or
 `bin/interfaz_remix` on Linux / macOS.
@@ -29,7 +29,7 @@ The linked executable is `bin/interfaz_remix.exe` on Windows or
   hard-code the path
 
   ```
-  C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
+  C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
   ```
 
   Edit the `command` field of every task in
@@ -38,11 +38,11 @@ The linked executable is `bin/interfaz_remix.exe` on Windows or
   `C:\msys64\mingw64\bin\gfortran.exe`), or replace it with plain `gfortran`
   if it is on `PATH`.
 
-- Runtime DLLs needed next to the executable (already shipped in `bin/`):
-  - `libgfortran_64-5.dll`
-  - `libquadmath_64-0.dll`
-  - `libgcc_s_seh_64-1.dll`
-  - `libwinpthread_64-1.dll`
+- No runtime DLLs are required next to the executable. The `link` VS Code
+  task passes `-static`, which embeds the gfortran, GCC, quadmath, and
+  winpthread runtimes directly into `bin/interfaz_remix.exe`. The only
+  remaining dependencies are standard Windows system DLLs (`KERNEL32.dll`
+  and the Universal CRT) that are always present on Windows 10/11.
 
 ### Linux
 
@@ -76,7 +76,7 @@ The available tasks (defined in [.vscode/tasks.json](.vscode/tasks.json)):
 | `compile`                  | Compile the full source tree in the correct order.                                       |
 | `compile-to-obj-dir`       | Template task: compile a single file into `obj/`.                                        |
 | `compile-to-obj-dir-cwd`   | Template task: compile a single file using `obj/` as cwd.                                |
-| `link`                     | Link `obj/*.o` into `bin/interfaz_remix.exe` (dynamic).                                  |
+| `link`                     | Link `obj/*.o` into `bin/interfaz_remix.exe` (static — self-contained).                  |
 | `clean`                    | Remove `obj/*.o` and `mod/*.mod`.                                                        |
 | `rebuild`                  | `clean` → `compile-discr` → `compile-chem` → `compile-main` → `link`.                    |
 | `run`                      | Run `./bin/interfaz_remix.exe` (errors out if the executable is missing).                |
@@ -91,9 +91,8 @@ Typical flows:
 - After editing only the chemistry layer → run **`compile-chem`**, then
   `link-and-run`.
 
-The Windows runtime DLLs are already present in `bin/`, so no extra copy step
-is needed when running locally. If you move the executable elsewhere, copy the
-DLLs along with it (see [Distribution](#distribution)).
+The executable is statically linked, so no extra DLLs are needed when running
+locally or when copying `bin/interfaz_remix.exe` to another machine.
 
 ### Option 2 — Manual build (PowerShell)
 
@@ -108,21 +107,16 @@ cd obj
 gfortran -g -c -O0 -fcheck=all -fbacktrace -J ../mod ../src/<file>.f90
 # ... repeat for every source file in the correct dependency order ...
 
-# 3. Link
-gfortran -o ../bin/interfaz_remix.exe *.o
-
-# 4. Make sure the four DLLs are next to the executable (already shipped in
-#    bin/, but if you copied the exe somewhere else):
-Copy-Item ..\lib\libgfortran_64-5.dll, ..\lib\libquadmath_64-0.dll, `
-          ..\lib\libgcc_s_seh_64-1.dll, ..\lib\libwinpthread_64-1.dll `
-          ..\bin\ -Force
+# 3. Link (static — no runtime DLLs needed on the target machine)
+gfortran -static -o ../bin/interfaz_remix.exe *.o `
+         ${workspaceFolder}/lib/liblapack.a `
+         ${workspaceFolder}/lib/librefblas.a
 ```
 
 Helper scripts:
 
-- `copy_dlls.ps1` — locates the runtime DLLs in your gfortran installation and
-  copies them next to the executable.
-- `copy_local_dlls.ps1` — copies the DLLs from the in-repo `lib/` folder.
+- `copy_dlls.ps1` / `copy_local_dlls.ps1` — legacy scripts for copying
+  runtime DLLs. Not needed when building with `-static` (the default).
 
 ## Linux
 
@@ -134,11 +128,8 @@ gfortran -g -c -O0 -fcheck=all -fbacktrace -ffree-line-length-none \
          -fno-range-check -J ../mod ../src/<file>.f90
 # ... repeat for every source file in the correct dependency order ...
 
-# Link (dynamic)
-gfortran -o ../bin/interfaz_remix *.o
-
-# Optional: static linking (may require extra system static libraries)
-# gfortran -static -o ../bin/interfaz_remix *.o
+# Link (static)
+gfortran -static -o ../bin/interfaz_remix *.o lib/liblapack.a lib/librefblas.a
 ```
 
 `build_multiplatform.ps1` is provided as a Docker-based driver for
@@ -157,26 +148,25 @@ gfortran -g -c -O0 -fcheck=all -fbacktrace -ffree-line-length-none \
          -fno-range-check -J ../mod ../src/<file>.f90
 # ... repeat for every source file in the correct dependency order ...
 
-# Link (dynamic)
+# Link (dynamic — macOS does not support fully static linking)
 gfortran -o ../bin/interfaz_remix *.o
 ```
 
-Note: fully static linking is generally not supported on macOS.
+Note: fully static linking is not supported on macOS. Distribute the dynamic
+binary alongside a note that gfortran (Homebrew `gcc`) must be installed.
 
 ## Distribution
 
 ### Windows
 
-- Ship `bin/interfaz_remix.exe` together with the four runtime DLLs already in
-  `bin/`:
-  - `libgfortran_64-5.dll`
-  - `libquadmath_64-0.dll`
-  - `libgcc_s_seh_64-1.dll`
-  - `libwinpthread_64-1.dll`
+- Ship **only** `bin/interfaz_remix.exe` — no DLLs required. The executable
+  is statically linked and carries all gfortran runtimes internally.
 - Optionally include `DB/`, `documentation/`, and `examples/` so the user has
   databases and ready-to-run problems.
 - Zip the `bin/` folder (plus the auxiliary folders above) for distribution.
 - See [PORTABLE_SETUP.md](PORTABLE_SETUP.md) for additional portability notes.
+- The only system requirement on the target PC is 64-bit Windows 10/11 (or
+  Windows 7/8.1 with the Universal C Runtime update applied).
 
 ### Linux / macOS
 
@@ -186,56 +176,27 @@ Note: fully static linking is generally not supported on macOS.
 
 ## Running on another PC
 
-The target PC does **not** need gfortran installed, and any gfortran it may
-happen to have installed is irrelevant: Windows looks for DLLs next to the
-`.exe` first, so the runtime DLLs shipped in `bin/` are the ones actually
-used.
+The executable is **fully self-contained**. The target PC does **not** need
+gfortran (or any Fortran compiler) installed — all gfortran runtimes are
+statically embedded into `bin/interfaz_remix.exe` by the `-static` link flag.
 
 What the target PC **does** need:
 
-- 64-bit Windows (the shipped DLLs are 64-bit SEH → x86_64). For 32-bit
-  Windows or non-Windows systems, rebuild from source on that platform.
-- The Microsoft Universal C Runtime (present by default on Windows 10/11 and
-  on fully-updated Windows 7/8).
-- The four DLLs listed above sitting in the **same folder** as
-  `interfaz_remix.exe`.
+- 64-bit Windows 10 or 11 (or Windows 7/8.1 with the Universal CRT update
+  — KB2999226 — applied).
+- Only `interfaz_remix.exe` itself; no companion DLLs are required.
 
-Things that can break it:
-
-- Deleting/moving the DLLs while a different, ABI-incompatible `libgfortran`
-  is reachable via `PATH` (e.g. an older `libgfortran-3.dll` from another
-  MinGW). The loader may then pick the wrong DLL and fail with
-  *"entry point not found"*.
-- Renaming or replacing only some of the four DLLs — they must all come from
-  the same MinGW-w64 build that linked the executable.
-
-### Static linking (fully self-contained Windows executable)
-
-If you want the `.exe` to carry no external runtime dependency at all, relink
-with static flags:
-
-```powershell
-cd obj
-gfortran -static -static-libgfortran -static-libgcc `
-         -o ..\bin\interfaz_remix.exe *.o
-```
-
-Notes:
-
-- The resulting executable is larger but needs none of the four DLLs.
-- Static linking is supported on Windows and Linux. On macOS, fully static
-  linking against the system libc is generally not supported — distribute
-  the dynamic build instead and rely on Homebrew's `gcc` runtime.
+The `DB/` directory (or the path configured inside the program) must be
+accessible at runtime so the program can open its database files.
 
 ## Helper scripts
 
-- `build_multiplatform.ps1` — packages the existing `bin/interfaz_remix.exe`
-  and its DLLs into `dist/` for Windows, and (if Docker plus a
-  `Dockerfile.linux` are available) builds a Linux executable in the same
-  `dist/` folder. It does **not** rebuild the Windows binary itself — run the
-  `rebuild` VS Code task first.
-- `copy_dlls.ps1` — copy gfortran runtime DLLs from your installation into `bin/`.
-- `copy_local_dlls.ps1` — copy DLLs from the in-repo `lib/` folder into `bin/`.
+- `build_multiplatform.ps1` — packages `bin/interfaz_remix.exe` into `dist/`
+  for Windows, and (if Docker plus a `Dockerfile.linux` are available) builds
+  a Linux executable in the same `dist/` folder. It does **not** rebuild the
+  Windows binary itself — run the `rebuild` VS Code task first.
+- `copy_dlls.ps1` / `copy_local_dlls.ps1` — legacy scripts for copying
+  gfortran runtime DLLs. Not needed when linking with `-static` (the default).
 
 ## Troubleshooting
 
@@ -252,8 +213,9 @@ Notes:
   remember to update the corresponding entries in `compile-*` (source name)
   and `link` (object name) inside [.vscode/tasks.json](.vscode/tasks.json).
 - **Missing DLL at runtime (Windows)**
-  Verify the four DLLs listed above are next to `interfaz_remix.exe`. If they
-  are not, run `copy_local_dlls.ps1` (or `copy_dlls.ps1`).
+  This should not happen with the statically-linked build. If you see this
+  error, the exe was likely built without `-static` by a different toolchain.
+  Rebuild using the `rebuild` VS Code task, which passes `-static`.
 - **Command-line length issues when invoking gfortran manually**
   Compile in batches, or rely on the VS Code `compile` task which already
   splits the work appropriately.

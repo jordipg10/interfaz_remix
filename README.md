@@ -15,8 +15,8 @@ be called from a reactive transport simulation. The intended workflow is:
 | `src/`                      | Fortran source code (`.f90`).                                           |
 | `obj/`                      | Compiled object files (build output).                                   |
 | `mod/`                      | Generated Fortran module files (build output).                          |
-| `bin/`                      | Linked Windows executable plus the runtime DLLs.                        |
-| `lib/`                      | Backup copy of the Windows runtime DLLs.                                |
+| `bin/`                      | Linked Windows executable (standalone — no extra DLLs required).        |
+| `lib/`                      | Static LAPACK/BLAS archives used at link time.                           |
 | `DB/`                       | Chemical databases used by the program.                                 |
 | `examples/`                 | Sample reactive-transport problems.                                     |
 | `documentation/`            | Documentation for the main program, the interfaces and the input files. |
@@ -24,14 +24,14 @@ be called from a reactive transport simulation. The intended workflow is:
 | `BUILD_GUIDE.md`            | Cross-platform build instructions.                                      |
 | `PORTABLE_SETUP.md`         | How to ship the executable to machines without gfortran.                |
 | `build_multiplatform.ps1`   | Helper script for multi-platform builds.                                |
-| `copy_dlls.ps1`             | Copy gfortran runtime DLLs from the toolchain next to the executable.   |
-| `copy_local_dlls.ps1`       | Copy the in-repo runtime DLLs (`lib/`) next to the executable.          |
+| `copy_dlls.ps1`             | Legacy: copy gfortran runtime DLLs from the toolchain (not needed with static build). |
+| `copy_local_dlls.ps1`       | Legacy: copy in-repo runtime DLLs (not needed with static build).       |
 
 ## Quick start (Windows)
 
-The prebuilt executable lives at `bin/interfaz_remix.exe` and is shipped next
-to the four runtime DLLs it needs (`libgcc_s_seh_64-1.dll`,
-`libgfortran_64-5.dll`, `libquadmath_64-0.dll`, `libwinpthread_64-1.dll`).
+The prebuilt executable lives at `bin/interfaz_remix.exe`. It is statically
+linked — no companion DLLs or gfortran installation are required on the
+running machine.
 
 To run it:
 
@@ -54,7 +54,7 @@ You can also launch it from VS Code with the `run` task defined in
 The VS Code tasks currently hard-code the path
 
 ```
-C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
+C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
 ```
 
 If your gfortran lives somewhere else (for example `C:\TDM-GCC-64\bin\` or
@@ -88,11 +88,11 @@ Detailed cross-platform build instructions live in
 
 ## Distributing the executable
 
-Instructions for shipping the executable to machines that do not have gfortran
-installed are in [PORTABLE_SETUP.md](PORTABLE_SETUP.md). The helper scripts
-`copy_dlls.ps1` and `copy_local_dlls.ps1` automate copying the four runtime
-DLLs next to the executable, and `build_multiplatform.ps1` covers
-multi-platform builds.
+Because the `link` task uses `-static`, all gfortran runtimes are baked into
+`bin/interfaz_remix.exe`. To distribute, copy just the executable (and the
+`DB/` database folder). No companion DLLs are needed. See
+[PORTABLE_SETUP.md](PORTABLE_SETUP.md) and [BUILD_GUIDE.md](BUILD_GUIDE.md)
+for full details.
 
 ## Examples
 
@@ -178,9 +178,9 @@ the chemical system, and on the orientation flag of step 9 when applicable:
   `compile-*` task. Run `clean`, then `rebuild`. The order of files in the
   `compile-*` and `link` tasks must match the module dependency graph.
 - **Missing DLL at runtime (Windows)**
-  Make sure the four runtime DLLs are next to `interfaz_remix.exe`. If they
-  are not, run `copy_local_dlls.ps1` (in-repo DLLs) or `copy_dlls.ps1`
-  (DLLs from your gfortran installation).
+  This should not occur with the statically-linked build. If it does, the
+  executable was likely built without `-static`. Rebuild using the `rebuild`
+  VS Code task, which passes `-static` at link time.
 - **Spurious IEEE warnings on exit**
   The driver clears IEEE flags before terminating; if you still see warnings,
   check that your gfortran build supports `ieee_arithmetic` /

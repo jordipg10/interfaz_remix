@@ -1,143 +1,90 @@
 # Portable Executable Setup for `interfaz_remix.exe`
 
-This document explains how to make the `interfaz_remix.exe` executable work on
-other Windows computers that do not have a gfortran toolchain installed.
+This document explains how `interfaz_remix.exe` is made fully self-contained
+so it runs on any Windows 10/11 machine without a gfortran toolchain installed.
 
-## The problem
+## How it works
 
-`interfaz_remix.exe` is built with gfortran (MinGW-w64 / MSYS2 / TDM-GCC) and at
-runtime depends on the following DLLs:
+The `link` VS Code task passes `-static` to gfortran at link time. This
+statically embeds the following runtimes **inside** the executable itself:
 
-- `libgfortran_64-5.dll` — Fortran runtime
-- `libgcc_s_seh_64-1.dll` — GCC runtime
-- `libwinpthread_64-1.dll` — POSIX threads
-- `libquadmath_64-0.dll`  — Quad-precision math
+- gfortran runtime (`libgfortran`)
+- GCC runtime (`libgcc`)
+- POSIX threads (`libwinpthread`)
+- Quad-precision math (`libquadmath`)
 
-These DLLs are normally installed alongside gfortran but are not present on
-machines without the toolchain.
+The resulting `bin/interfaz_remix.exe` therefore has **no external DLL
+dependencies** beyond the standard Windows system libraries (`KERNEL32.dll`
+and the Universal CRT), which are always present on Windows 10/11.
 
-## Repository layout
+You can verify this with:
 
-```
-bin/   interfaz_remix.exe + the four runtime DLLs (this is what you ship)
-lib/   Backup copy of the four runtime DLLs (used by copy_local_dlls.ps1)
-```
-
-The `bin/` folder in this repository already contains the executable together
-with the four DLLs, so it is portable as-is.
-
-## Solutions
-
-### Option 1: Ship the executable together with the DLLs (recommended)
-
-This is the simplest and recommended approach.
-
-#### Automatic setup
-
-- PowerShell (in-repo DLLs):
-	```powershell
-	./copy_local_dlls.ps1
-	```
-- PowerShell (locate DLLs from your gfortran installation):
-	```powershell
-	./copy_dlls.ps1
-	```
-
-Both scripts ensure the four DLLs are present next to `bin/interfaz_remix.exe`.
-
-#### Manual setup
-
-1. Locate the four DLLs. Preferred source: `lib/` in this repo. Otherwise look
-   in your gfortran installation, e.g. `C:\TDM-GCC-64\bin\` or
-   `C:\msys64\mingw64\bin\`.
-2. Copy them next to the executable:
-	```powershell
-	Copy-Item lib\libgfortran_64-5.dll, lib\libgcc_s_seh_64-1.dll, `
-			  lib\libwinpthread_64-1.dll, lib\libquadmath_64-0.dll `
-			  bin\ -Force
-	```
-
-> The DLLs must live in the same directory as `interfaz_remix.exe` (or in a
-> directory on `PATH`) for the program to start.
-
-### Option 2: Static linking (optional)
-
-You can try to embed the gfortran/GCC runtimes to avoid shipping DLLs. This is
-not enabled by default. Suggested linker flags on Windows / MinGW:
-
-```
--static-libgfortran -static-libgcc -static-libquadmath
+```powershell
+objdump -p bin\interfaz_remix.exe | Select-String "DLL Name:"
 ```
 
-Notes:
+Expected output (KERNEL32 + Universal CRT only — no libgfortran / libgcc):
 
-- Full `-static` is often problematic on Windows and is not recommended.
-- Some library combinations may still pull in DLLs at runtime.
-- To use this, modify the `link` task in `.vscode/tasks.json` (or add a
-  separate `link-static` task).
+```
+DLL Name: KERNEL32.dll
+DLL Name: api-ms-win-crt-*.dll
+...
+```
 
-### Option 3: Installer package
+## Distributing the executable
 
-Wrap the executable plus its DLLs (and optionally `DB/`, `examples/`,
-`documentation/`) in an installer:
-
-- NSIS, InnoSetup, or WiX are all reasonable choices.
-- The installer should place the four DLLs in the same folder as the executable.
-
-## Distribution checklist
-
-To distribute a portable build:
-
-1. Build the executable (see `BUILD_GUIDE.md`, e.g. via the `rebuild` VS Code task).
-2. Make sure `bin/` contains:
-	- `interfaz_remix.exe`
-	- `libgfortran_64-5.dll`
-	- `libgcc_s_seh_64-1.dll`
-	- `libwinpthread_64-1.dll`
-	- `libquadmath_64-0.dll`
+1. Build the executable (see [BUILD_GUIDE.md](BUILD_GUIDE.md), e.g. via the
+   `rebuild` VS Code task).
+2. Copy **only** `bin/interfaz_remix.exe` to the target machine — no companion
+   DLLs are required.
 3. (Optional) Include the `DB/`, `examples/`, and `documentation/` folders so
    the user has databases and ready-to-run problems.
-4. Zip the result and test it on a clean machine without gfortran installed.
+4. Test on a clean machine without gfortran installed.
 
-## Helper scripts and tasks
+## System requirements on the target PC
 
-PowerShell scripts at the repository root:
+- 64-bit Windows 10 or 11.
+- Windows 7/8.1 also works provided the Universal CRT update (KB2999226) has
+  been applied.
+- No Fortran compiler or runtime library installation is needed.
 
-- `copy_local_dlls.ps1` — copies the four DLLs from `lib/` into `bin/`.
-- `copy_dlls.ps1` — locates and copies the DLLs from your gfortran installation
-  into `bin/`.
-- `build_multiplatform.ps1` — multi-platform build driver (Docker-based for Linux).
+## Installer package (optional)
 
-VS Code tasks (see `.vscode/tasks.json`):
+If you prefer a polished distribution, wrap `interfaz_remix.exe` (plus `DB/`,
+`examples/`, `documentation/`) in an installer built with NSIS, InnoSetup, or
+WiX. No DLL packaging step is required.
 
-- `compile`, `compile-discr`, `compile-chem`, `compile-main` — build the objects.
-- `link` — link `obj/*.o` into `bin/interfaz_remix.exe` (dynamic).
-- `rebuild` — `clean` → `compile-discr` → `compile-chem` → `compile-main` → `link`.
-- `run`, `link-and-run`, `compile-main-and-link-and-run` — launch the executable.
-- `clean` — remove `obj/*.o` and `mod/*.mod`.
+## Rebuilding with static linking
 
-> The current `tasks.json` does not include dedicated `copy-dlls` /
-> `build-with-dlls` tasks. Use the PowerShell scripts above instead.
+The `-static` flag is already present in the `link` task in
+`.vscode/tasks.json`. To rebuild:
+
+```powershell
+# From the repository root (VS Code task)
+# Run the "rebuild" task, or manually:
+
+cd obj
+gfortran -static -o ..\bin\interfaz_remix.exe *.o `
+         ..\lib\liblapack.a ..\lib\librefblas.a
+```
+
+On **Linux**, static linking against glibc is not recommended (and rarely
+needed). Build natively; the resulting binary will depend on the system glibc
+which is always present. On **macOS**, fully static linking is not supported —
+distribute the dynamic binary.
+
+## Legacy helper scripts
+
+`copy_dlls.ps1` and `copy_local_dlls.ps1` were used when the executable was
+built dynamically. They are no longer needed with the current static build but
+are kept for reference.
 
 ## Troubleshooting
 
-If the executable still does not run on another machine:
-
-1. **Check Windows version / architecture**: ship the 64-bit build to 64-bit
-   targets. Re-build for 32-bit if you need to support legacy systems.
-2. **Verify dependencies**: from a Visual Studio Developer Prompt, run
-   `dumpbin /dependents bin\interfaz_remix.exe` to list the DLLs the binary
-   actually requires; make sure each one is present next to the executable
-   (or on the system).
-3. **Missing Visual C++ runtime**: some systems may also require the
-   Microsoft Visual C++ Redistributable.
-4. **Antivirus / SmartScreen**: an unsigned executable can be blocked on
-   first run. Right-click → Properties → Unblock if needed.
-
-## Testing portability
-
-1. Copy the `bin/` folder (and any required data folders such as `DB/` and
-   `examples/`) to a Windows machine without gfortran installed.
-2. Open a terminal in that folder and run `.\interfaz_remix.exe`.
-3. Walk through the interactive prompts described in `README.md` to confirm
-   end-to-end functionality.
+- **DLL error on startup** — The executable was linked without `-static` (by
+  a different build). Rebuild using the `rebuild` VS Code task.
+- **"The application was unable to start correctly (0xc0150002)"** — Universal
+  CRT is missing. Apply Windows Update KB2999226.
+- **Antivirus / SmartScreen** — An unsigned executable may be blocked on first
+  run. Right-click → Properties → Unblock if needed.
+- **Verify dependencies** — Use `objdump -p bin\interfaz_remix.exe | Select-String "DLL Name:"` to list the actual DLL imports.

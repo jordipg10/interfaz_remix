@@ -16,7 +16,7 @@
 #
 #   (b) Different folder, absolute path:
 #         cd C:\...\interfaz_remix\bin
-#         interfaz_remix.exe < C:\Users\jordi\source\repos\jordipg10\interfaz_remix\examples\denit_2reacts\datos_interfaz_denit_2reacts.txt
+#         interfaz_remix.exe < C:\Users\user2319\source\repos\jordipg10\interfaz_remix\examples\denit_2reacts\datos_interfaz_denit_2reacts.txt
 #
 #   (c) Different folder, relative path (here input is in ..\runs\denit_2reacts):
 #         cd C:\...\interfaz_remix\bin
@@ -48,11 +48,11 @@
 
 # ---- 1 ----
 # "Database path: "
-'C:\Users\jordi\source\repos\jordipg10\interfaz_remix\DB\'
+'C:\Users\user2319\source\repos\jordipg10\interfaz_remix\DB\'
 
 # ---- 2 ----
 # "Problem path: "
-'C:\Users\jordi\source\repos\jordipg10\interfaz_remix\examples\denit_2reacts\'
+'C:\Users\user2319\source\repos\jordipg10\interfaz_remix\examples\denit_2reacts\'
 
 # ---- 3 ----
 # "Root of the input and output files: "
