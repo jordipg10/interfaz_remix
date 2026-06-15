@@ -30,7 +30,7 @@
         {
             "label": "compile-to-obj-dir-cwd",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -52,7 +52,7 @@
         {
             "label": "compile-to-obj-dir",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -77,7 +77,7 @@
         {
             "label": "link",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-o",
                 "../bin/interfaz_remix.exe",
@@ -290,6 +290,7 @@
                 "initialise_conc_anal.o",
                 "initialise_conc_incr_coeff.o",
                 "interfaz_comps_arch.o",
+                "interfaz_comps_arch_mix.o",
                 "interfaz_esp_arch.o",
                 "interfaz_comps_vars.o",
                 "kin_mineral_m.o",
@@ -445,7 +446,7 @@
         {
             "label": "compile",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -687,6 +688,7 @@
                 "../src/initialise_conc_anal.f90",
                 "../src/initialise_conc_incr_coeff.f90",
                 "../src/interfaz_comps_arch.f90",
+                "../src/interfaz_comps_arch_mix.f90",
                 "../src/interfaz_esp_arch.f90",
                 "../src/interfaz_comps_vars.f90",
                 // "../src/kin_mineral_m.f90",
@@ -820,7 +822,7 @@
         {
             "label": "compile-discr",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -866,7 +868,7 @@
         {
             "label": "compile-chem",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",
@@ -986,6 +988,7 @@
                 "../src/initialise_conc_anal.f90",
                 "../src/initialise_conc_incr_coeff.f90",
                 "../src/interfaz_comps_arch.f90",
+                "../src/interfaz_comps_arch_mix.f90",
                 "../src/interfaz_esp_arch.f90",
                 "../src/interfaz_comps_vars.f90",
                 // "../src/kin_mineral_m.f90",
@@ -1192,7 +1195,7 @@
         {
             "label": "compile-main",
             "type": "shell",
-            "command": "C:\\Users\\user2319\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
+            "command": "C:\\Users\\jordi\\OneDrive\\Documentos\\fortran\\mingw64\\bin\\gfortran.exe",
             "args": [
                 "-g",
                 "-c",

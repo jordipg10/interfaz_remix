@@ -54,7 +54,7 @@ You can also launch it from VS Code with the `run` task defined in
 The VS Code tasks currently hard-code the path
 
 ```
-C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
+C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe
 ```
 
 If your gfortran lives somewhere else (for example `C:\TDM-GCC-64\bin\` or

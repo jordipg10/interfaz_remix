@@ -14,7 +14,7 @@ program main_interfaz
     !>   - interfaz_comps_arch_eq_kin     : equilibrium + kinetic, u_tilde with rows=components, cols=targets.
     !>   - interfaz_comps_arch_eq_kin_T   : equilibrium + kinetic, u_tilde transposed (rows=targets, cols=components).
     use chemistry_m, only: chemistry_c, interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch, &
-        interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T
+        interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T, interfaz_comps_arch_eq_kin_mix
     !> Standard intrinsic module providing IEEE arithmetic helpers.
     use, intrinsic :: ieee_arithmetic
     !> Standard intrinsic module providing IEEE floating-point exception flags.
@@ -27,11 +27,12 @@ program main_interfaz
     integer(kind=4) :: num_aq_comps !>< Number of aqueous components in the chemical system.
     integer(kind=4) :: num_tar !>< Number of targets in the mesh.
     integer(kind=4) :: flag_transpose !>< Whether the input file has rows=targets & columns=components (1) or rows=components & columns=targets (0).
+    integer(kind=4) :: flag_mix !>< Whether the input concentrations are PRIOR to mixing so the program performs the conservative mixing (1) or already after conservative transport (0).
     integer(kind=4) :: flag_wat_types !>< Whether file_u_wat_types has already been generated (1) or must be generated now (0).
     real(kind=8) :: Delta_t !>< Time step value (single reactive-mixing iteration).
-    character(len=100) :: path_DB,path_pb,root_files,file_u_tilde,file_u_new,file_u_wat_types !>< Raw fixed-length path and file name inputs.
+    character(len=100) :: path_DB,path_pb,root_files,file_u_tilde,file_u_new,file_u_wat_types,file_mix !>< Raw fixed-length path and file name inputs.
     character(len=:), allocatable :: path_DB_trimmed, path_pb_trimmed, root_files_trimmed, file_u_tilde_trimmed, file_u_new_trimmed,&
-        file_u_wat_types_trimmed !>< Trimmed deferred-length versions of the input strings.
+        file_u_wat_types_trimmed, file_mix_trimmed !>< Trimmed deferred-length versions of the input strings.
     integer :: ios !>< I/O status code returned by safe read statements.
     logical :: has_ieee !>< True if the runtime supports the IEEE intrinsic standard.
     character(len=512) :: buf !>< Line buffer used by read_clean_line to skip comments/blank lines.
@@ -172,15 +173,44 @@ program main_interfaz
         write(*,*) 'Error/EOF reading file_u_tilde. Run in an interactive terminal or redirect from fort.5'; call &
             safe_stop(1)
     end if
-    !> Ask the user whether the input matrix is transposed (rows=targets, columns=components).
-    write(*,*) "Does the file " // trim(file_u_tilde) // " have rows as targets and columns as components? (1: yes, 0: no)"
+    !> Ask whether the input concentrations are PRIOR to mixing. If so, the program
+    !> performs the conservative mixing internally using a mixing-ratios file
+    !> (rows=components, columns=waters is the fixed layout in this case, so the
+    !> transpose question below is skipped).
+    write(*,*) "Are the concentrations in " // trim(file_u_tilde) // " PRIOR to mixing, so I should also perform the &
+        conservative mixing using a mixing ratios file? (1: yes, 0: no, they are already after conservative transport)"
     call read_clean_line(buf, ios)
-    if (ios == 0) read(buf, *, iostat=ios) flag_transpose
+    if (ios == 0) read(buf, *, iostat=ios) flag_mix
     if (ios /= 0) then
-        write(*,*) 'Error/EOF reading flag_transpose. Run in an interactive terminal or redirect from fort.5'; call &
+        write(*,*) 'Error/EOF reading flag_mix. Run in an interactive terminal or redirect from fort.5'; call &
             safe_stop(1)
-    else if (flag_transpose /= 0 .and. flag_transpose /= 1) then
-        error stop "Invalid option. It must be 1 (transposed component matrix) or 0 (not transposed)."
+    else if (flag_mix /= 0 .and. flag_mix /= 1) then
+        error stop "Invalid option. It must be 1 (concentrations prior to mixing) or 0 (after conservative transport)."
+    end if
+    if (flag_mix == 1) then
+        !> Prompt for the mixing-ratios file (row-major order: rows=target waters, columns=waters).
+        write(*,*) "Name of the file containing the mixing ratios in row-major order (rows: target waters, &
+            columns: waters)? IMPORTANT: The file must be located in the problem path and its column ordering &
+            must match the columns (waters) of " // trim(file_u_tilde) // "."
+        call read_clean_line(buf, ios)
+        if (ios == 0) read(buf, *, iostat=ios) file_mix
+        if (ios /= 0) then
+            write(*,*) 'Error/EOF reading file_mix. Run in an interactive terminal or redirect from fort.5'; call &
+                safe_stop(1)
+        end if
+        !> Layout is fixed for the mixing variant (rows=components, columns=waters).
+        flag_transpose = 0
+    else
+        !> Ask the user whether the input matrix is transposed (rows=targets, columns=components).
+        write(*,*) "Does the file " // trim(file_u_tilde) // " have rows as targets and columns as components? (1: yes, 0: no)"
+        call read_clean_line(buf, ios)
+        if (ios == 0) read(buf, *, iostat=ios) flag_transpose
+        if (ios /= 0) then
+            write(*,*) 'Error/EOF reading flag_transpose. Run in an interactive terminal or redirect from fort.5'; call &
+                safe_stop(1)
+        else if (flag_transpose /= 0 .and. flag_transpose /= 1) then
+            error stop "Invalid option. It must be 1 (transposed component matrix) or 0 (not transposed)."
+        end if
     end if
     !> Prompt for the time step value (single iteration).
     write(*,*) "Time step?"
@@ -196,6 +226,26 @@ program main_interfaz
     end if
     !> Trim trailing blanks from the u_tilde input filename.
     file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
+    !> When the concentrations are prior to mixing, the program performs the
+    !> conservative mixing internally via interfaz_comps_arch_eq_kin_mix, which
+    !> takes an extra mixing-ratios file argument and therefore cannot share the
+    !> p_interfaz procedure pointer. Dispatch it directly and skip the pointer
+    !> selection below.
+    if (flag_mix == 1) then
+        file_mix_trimmed = trim(file_mix)
+        associate(tw0 => my_chem%waters(my_chem%tar_wat_indices(1)))
+            if (tw0%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions == 0) then
+                error stop "The conservative+reactive mixing variant requires equilibrium reactions."
+            end if
+        end associate
+        write(*,*) "Proceeding with one conservative + reactive mixing iteration."
+        call interfaz_comps_arch_eq_kin_mix(my_chem,path_pb_trimmed,num_aq_comps,file_u_tilde_trimmed,&
+            file_mix_trimmed,Delta_t,file_u_new_trimmed)
+        !> Post-Process
+        if (has_ieee) call clear_ieee_flags()
+        write(*,*) "The program has finished."
+        call safe_stop(0)
+    end if
     !> Select the reactive-mixing interface via procedure pointer based on the
     !> chemical system and on the orientation of the u_tilde input file:
     !>   - no equilibrium reactions                  → interfaz_esp_arch (kinetic only)

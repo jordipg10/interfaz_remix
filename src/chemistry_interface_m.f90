@@ -31,6 +31,7 @@ module chemistry_m
     public :: reactive_zone_c !< Re-export reactive zone class for use by subprograms
     public :: interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch !< External interface subroutines for reactive mixing iterations
     public :: interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T !< Transposed-input variants (rows: targets, columns: components)
+    public :: interfaz_comps_arch_eq_kin_mix !< Conservative + reactive mixing variant (reads concentrations prior to mixing and the mixing ratios)
     !> @brief Main chemistry class - central coordinator for all chemical processes
     !> @details This class manages the complete chemical system including:
     !>          - Water types and target waters at spatial locations
@@ -684,6 +685,23 @@ module chemistry_m
             character(len=*), intent(in) :: path          !< Path for input and output files
             integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
             character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations (rows: targets, columns: components)
+            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
+            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
+        end subroutine
+
+    !> @brief Interface for component concentrations (equilibrium + optional kinetic) with internal conservative mixing
+    !> @details Reads aqueous component concentrations PRIOR to mixing and the mixing ratios, performs the
+    !>          conservative mixing internally and then the reactive chemistry step, and writes the updated
+    !>          concentrations to the output file. file_in has rows=components and columns=waters; file_mix
+    !>          stores the mixing ratios in row-major order (rows=target waters, columns=waters) and its
+    !>          column ordering must match file_in.
+        subroutine interfaz_comps_arch_eq_kin_mix(this,path,num_aq_comps,file_in,file_mix,Delta_t,file_out)
+            import chemistry_c
+            class(chemistry_c) :: this                    !< Chemistry object
+            character(len=*), intent(in) :: path          !< Path for input and output files
+            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
+            character(len=*), intent(in) :: file_in       !< Input filename with concentrations PRIOR to mixing (rows: components, columns: waters)
+            character(len=*), intent(in) :: file_mix      !< Input filename with mixing ratios in row-major order (rows: target waters, columns: waters)
             real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
             character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
         end subroutine
