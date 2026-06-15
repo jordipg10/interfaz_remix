@@ -8,6 +8,12 @@ be called from a reactive transport simulation. The intended workflow is:
 3. `interfaz_remix` is invoked at every time step to apply the reactive mixing
    stage on top of those concentrations.
 
+Alternatively, the conservative mixing can be performed **inside**
+`interfaz_remix`: instead of the post-transport concentrations, you provide the
+concentrations **prior to mixing** together with a **mixing-ratios** file, and
+the program computes the conservative mixing and then the reactive mixing in a
+single call (see `interfaz_comps_arch_eq_kin_mix` below).
+
 ## Repository layout
 
 | Folder / file               | Purpose                                                                 |
@@ -132,15 +138,26 @@ reactive-mixing iteration. The prompts (in order) are:
    - If `0`, provide the name of the file to **write** those concentrations to.
    - If `1`, provide the name of the **existing** file to read them from.
 7. Name of the file where post-mixing concentrations should be written.
-8. Name of the file (inside the problem directory) that contains `u_tilde` —
-   the concentrations after one conservative-transport step.
-9. Layout of the `u_tilde` file: `1` if rows are targets and columns are
-   components, `0` if rows are components and columns are targets.
+8. Name of the file (inside the problem directory) that contains the aqueous
+   component concentrations — either `u_tilde` (after one conservative-transport
+   step) or, if you let the program do the mixing, the concentrations **prior to
+   mixing**.
+9. Whether the concentrations in that file are **prior to mixing** (`1`) or
+   already **after conservative transport** (`0`).
+   - If `1`, provide the name of the **mixing-ratios** file (inside the problem
+     directory), stored in row-major order with rows = target waters and
+     columns = waters. Its column ordering (waters) must match the columns of
+     the concentrations file, so in this mode that file must have rows =
+     components and columns = waters. The mixing matrix need not be square, but
+     it cannot have more rows (target waters) than columns (mixing waters). The
+     layout question of the next step is skipped.
+   - If `0`, you are asked the layout of the file: `1` if rows are targets and
+     columns are components, `0` if rows are components and columns are targets.
 10. Time step (`Δt > 0`).
 
 The program then runs one reactive-mixing iteration and exits. To drive
 multiple time steps, invoke `interfaz_remix.exe` once per step from the
-outer transport loop (refreshing the `u_tilde` file between calls).
+outer transport loop (refreshing the input file between calls).
 
 Input can also be redirected from a file (e.g. `interfaz_remix.exe < fort.5`).
 Blank lines and full-line comments starting with `!` or `#` are ignored, so
@@ -156,6 +173,12 @@ the chemical system, and on the orientation flag of step 9 when applicable:
 - `interfaz_comps_arch_eq_kin` / `interfaz_comps_arch_eq_kin_T` — both
   equilibrium and kinetic reactions. The `_T` variant is used when the input
   matrix is transposed (rows = targets).
+- `interfaz_comps_arch_eq_kin_mix` — selected when the concentrations are
+  **prior to mixing** (step 9 answered `1`). It reads the concentrations
+  (rows = components, columns = waters) and a mixing-ratios file (row-major,
+  rows = target waters, columns = waters), performs the conservative mixing
+  internally, and then the reactive mixing (equilibrium, plus kinetics when
+  present). The mixing matrix need not be square.
 
 ## Notes
 
