@@ -4,7 +4,7 @@
 0								! activity coefficients model
 2								! number of water types
 1     25.0							! index water type, temperature (C)
-'inflow'							! name of water type
+'boundary'							! name of water type
 '       icon        guess         ctot          constrain'
 'h2o(p)'	3	1d0	   1d0		   ''
 'ca+2'      1         	1d-9          1d-9                        ''

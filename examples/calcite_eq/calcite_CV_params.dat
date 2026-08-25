@@ -1,0 +1,10 @@
+'TITLE OF THE PROBLEM: Calcite in equilibrium'
+'------------------------------------------------------------------------------------------------------------------------'
+'CONVERGENCE PARAMETERS'
+1d-14				! absolute tolerance
+-14				! log absolute tolerance
+1d-14				! relative tolerance
+-14				! log relative tolerance
+0d0				! Parameter for estimation of reaction rates
+'------------------------------------------------------------------------------------------------------------------------'
+'end'

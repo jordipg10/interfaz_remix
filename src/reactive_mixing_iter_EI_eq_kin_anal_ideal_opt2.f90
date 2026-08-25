@@ -45,21 +45,19 @@
 !>
 !> \sa Newton_EI_eq_kin_anal_ideal_opt2, initialise_iterative_method
 
-subroutine reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_new,&
-    Delta_t,theta,conc_nc,conc_comp,c1_downstream)
+subroutine reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2(this,c1_old,c_hat,mix_ratio_r,&
+    Delta_t,theta,conc_nc,conc_comp)
     use aqueous_chemistry_m, only: aqueous_chemistry_c, initialise_iterative_method  !< Import aqueous chemistry class and initial guess helper
     implicit none                                       !< Enforce explicit variable declarations
 !> Arguments
     class(aqueous_chemistry_c) :: this                 !< Aqueous chemistry object at current time step [-]
     real(kind=8), intent(in) :: c1_old(:)              !< Primary species concentrations at previous time step \f$ \mathbf{c}_1^{(k-1)} \f$ (n_p)
     real(kind=8), intent(in) :: c_hat(:)               !< Variable activity species concentrations after mixing \f$ \hat{\mathbf{c}}_v \f$ (n_v)
-    real(kind=8), intent(in) :: mix_ratio_r_old        !< Mixing ratio of old kinetic reaction amounts \f$ \lambda_{r}^{\mathrm{old}} \f$ [-]
-    real(kind=8), intent(in) :: mix_ratio_r_new        !< Mixing ratio of new kinetic reaction amounts \f$ \lambda_{r}^{\mathrm{new}} \f$ [-]
+    real(kind=8), intent(in) :: mix_ratio_r        !< Mixing ratio of reaction amounts \f$ \lambda_{r}^{\mathrm{new}} \f$ [-]
     real(kind=8), intent(in) :: Delta_t                !< Time step \f$ \Delta t \f$ [T]
     real(kind=8), intent(in) :: theta                  !< Reaction time weighting factor \f$ \theta \in [0,1] \f$ [-]
     real(kind=8), intent(inout) :: conc_nc(:)          !< Variable activity species concentrations (already allocated) (n_v)
     real(kind=8), intent(inout) :: conc_comp(:)        !< Component concentrations (already allocated) (n_p)
-    real(kind=8), intent(in), optional :: c1_downstream(:) !< Primary concentrations of closest downstream target water (n_p)
 !> Local variables
     real(kind=8), allocatable :: c1(:)                 !< Primary species concentrations at current time step \f$ \mathbf{c}_1^{(k)} \f$ (n_p)
     real(kind=8), allocatable :: u_hat(:)              !< Component concentrations after mixing \f$ \hat{\mathbf{u}} = \mathbf{U}\hat{\mathbf{c}}_v \f$ (n_p)
@@ -90,13 +88,8 @@ subroutine reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2(this,c1_old,c_hat,mix_
 !> -----------------------------------------------------------------------
 !> \section rmix_process Process: Newton iteration with adaptive time-stepping
 !> -----------------------------------------------------------------------
-    !> Compute initial guess for primary species: use closest downstream target water if available,
-    !> otherwise fall back to linear extrapolation
-    if (present(c1_downstream)) then
-        conc_nc(1:n_p)=c1_downstream(1:n_p)                                   !< Use downstream target water concentrations as initial guess
-    else
-        call initialise_iterative_method(c1_old,c1,mu,conc_nc(1:n_p))       !< \f$ c_{1,j}^{(0)} = (1+\mu)\,c_{1,j}^{(k)} - \mu\,c_{1,j}^{(k-1)} \f$
-    end if
+    !> Compute initial guess for primary species by linear extrapolation
+    call initialise_iterative_method(c1_old,c1,mu,conc_nc(1:n_p))           !< \f$ c_{1,j}^{(0)} = (1+\mu)\,c_{1,j}^{(k)} - \mu\,c_{1,j}^{(k-1)} \f$
     !> Floor near-zero species: replace with mixed values when initial guess is negligible
     !> Uses both an absolute floor (conc_floor) and a relative floor (1e-4 * c_hat)
     !> to catch cases where the initial guess is orders of magnitude below c_hat
@@ -114,7 +107,7 @@ subroutine reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2(this,c1_old,c_hat,mix_
     do                                                                       !< Outer loop: accumulate \f$ 2^{k_{\text{div}}} \f$ converged sub-steps
         do                                                                   !< Inner loop: retry Newton with varying \f$ \mu \f$ or halved \f$ \Delta t \f$
             !> Solve the nonlinear reactive system via Newton-Raphson
-            call this%Newton_EI_eq_kin_anal_ideal_opt2(u_hat,mix_ratio_r_old,mix_ratio_r_new,Delta_t_bis,theta,conc_nc,niter,& !< Call Newton solver
+            call this%Newton_EI_eq_kin_anal_ideal_opt2(u_hat,mix_ratio_r,Delta_t_bis,theta,conc_nc,niter,& !< Call Newton solver
                 CV_flag)                                                      !< Returns convergence flag
             if (CV_flag) then                                                !< Did Newton converge?
                 k=k+1                                                         !< Increment completed sub-step counter
@@ -159,8 +152,10 @@ subroutine reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2(this,c1_old,c_hat,mix_
                 end if                                                        !< End floor check
             end do                                                            !< End retry floor loop
         end do                                                                !< End inner retry loop
-        !> Check if all required sub-steps are completed: need \f$ 2^{k_{\text{div}}} \f$ converged sub-steps
-        if (k >= ishft(1, k_div)) exit                                       !< All sub-steps done? Exit outer loop
+        !> One converged solve at the (possibly subdivided) Delta_t_bis IS the result: the former
+        !> 2^k_div re-solves repeated the identical (u_hat,Delta_t_bis) system from the converged
+        !> state (conc_nc unchanged) and only caused the exponential-cost hang.
+        exit                                                                 !< Converged sub-step obtained; exit outer loop
     end do                                                                    !< End outer sub-step accumulation loop
 
 !> -----------------------------------------------------------------------

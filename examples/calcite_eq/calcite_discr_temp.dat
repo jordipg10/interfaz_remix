@@ -1,0 +1,9 @@
+'TITLE OF THE PROBLEM: Calcite in equilibrium'
+'-------------------------------------------------------------------------'
+'TIME DISCRETISATION'
+1d0    ! Time weighting factor for transport
+5d-1   ! Time weighting factor for reactions
+1d-2   ! Time step (days)
+100    ! Number of time steps
+'-------------------------------------------------------------------------'
+'end'

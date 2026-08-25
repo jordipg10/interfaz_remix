@@ -87,8 +87,8 @@ u_new.out
 u_tilde.dat
 
 # ---- 9 ----
-# "Does the file <file_u_tilde> have rows as targets and columns
-#  as components? (1: yes, 0: no)"
+# "Does the file named in the previous step (step 8) have rows as targets
+#  and columns as components? (1: yes, 0: no)"
 0
 
 # ---- 10 ----

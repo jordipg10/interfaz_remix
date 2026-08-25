@@ -55,7 +55,7 @@
 'C:\Users\jordi\source\repos\jordipg10\interfaz_remix\examples\denit_2reacts\'
 
 # ---- 3 ----
-# "Root of the input and output files: "
+# "Root of the input files: "
 'denit'
 
 # ---- 4 ----
@@ -65,7 +65,7 @@
 # ---- 5 ----
 # "Has the file with the aqueous component concentrations of the initial
 #  and external water types already been generated? (1: yes, 0: no)"
-1
+0
 
 # ---- 6 ----
 # If answer to 5 was 0:
@@ -73,22 +73,22 @@
 #    concentrations of the initial and external water types?"
 # If answer to 5 was 1:
 #   "Name of the already-generated file with the water-type concentrations:"
-u_init.dat
+denit_u_init.out
 
 # ---- 7 ----
 # "Name of the file where you want me to write the concentrations
 #  after the reactive mixing?"
-u_new.out
+denit_u_new.out
 
 # ---- 8 ----
 # "Name of the file containing the aqueous component concentrations
 #  after solving one iteration of conservative transport?
 #  IMPORTANT: The file must be located in the problem path."
-u_tilde.dat
+denit_u_tilde.dat
 
 # ---- 9 ----
-# "Does the file <file_u_tilde> have rows as targets and columns
-#  as components? (1: yes, 0: no)"
+# "Does the file named in the previous step (step 8) have rows as targets
+#  and columns as components? (1: yes, 0: no)"
 0
 
 # ---- 10 ----

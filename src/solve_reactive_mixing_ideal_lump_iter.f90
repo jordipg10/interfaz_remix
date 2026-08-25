@@ -82,7 +82,6 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
         !> Reactive mixing solver
         call p_solver(this%waters(idx), this%waters(idx)%get_c1_old_old(), c_mix(1:n_v), &
             lumped_lambdas(ind_tar_wat(i)), &
-            lumped_lambdas(ind_tar_wat(i)), &
             Delta_t, theta_r, conc_nc, conc_comp(1:n_p))
         !> Mass action law check for equilibrium reactions (ideal solution)
         if (n_eq > 0) then

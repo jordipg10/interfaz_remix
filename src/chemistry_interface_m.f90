@@ -205,7 +205,7 @@ module chemistry_m
         procedure :: read_gas_zones_CHEPROO             !< Read initial gas zones (CHEPROO format)
         procedure :: read_comp_opts                   !< Read computation options from input
         procedure :: write_chemistry                  !< Write chemistry state to output
-        procedure :: write_conc_comp_tar_wat        !< Write component concentrations of every target water (and external waters)
+        procedure :: write_u_init        !< Write component concentrations of every target water (and external waters)
         procedure :: write_conc_comp_wat_types   !< Write component concentrations of every water type, split initial vs external
         procedure :: write_u_mix_init                   !< Write initial u_mix concentrations
         !> @}
@@ -1815,106 +1815,81 @@ module chemistry_m
         end do                                                          !< End water types loop
         end function
 
-        !> @brief Write component concentrations for every target water (and external waters)
-        !> @details Produces a formatted report of the aqueous-component concentrations
-        !>          held by every entry of `this%waters`, projected onto the component
-        !>          basis of a chosen reference water type. The reference water type is
-        !>          located by case-insensitive name match against the keywords
-        !>          `domain`/`initial`/`resident`/`dominio`/`inicial`/`residente`; its
-        !>          `comp_mat_aq` matrix sets the row dimension for every output column.
-        !>
-        !>          File structure (in order):
-        !>            1. Header `Number of aqueous components: <n>`.
-        !>            2. Block `Aqueous components:` listing each component as the
-        !>               explicit linear combination of aqueous variable-activity species
-        !>               (one row per component, format `uJ = <combination>`).
-        !>            3. Block `Aqueous component concentrations in the domain:` with one
-        !>               column per index in `this%tar_wat_indices` and one row per
-        !>               component (rows = components, cols = target waters).
-        !>            4. Block `Aqueous component concentrations of external waters:` with
-        !>               one column per index in `this%ext_waters_indices`, after
-        !>               filtering out any water whose name matches the reference water
-        !>               type (those are conceptually domain waters and were already
-        !>               written in block 3). Each column is preceded by the water's name.
-        !>
-        !>          Numeric format: ES13.5E2, fixed 13-char fields so columns line up.
-        !> @see write_conc_comp_wat_types for a per-water-type version (no target waters)
+        !> @brief Write initial aqueous components and species description to file
+        !> @details Generates a human-readable summary file (e.g. u_init.dat) describing the
+        !> aqueous component definitions in terms of variable activity species, the list of
+        !> aqueous variable activity species, and the initial aqueous component and species
+        !> concentrations both in the domain (target waters) and in the external (boundary/recharge)
+        !> waters. The format reproduces the layout expected by the REMIX interface.
         !> @param this Chemistry object
-        !> @param path File path for output
+        !> @param path Output file path
         !> @param filename Output filename
-        subroutine write_conc_comp_tar_wat(this,path,filename)
-        implicit none                                     !< Require explicit variable declarations
-        class(chemistry_c) :: this                        !< Chemistry object instance
-        character(len=*), intent(in) :: path              !< Path to the output file
-        character(len=*), intent(in) :: filename          !< Output filename
+        subroutine write_u_init(this,path,filename)
+        class(chemistry_c) :: this !< chemistry object
+        character(len=*), intent(in) :: path !< path to write the file
+        character(len=*), intent(in) :: filename !< name of the file
 
-        real(kind=8), allocatable :: u_aq_init(:)         !< Aqueous components of water types
-        real(kind=8), allocatable :: c_var_act(:)         !< Variable-activity-species concentrations of water type i, ordered as in the reference water type
-        integer(kind=4) :: i,j,k                          !< Loop indices
-        integer(kind=4) :: ref_idx                        !< Index of reference water type ("domain"/"initial")
-        integer(kind=4) :: num_comps_ref                  !< Number of aqueous components in reference water type
-        integer(kind=4) :: num_var_act_ref                !< Number of variable-activity aqueous species in reference water type
-        integer(kind=4) :: sp_idx_i                       !< Index of a reference species inside water type i's own aq_phase
-        character(len=:), allocatable :: name_lc          !< Lowercased water type name for matching
-        character(len=13) :: name_buf                     !< Fixed-width buffer for right-aligning species names (matches ES13.5E2 width)
+        integer(kind=4) :: i,ci,j,jj,wi,iref,ncomp,nsp_ref,n_tar,n_ext !< loop and size indices
+        integer(kind=4) :: num_prim_ref,num_sec_var_act_ref !< primary / secondary variable-activity species counts
+        real(kind=8), allocatable :: comp_mat_ref(:,:) !< aqueous component matrix of the resident/initial water type
+        real(kind=8), allocatable :: c_i(:) !< a water's species concentrations reordered to the resident species order
+        real(kind=8), allocatable :: ug_dom(:,:),cg_dom(:,:),ug_ext(:,:),cg_ext(:,:) !< concentration tables (resident basis)
+        character(len=64), allocatable :: ref_sp_names(:) !< resident water type variable activity species names (comp-matrix column order)
 
-        !> Locate reference water type whose name contains "domain", "initial",
-        !> "dominio" or "inicial" (case-insensitive). Its aqueous component matrix
-        !> will be used for all water types so the resulting u_aq vectors share
-        !> the same dimension.
-        ref_idx=0 !< Sentinel: no reference water type found yet
-        do i=1,this%num_wat_types !< Scan all water types looking for the reference
-            name_lc=to_lower(trim(this%wat_types(i)%name)) !< Normalise name to lowercase for case-insensitive match
-            if (index(name_lc,'domain')>0 .or. index(name_lc,'initial')>0 .or. &
-                index(name_lc,'dominio')>0 .or. index(name_lc,'inicial')>0 .or. &
-                index(name_lc,'resident')>0 .or. index(name_lc,'residente')>0) then
-                ref_idx=i !< Remember reference water type index
-                exit !< Use first matching water type as reference
-            end if
+        !> Reference/resident basis = the first domain target water (its INITIAL/resident water type).
+        !> All component definitions, the species list and every concentration column (domain and
+        !> external) are expressed in this single basis (species reordered to the resident order,
+        !> components u = comp_mat_ref * c); waters are written in order (no per-reactive-zone grouping).
+        iref=this%tar_wat_indices(1) !< first domain target water defines the resident basis
+        comp_mat_ref=this%waters(iref)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq
+        ncomp=size(comp_mat_ref,1)
+        nsp_ref=size(comp_mat_ref,2)
+        num_prim_ref=ncomp
+        num_sec_var_act_ref=nsp_ref-num_prim_ref
+        allocate(ref_sp_names(nsp_ref))
+        do j=1,nsp_ref
+            ref_sp_names(j)=this%waters(iref)%aq_phase%aq_species(this%waters(iref)%indices_aq_phase(&
+                this%waters(iref)%ind_var_act_species(j)))%name
         end do
-        if (ref_idx==0) then !< No matching water type was found
-            error stop "write_conc_comp_tar_wat: no water type named 'domain'/'initial'/'resident'/'dominio'/'inicial'/'residente' found"
+        n_tar=size(this%tar_wat_indices)
+        n_ext=size(this%ext_waters_indices)
+
+        open(unit=20, file=path//filename, status='replace', action='write', form='formatted') !< open output file, replacing if it exists
+        write(20,"(2x,A,I0)") "Number of aqueous components: ", ncomp
+
+        !> Write all variable activity species in one list: primary (1..num_prim_ref) then secondary.
+        write(20,*) !< blank line between sections
+        if (num_sec_var_act_ref>0) then
+            write(20,"(2x,A,I0,A,I0,A,I0,A)") &
+                "Aqueous variable activity species (rows 1 to ",num_prim_ref, &
+                ": primary; rows ",num_prim_ref+1," to ",nsp_ref,": secondary):"
+        else
+            write(20,"(2x,A)") "Aqueous variable activity species (all primary):"
         end if
+        do j=1,nsp_ref
+            write(20,"(4x,I0,': ',A)") j, trim(ref_sp_names(j))
+        end do
 
-        num_comps_ref=this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species
-        num_var_act_ref=this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species
-
-        open(unit=10, file=path//filename, status='unknown', action='write', form='formatted') !< Open output file for writing water type compositions
-        !> Write the number of aqueous components at the top of the file (taken
-        !> from the reference water type's speciation algebra).
-        write(10,"(2x,A,I0,/)") "Number of aqueous components: ", num_comps_ref
-        !> Write the names of the aqueous primary species of the reference water
-        !> type, in the same order as the component concentrations that follow.
-        !> Names are right-aligned in a 13-character field so that they end at the
-        !> same column (column 17) as the concentration values written below.
-        write(10,"(2x,A)") "Aqueous components:"
-        !> Each component is the linear combination of aqueous variable-activity
-        !> species defined by row j of comp_mat_aq. We assemble a textual
-        !> expression like "+1*h+ -1*hco3- +2*co3-2" by walking the row and
-        !> appending non-zero terms.
+        !> Write each component as the linear combination of aqueous variable-activity
+        !> species defined by row j of comp_mat_ref (e.g. "u6 = hco3- + co3-2").
+        write(20,*) !< blank line between sections
+        write(20,"(2x,A)") "Aqueous components:"
         block
-            character(len=512) :: comp_expr           !< Buffer for one component expression
-            character(len=:), allocatable :: sp_name  !< Name of the k-th var-act species
-            real(kind=8) :: coeff                     !< Stoichiometric coefficient comp_mat_aq(j,k)
-            integer(kind=4) :: nv                     !< Number of var-act species
-            integer(kind=4) :: pos                    !< Current write position in comp_expr
-            character(len=32) :: tok                  !< Temporary token buffer for one term
-            logical :: first_term                     !< True until the first non-zero term has been emitted
-            nv=this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species
-            do j=1,num_comps_ref
+            character(len=512) :: comp_expr
+            character(len=:), allocatable :: sp_name
+            real(kind=8) :: coeff
+            integer(kind=4) :: nv, pos, k
+            character(len=32) :: tok
+            logical :: first_term
+            nv=nsp_ref
+            do ci=1,ncomp
                 comp_expr=' '
                 pos=1
                 first_term=.true.
                 do k=1,nv
-                    coeff=this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(j,k)
+                    coeff=comp_mat_ref(ci,k)
                     if (coeff==0.0d0) cycle
-                    sp_name=trim(this%wat_types(ref_idx)%aq_phase%aq_species(&
-                        this%wat_types(ref_idx)%indices_aq_phase(&
-                        this%wat_types(ref_idx)%ind_var_act_species(k)))%name)
-                    !> Format the term. The leading sign of the very first non-zero
-                    !> term is suppressed for positives ("+" implicit) and kept for
-                    !> negatives. For subsequent terms an explicit "+ " is prepended
-                    !> for positives so the expression reads e.g. "hco3- + co3-2".
+                    sp_name=trim(ref_sp_names(k))
                     if (coeff==1.0d0) then
                         if (first_term) then
                             write(tok,'(A)') sp_name
@@ -1940,177 +1915,79 @@ module chemistry_m
                     pos=pos+len_trim(tok)
                     first_term=.false.
                 end do
-                write(10,"(4x,A,I0,A,A)") "u",j," = ", trim(comp_expr)
+                write(20,"(4x,A,I0,A,A)") "u",ci," = ", trim(comp_expr)
             end do
         end block
-        !> List variable-activity species names once so each concentration row can be identified.
-        write(10,"(/,2x,A)") "Aqueous variable activity species:"
-        do j=1,num_var_act_ref
-            write(10,"(4x,I0,': ',A)") j, trim(this%wat_types(ref_idx)%aq_phase%aq_species(&
-                this%wat_types(ref_idx)%indices_aq_phase(&
-                this%wat_types(ref_idx)%ind_var_act_species(j)))%name)
-        end do
-        write(10,"(A)") ""
-        write(10,"(/,2x,A)") "Aqueous component concentrations in the domain (rows = components, cols = target waters): " !< Heading for the target-waters block
-        !> Build a 2D matrix (num_comps_ref rows x n_dom cols) and write it row by
-        !> row so that each column corresponds to one target water, matching the
-        !> u_tilde input layout (rows=components, cols=targets).
-        if (allocated(this%tar_wat_indices) .and. size(this%tar_wat_indices)>0) then
-            block
-                real(kind=8), allocatable :: u_dom(:,:)          !< Component matrix: rows=components, cols=target waters
-                real(kind=8), allocatable :: c_var_act_dom(:,:)  !< Variable-activity concentrations: rows=species, cols=target waters
-                integer(kind=4) :: n_dom                          !< Number of target (domain) waters
-                n_dom=size(this%tar_wat_indices)
-                allocate(u_dom(num_comps_ref,n_dom))
-                allocate(c_var_act_dom(num_var_act_ref,n_dom))
-                allocate(c_var_act(num_var_act_ref))
-                do i=1,n_dom !< Fill column i with components of the i-th target water
-                    associate (iw => this%tar_wat_indices(i))
-                        do j=1,num_var_act_ref !< Map reference species ordering to water iw's own ordering
-                            call this%waters(iw)%aq_phase%get_aq_species_index_by_name(&
-                                trim(this%wat_types(ref_idx)%aq_phase%aq_species(&
-                                    this%wat_types(ref_idx)%indices_aq_phase(&
-                                    this%wat_types(ref_idx)%ind_var_act_species(j)))%name), &
-                                sp_idx_i)
-                            do k=1,size(this%waters(iw)%indices_aq_phase)
-                                if (this%waters(iw)%indices_aq_phase(k)==sp_idx_i) then
-                                    c_var_act(j)=this%waters(iw)%concentrations(k)
-                                    exit
-                                end if
-                            end do
-                        end do
-                        c_var_act_dom(:,i)=c_var_act
-                        u_dom(:,i)=matmul(&
-                            this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
-                            c_var_act)
-                    end associate
-                end do
-                deallocate(c_var_act)
-                !> Write row by row: each row holds the j-th component of every target water.
-                do j=1,num_comps_ref
-                    write(10,"(4x,*(ES13.5E2,1x))") (u_dom(j,i), i=1,n_dom)
-                end do
-                deallocate(u_dom)
-                !> Write variable-activity species concentrations for domain waters.
-                write(10,"(/,2x,A)") "Aqueous variable activity species concentrations in the domain (rows = species, cols = target waters): "
-                do j=1,num_var_act_ref
-                    write(10,"(4x,*(ES13.5E2,1x))") (c_var_act_dom(j,i), i=1,n_dom)
-                end do
-                deallocate(c_var_act_dom)
-            end block
-        end if
-        !> External (boundary + recharge) waters block. Same projection onto the
-        !> reference component basis as the domain block above; values are also
-        !> written in column form (one column per external water) so the layout
-        !> matches u_tilde's (rows=components, cols=targets) convention.
-        !>
-        !> NOTE: any water whose water-type name matches the reference water type
-        !> (i.e. the "domain"/"residente"/"initial" type) is skipped here, even if
-        !> it appears in ext_waters_indices, because such waters are conceptually
-        !> domain (target) waters — they were already written in the domain block.
-        if (allocated(this%ext_waters_indices) .and. size(this%ext_waters_indices)>0) then
-            block
-                real(kind=8), allocatable :: u_ext(:,:)            !< Component matrix: rows=components, cols=true external waters
-                real(kind=8), allocatable :: c_var_act_ext(:,:)    !< Variable-activity concentrations: rows=species, cols=true external waters
-                integer(kind=4), allocatable :: ext_keep(:)        !< Filtered indices (drops waters of reference type)
-                integer(kind=4) :: n_ext                            !< Number of true external waters
-                character(len=:), allocatable :: ref_name_lc        !< Lowercased reference wat_type name
-                character(len=:), allocatable :: cand_name_lc       !< Lowercased candidate water name
-                ref_name_lc=to_lower(trim(this%wat_types(ref_idx)%name))
-                !> Two-pass filter: first count then collect indices whose name
-                !> differs from the reference water type's name.
-                n_ext=0
-                do i=1,size(this%ext_waters_indices)
-                    cand_name_lc=to_lower(trim(this%waters(this%ext_waters_indices(i))%name))
-                    if (cand_name_lc /= ref_name_lc) n_ext=n_ext+1
-                end do
-                if (n_ext==0) then
-                    !> Nothing to write: every "external" entry is actually a
-                    !> domain water that was already covered above.
-                    !> Skip the heading entirely for clarity.
-                    !> (Falls through to close(10) below.)
-                else
-                    allocate(ext_keep(n_ext))
-                    j=0
-                    do i=1,size(this%ext_waters_indices)
-                        cand_name_lc=to_lower(trim(this%waters(this%ext_waters_indices(i))%name))
-                        if (cand_name_lc /= ref_name_lc) then
-                            j=j+1
-                            ext_keep(j)=this%ext_waters_indices(i)
-                        end if
-                    end do
-                    write(10,"(/,2x,A)") "Aqueous component concentrations of external waters (rows = components, cols = external waters): " !< Heading for the external-waters block
-                    allocate(u_ext(num_comps_ref,n_ext))
-                    allocate(c_var_act_ext(num_var_act_ref,n_ext))
-                    allocate(c_var_act(num_var_act_ref))
-                    do i=1,n_ext !< Fill column i with components of the i-th true external water
-                        associate (iw => ext_keep(i))
-                            do j=1,num_var_act_ref
-                                call this%waters(iw)%aq_phase%get_aq_species_index_by_name(&
-                                    trim(this%wat_types(ref_idx)%aq_phase%aq_species(&
-                                        this%wat_types(ref_idx)%indices_aq_phase(&
-                                        this%wat_types(ref_idx)%ind_var_act_species(j)))%name), &
-                                    sp_idx_i)
-                                do k=1,size(this%waters(iw)%indices_aq_phase)
-                                    if (this%waters(iw)%indices_aq_phase(k)==sp_idx_i) then
-                                        c_var_act(j)=this%waters(iw)%concentrations(k)
-                                        exit
-                                    end if
-                                end do
-                            end do
-                            c_var_act_ext(:,i)=c_var_act
-                            u_ext(:,i)=matmul(&
-                                this%wat_types(ref_idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
-                                c_var_act)
-                        end associate
-                    end do
-                    deallocate(c_var_act)
-                    !> Column header line: external water names right-aligned in 13-char fields.
-                    write(10,"(4x,*(A13,1x))") (adjustr(name_buf_assign(this%waters(ext_keep(i))%name)), i=1,n_ext)
-                    !> Write row by row: each row holds the j-th component of every external water.
-                    do j=1,num_comps_ref
-                        write(10,"(4x,*(ES13.5E2,1x))") (u_ext(j,i), i=1,n_ext)
-                    end do
-                    deallocate(u_ext)
-                    !> Write variable-activity species concentrations for external waters.
-                    write(10,"(/,2x,A)") "Aqueous variable activity species concentrations of external waters (rows = species, cols = external waters): "
-                    write(10,"(4x,*(A13,1x))") (adjustr(name_buf_assign(this%waters(ext_keep(i))%name)), i=1,n_ext)
-                    do j=1,num_var_act_ref
-                        write(10,"(4x,*(ES13.5E2,1x))") (c_var_act_ext(j,i), i=1,n_ext)
-                    end do
-                    deallocate(c_var_act_ext,ext_keep)
-                end if
-            end block
-        end if
-        close(10) !< Close output file after writing all water type data
 
-        contains
-
-        !> @brief Copy a string into a 13-char fixed buffer (used for column headers)
-        pure function name_buf_assign(s) result(out)
-            character(len=*), intent(in) :: s
-            character(len=13) :: out
-            out=trim(s) !< Auto-pads with blanks on the right
-        end function name_buf_assign
-
-        !> @brief Return a lowercase copy of the input string (ASCII)
-        pure function to_lower(s) result(out)
-            character(len=*), intent(in) :: s
-            character(len=len(s)) :: out
-            integer :: k, ic
-            do k=1,len(s)
-                ic=iachar(s(k:k))
-                if (ic>=iachar('A') .and. ic<=iachar('Z')) then
-                    out(k:k)=achar(ic+32)
-                else
-                    out(k:k)=s(k:k)
-                end if
+        !> Domain (target waters): concentrations expressed in the resident basis (species reordered
+        !> to the resident order; components u = comp_mat_ref * c). Columns = target waters, in order.
+        allocate(ug_dom(ncomp,n_tar),cg_dom(nsp_ref,n_tar),c_i(nsp_ref))
+        do i=1,n_tar
+            wi=this%tar_wat_indices(i)
+            c_i=0d0
+            do j=1,nsp_ref
+                do jj=1,min(this%waters(wi)%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species, &
+                            size(this%waters(wi)%ind_var_act_species))
+                    if (trim(this%waters(wi)%aq_phase%aq_species(this%waters(wi)%indices_aq_phase(&
+                        this%waters(wi)%ind_var_act_species(jj)))%name)==trim(ref_sp_names(j))) then
+                        c_i(j)=this%waters(wi)%concentrations(this%waters(wi)%ind_var_act_species(jj))
+                        exit
+                    end if
+                end do
             end do
-        end function to_lower
+            cg_dom(:,i)=c_i
+            ug_dom(:,i)=matmul(comp_mat_ref,c_i)
+        end do
+        write(20,*) !< blank line between sections
+        write(20,"(2x,A)") "Aqueous variable activity species concentrations in the domain (rows = species, cols = target waters):"
+        do j=1,nsp_ref
+            write(20,"(2x,*(ES15.5))") (cg_dom(j,i), i=1,n_tar)
+        end do
+        write(20,*) !< blank line between sections
+        write(20,"(2x,A)") "Aqueous component concentrations in the domain (rows = components, cols = target waters):"
+        do ci=1,ncomp
+            write(20,"(2x,*(ES15.5))") (ug_dom(ci,i), i=1,n_tar)
+        end do
+        deallocate(ug_dom,cg_dom)
+
+        !> External (boundary/recharge) waters: same resident-basis reordering. Columns = external waters, in order.
+        allocate(ug_ext(ncomp,n_ext),cg_ext(nsp_ref,n_ext))
+        do i=1,n_ext
+            wi=this%ext_waters_indices(i)
+            c_i=0d0
+            do j=1,nsp_ref
+                do jj=1,min(this%waters(wi)%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species, &
+                            size(this%waters(wi)%ind_var_act_species))
+                    if (trim(this%waters(wi)%aq_phase%aq_species(this%waters(wi)%indices_aq_phase(&
+                        this%waters(wi)%ind_var_act_species(jj)))%name)==trim(ref_sp_names(j))) then
+                        c_i(j)=this%waters(wi)%concentrations(this%waters(wi)%ind_var_act_species(jj))
+                        exit
+                    end if
+                end do
+            end do
+            cg_ext(:,i)=c_i
+            ug_ext(:,i)=matmul(comp_mat_ref,c_i)
+        end do
+        write(20,*) !< blank line between sections
+        write(20,"(2x,A)") "Aqueous variable activity species concentrations of external waters (rows = species, cols = external waters):"
+        write(20,"(2x,*(A15))") (trim(this%waters(this%ext_waters_indices(i))%name), i=1,n_ext)
+        do j=1,nsp_ref
+            write(20,"(2x,*(ES15.5))") (cg_ext(j,i), i=1,n_ext)
+        end do
+        write(20,*) !< blank line between sections
+        write(20,"(2x,A)") "Aqueous component concentrations of external waters (rows = components, cols = external waters):"
+        write(20,"(2x,*(A15))") (trim(this%waters(this%ext_waters_indices(i))%name), i=1,n_ext)
+        do ci=1,ncomp
+            write(20,"(2x,*(ES15.5))") (ug_ext(ci,i), i=1,n_ext)
+        end do
+        deallocate(ug_ext,cg_ext,c_i)
+
+        close(20) !< close output file
+
         end subroutine
 
         !> @brief Write component concentrations for every water type, split initial vs external
-        !> @details Companion to `write_conc_comp_tar_wat`. Instead of iterating over
+        !> @details Companion to `write_u_init`. Instead of iterating over
         !>          target waters (entries of `this%waters`), this routine iterates over
         !>          the entries of `this%wat_types` and writes their aqueous-component
         !>          concentrations projected onto the reference water type's component
@@ -2137,7 +2014,7 @@ module chemistry_m
         !>
         !>          Layout convention: rows = components, columns = water types. Numeric
         !>          format: ES13.5E2, fixed 13-char fields so columns line up.
-        !> @see write_conc_comp_tar_wat for the target-water version
+        !> @see write_u_init for the target-water version
         !> @param this Chemistry object instance
         !> @param path File path for output
         !> @param filename Output filename
@@ -2159,7 +2036,7 @@ module chemistry_m
         integer(kind=4) :: num_prim_ref, num_sec_var_act_ref
         real(kind=8), allocatable :: c_var_act_init(:,:), c_var_act_ext(:,:)
 
-        !> Step 1: locate the reference water type (same rule as write_conc_comp_tar_wat).
+        !> Step 1: locate the reference water type (same rule as write_u_init).
         ref_idx=0
         do i=1,this%num_wat_types
             name_lc=to_lower2(trim(this%wat_types(i)%name))
@@ -2227,7 +2104,7 @@ module chemistry_m
 
         !> Write each component as the linear combination of aqueous variable-activity
         !> species defined by row j of comp_mat_aq, in the same format used by
-        !> write_conc_comp_tar_wat (e.g. "u6 = hco3- + co3-2").
+        !> write_u_init (e.g. "u6 = hco3- + co3-2").
         write(10,"(2x,A,/)") "Aqueous components:"
         block
             character(len=512) :: comp_expr

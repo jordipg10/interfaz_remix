@@ -836,20 +836,18 @@ module aqueous_chemistry_m
         
         !> Water mixing iteration using EI method with equilibrium and kinetics (analytical, ideal, option 2)
         subroutine reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2(this,c1_old,c_hat,&
-            mix_ratio_r_old,mix_ratio_r_new,Delta_t,theta,conc_nc,conc_comp,c1_downstream)
+            mix_ratio_r,Delta_t,theta,conc_nc,conc_comp)
             import aqueous_chemistry_c                                      !< Import aqueous chemistry class
             !import diag_matrix_c                                            !< Import diagonal matrix class for transport
             implicit none                                                   !< No implicit variable declarations
             class(aqueous_chemistry_c) :: this                            !< Aqueous chemistry object (polymorphic)
             real(kind=8), intent(in) :: c1_old(:)                          !< Primary species concentrations from previous time step
             real(kind=8), intent(in) :: c_hat(:)                          !< Transport-advected concentrations (tilde notation)
-            real(kind=8), intent(in) :: mix_ratio_r_old                    !< Mixing ratio of kinetic reaction rate (modified)
-            real(kind=8), intent(in) :: mix_ratio_r_new                    !< Mixing ratio of kinetic reaction rate (modified)
+            real(kind=8), intent(in) :: mix_ratio_r                        !< Mixing ratio of kinetic reaction rate
             real(kind=8), intent(in) :: Delta_t                            !< Time step size for temporal discretization
             real(kind=8), intent(in) :: theta                              !< Time weighting factor (0=explicit, 1=implicit)
             real(kind=8), intent(inout) :: conc_nc(:)                        !< Non-constant concentrations output
             real(kind=8), intent(inout) :: conc_comp(:)                     !< Concentration components (commented)
-            real(kind=8), intent(in), optional :: c1_downstream(:)          !< Primary concentrations of closest downstream target water
         end subroutine
         
 
@@ -953,15 +951,14 @@ module aqueous_chemistry_m
          end subroutine
         
       
-        subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r_old,mix_ratio_r_new,Delta_t,theta,conc_nc,niter,CV_flag)
+        subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta,conc_nc,niter,CV_flag)
             import aqueous_chemistry_c
             !import diag_matrix_c
             implicit none
             class(aqueous_chemistry_c) :: this
             !real(kind=8), intent(in) :: c2v_ig(:) !> initial guess secondary variable activity concentrations
             real(kind=8), intent(in) :: u_hat(:) !> component concentrations after mixing
-            real(kind=8), intent(in) :: mix_ratio_r_old !> mixing ratio of kinetic reaction rate in this target
-            real(kind=8), intent(in) :: mix_ratio_r_new !> mixing ratio of kinetic reaction rate in this target
+            real(kind=8), intent(in) :: mix_ratio_r !> mixing ratio of kinetic reaction rate in this target
             real(kind=8), intent(in) :: Delta_t !> time step
             real(kind=8), intent(in) :: theta !> time weighting factor
             real(kind=8), intent(inout) :: conc_nc(:) !> variable activity concentrations (already allocated)

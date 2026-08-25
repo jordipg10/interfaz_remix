@@ -196,7 +196,7 @@
 !> \date   Unknown
 !> \ingroup chemistry
 
-subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r_old,mix_ratio_r_new,Delta_t,theta,conc_nc,niter,CV_flag)
+subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta,conc_nc,niter,CV_flag)
     use aqueous_chemistry_m, only: aqueous_chemistry_c  !< Import aqueous chemistry class for reactive mixing methods
     use vectors_m, only: inf_norm_vec_real              !< Import infinity norm utility for convergence checks
     !use metodos_sist_lin_m, only: LU_lin_syst           !< Import LU-based linear system solver (unused here; dgesv used instead)
@@ -204,8 +204,7 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r_old,mix_ratio
 !> Arguments
     class(aqueous_chemistry_c) :: this              !< Aqueous chemistry object at current time step [-]
     real(kind=8), intent(in) :: u_hat(:)            !< Component concentrations after mixing (n_p) [C]
-    real(kind=8), intent(in) :: mix_ratio_r_old     !< Mixing ratio of old kinetic reaction amounts \f$\lambda_{r}^{\mathrm{old}}\f$ [-]
-    real(kind=8), intent(in) :: mix_ratio_r_new     !< Mixing ratio of new kinetic reaction amounts \f$\lambda_{r}^{\mathrm{new}}\f$ [-]
+    real(kind=8), intent(in) :: mix_ratio_r     !< Mixing ratio of new kinetic reaction amounts \f$\lambda_{r}^{\mathrm{new}}\f$ [-]
     real(kind=8), intent(in) :: Delta_t             !< Time step size \f$\Delta t\f$ for the (k+1)-th time step [T]
     real(kind=8), intent(in) :: theta               !< Reaction time weighting factor \f$\theta \in [0,1]\f$ (0=explicit, 1=fully implicit) [-]
     real(kind=8), intent(inout) :: conc_nc(:)       !< Variable activity species concentrations \f$\mathbf{c}_{v}\f$ (n_v); initial guess on entry, solution on exit [C]
@@ -347,9 +346,9 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r_old,mix_ratio
     !> Retrieve old kinetic reaction rates from the previous time step
         rk_old=this%get_rk_old()
     !> Precompute constant kinetic source term (does not change during Newton iterations)
-    !> source_old = Delta_t * (1-theta) * mix_ratio_r_old * U_SkT_old * rk_old
-        source_old = Delta_t*(1d0-theta)*mix_ratio_r_old*matmul(U_SkT_old, rk_old) !< Constant source term
-        dt_theta_mr_new = Delta_t*theta*mix_ratio_r_new !< Cache scalar product used in residual and predictor computations
+    !> source_old = Delta_t * (1-theta) * mix_ratio_r * U_SkT_old * rk_old
+        source_old = Delta_t*(1d0-theta)*mix_ratio_r*matmul(U_SkT_old, rk_old) !< Constant source term
+        dt_theta_mr_new = Delta_t*theta*mix_ratio_r !< Cache scalar product used in residual and predictor computations
         U_SkT_new_rk_old = matmul(U_SkT_new, rk_old)  !< Cache matrix-vector product for predictor fallback
     !> Save original initial guess for recovery via explicit-predictor fallback
         predictor_applied = .false.     !< Explicit-predictor fallback has not been tried yet
@@ -481,7 +480,7 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r_old,mix_ratio
                 !> callee permutes columns via reactive_zone%ind_var_act_species, whose
                 !> values can exceed n_v_zone in multi-zone setups where the zone is a
                 !> strict subset of the chem_syst variable-activity species.
-                call this%compute_dfk_dc1_EI_ideal(conc_nc(1:n_p),conc_nc(n_p+1:),drk_dc,Delta_t,theta,mix_ratio_r_new,&  !< Assembly: \f$\mathbf{U}_1 + \mathbf{U}_2\partial\mathbf{c}_2/\partial\mathbf{c}_1 - \Delta t\theta\lambda_{r}^{\mathrm{new}}(\mathbf{U}\mathbf{S}_k^T)^{\mathrm{new}}\partial\mathbf{r}_k/\partial\mathbf{c}_1\f$
+                call this%compute_dfk_dc1_EI_ideal(conc_nc(1:n_p),conc_nc(n_p+1:),drk_dc,Delta_t,theta,mix_ratio_r,&  !< Assembly: \f$\mathbf{U}_1 + \mathbf{U}_2\partial\mathbf{c}_2/\partial\mathbf{c}_1 - \Delta t\theta\lambda_{r}^{\mathrm{new}}(\mathbf{U}\mathbf{S}_k^T)^{\mathrm{new}}\partial\mathbf{r}_k/\partial\mathbf{c}_1\f$
                     dfk_dc1)                                     !< Output: arithmetic Jacobian (n_p \f$\times\f$ n_p)
                 !> Transform to log-space Jacobian:
                 !> \f$ (\partial\mathbf{f}_k/\partial\mathbf{p})_{:,j} = \ln(10)\,c_{1,j}\,(\partial\mathbf{f}_k/\partial c_{1,j}) \f$
