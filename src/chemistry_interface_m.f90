@@ -641,7 +641,10 @@ module chemistry_m
         
     !> @brief Interface for component concentrations (equilibrium + kinetic reactions) via file I/O
     !> @details Reads aqueous component concentrations from a file after conservative transport,
-    !>          performs reactive chemistry step (both eq and kin), and writes updated concentrations to output file.
+    !>          solves the coupled equilibrium+kinetic step implicitly per target water
+    !>          (theta=0.5 Crank-Nicolson, lumped kinetic mixing ratio) with an explicit-Euler
+    !>          fallback for non-converging cells, and writes the resulting concentrations and
+    !>          end-of-step kinetic reaction rates to the output file.
         subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,file_out)
             import chemistry_c
             class(chemistry_c) :: this                    !< Chemistry object
@@ -666,7 +669,9 @@ module chemistry_m
         end subroutine
 
     !> @brief Interface for component concentrations (equilibrium + kinetic reactions) via file I/O - transposed input
-    !> @details Same as interfaz_comps_arch_eq_kin but file_in has rows=targets and columns=components.
+    !> @details Same as interfaz_comps_arch_eq_kin (implicit theta=0.5 Crank-Nicolson solve with
+    !>          explicit-Euler fallback, writes end-of-step kinetic reaction rates) but file_in has
+    !>          rows=targets and columns=components.
         subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
             import chemistry_c
             class(chemistry_c) :: this                    !< Chemistry object

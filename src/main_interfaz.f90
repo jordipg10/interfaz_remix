@@ -1,11 +1,12 @@
 !> @file main_interfaz.f90
-!> @brief Interactive driver for 1D reactive mixing iterations using the WMA
-!>        (Water Mixing Approach), with explicit time integration of kinetics
-!>        when applicable.
+!> @brief Interactive driver for a single 1D reactive mixing iteration using the
+!>        WMA (Water Mixing Approach).
 !> @details Reads chemistry/database paths and problem inputs from the user,
 !>          loads the chemical system, writes initial/external water type
-!>          component concentrations, and runs a loop of reactive mixing
-!>          iterations using either a constant or variable time step.
+!>          component concentrations, and runs a single reactive mixing iteration
+!>          for the given time step. Kinetics in the equilibrium+kinetic
+!>          interfaces are integrated implicitly (theta=0.5 Crank-Nicolson) with
+!>          an explicit-Euler fallback; the kinetic-only interface uses explicit Euler.
 program main_interfaz
     !> Import chemistry container type and the five reactive-mixing interface procedures:
     !>   - interfaz_esp_arch              : kinetic-only (no equilibrium reactions).
@@ -56,8 +57,7 @@ program main_interfaz
     end if
     !> Process
     !> Banner describing what the interactive program does.
-    write(*,*) "This is the interface to solve the reactive part of a 1D reactive mixing iteration using &
-        explicit Euler."
+    write(*,*) "This is the interface to solve the reactive part of a 1D reactive mixing iteration."
     !> Prompt the user for the database path.
     write(*,*) "Database path: "
     !> Read the database path from standard input (skipping comment/blank lines).

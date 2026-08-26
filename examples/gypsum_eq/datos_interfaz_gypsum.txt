@@ -44,7 +44,7 @@
 
 # Banner (no input needed):
 #   "This is the interface to solve the reactive part of a 1D reactive
-#    mixing iteration using explicit Euler."
+#    mixing iteration."
 
 # ---- 1 ----
 # "Database path: "

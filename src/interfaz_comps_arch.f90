@@ -2,8 +2,10 @@
 !> when there are BOTH equilibrium and kinetic reactions.
 !> It has to be called only once in each time step
 !> It is supposed to be called after the conservative transport has been solved
-!> It uses Euler explicit and applies lumping to the kinetic mixing ratios
-!> It reads the aqueous component concentrations after conservative transport in a file, and writes the concentrations after reactive mixing in a different file
+!> For each target water it solves the coupled equilibrium+kinetic system implicitly
+!> (theta=0.5 Crank-Nicolson, lumped kinetic mixing ratio), falling back to explicit
+!> Euler for any cell whose implicit Newton solve does not converge
+!> It reads the aqueous component concentrations after conservative transport in a file, and writes the component and variable-activity-species concentrations plus the end-of-step kinetic reaction rates after reactive mixing in a different file
 subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,file_out)
     use chemistry_m, only: chemistry_c
     implicit none
@@ -13,7 +15,7 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
     integer(kind=4), intent(in) :: num_aq_comps !> number of aqueous components
     character(len=*), intent(in) :: file_in !> name of file containing aqueous component concentrations after solving conservative transport iteration
     real(kind=8), intent(in) :: Delta_t !> time step
-    character(len=*), intent(in) :: file_out !> name of file containing variable activity species and aqueous component concentrations after solving reactive mixing iteration
+    character(len=*), intent(in) :: file_out !> name of file containing variable activity species and aqueous component concentrations and end-of-step kinetic reaction rates after solving reactive mixing iteration
 !> Variables
     integer(kind=4) :: i,j,k,tw_idx !> loop variables / shorthand for target water index
     integer(kind=4) :: niter !> number of iterations in Newton algorithm
@@ -79,7 +81,7 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
         tw_idx = this%tar_wat_indices(j)
         associate(tw => this%waters(tw_idx))
         !> --------------------------------------------------------------------
-        !> Step 1: implicit (Euler) reactive mixing. Speciate u_tilde to the mixed
+        !> Step 1: implicit reactive mixing. Speciate u_tilde to the mixed
         !> variable-activity species c_hat (so U*c_hat = u_tilde), then solve the
         !> coupled equilibrium+kinetic system (theta=0.5 Crank-Nicolson, lumped ratio=1). If the
         !> implicit Newton does not converge (stiff cell, e.g. O2 driven to ~0), fall back to the
@@ -249,8 +251,10 @@ end subroutine
 !> when there are BOTH equilibrium and kinetic reactions.
 !> It has to be called only once in each time step
 !> It is supposed to be called after the conservative transport has been solved
-!> It uses Euler explicit and applies lumping to the kinetic mixing ratios
-!> It reads the aqueous component concentrations after conservative transport in a file, and writes the concentrations after reactive mixing in a different file
+!> For each target water it solves the coupled equilibrium+kinetic system implicitly
+!> (theta=0.5 Crank-Nicolson, lumped kinetic mixing ratio), falling back to explicit
+!> Euler for any cell whose implicit Newton solve does not converge
+!> It reads the aqueous component concentrations after conservative transport in a file, and writes the component and variable-activity-species concentrations plus the end-of-step kinetic reaction rates after reactive mixing in a different file
 !> In file_in, the rows are targets and columns are components (transposed w.r.t. interfaz_comps_arch_eq_kin)
 subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
     use chemistry_m, only: chemistry_c
@@ -261,7 +265,7 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
     integer(kind=4), intent(in) :: num_aq_comps !> number of aqueous components
     character(len=*), intent(in) :: file_in !> name of file containing aqueous component concentrations after solving conservative transport iteration
     real(kind=8), intent(in) :: Delta_t !> time step
-    character(len=*), intent(in) :: file_out !> name of file containing variable activity species and aqueous component concentrations after solving reactive mixing iteration
+    character(len=*), intent(in) :: file_out !> name of file containing variable activity species and aqueous component concentrations and end-of-step kinetic reaction rates after solving reactive mixing iteration
 !> Variables
     integer(kind=4) :: i,j,k,tw_idx !> loop variables / shorthand for target water index
     integer(kind=4) :: niter !> number of iterations in Newton algorithm
@@ -328,74 +332,70 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
         tw_idx = this%tar_wat_indices(j)
         associate(tw => this%waters(tw_idx))
         !> --------------------------------------------------------------------
-        !> Step 1: kinetic chemical contribution to components and reactive mixing
-        !> update of u; then speciate u_new to obtain conc_nc.
+        !> Step 1: implicit reactive mixing. Speciate u_tilde to the mixed
+        !> variable-activity species c_hat (so U*c_hat = u_tilde), then solve the
+        !> coupled equilibrium+kinetic system (theta=0.5 Crank-Nicolson, lumped ratio=1). If the
+        !> implicit Newton does not converge (stiff cell, e.g. O2 driven to ~0), fall back to the
+        !> explicit (EE) update for that cell so the run always completes.
         !> --------------------------------------------------------------------
-        call tw%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react)
-        u_new(:,j)=u_tilde(:,j)+u_react
-        !> Components are linear combinations of species and may legitimately be
-        !> negative. However, a component whose row in comp_mat_aq is a single
-        !> +1 entry IS a species concentration and must stay non-negative; clamp
-        !> only those (explicit-Euler overshoot guard).
         block
-            integer(kind=4) :: ic, nz_idx, nz_cnt
-            real(kind=8)    :: cval
-            do ic=1,num_aq_comps
-                nz_cnt=0; nz_idx=0
-                do k=1,size(tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq,2)
-                    cval=tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(ic,k)
-                    if (cval/=0d0) then
-                        nz_cnt=nz_cnt+1
-                        nz_idx=k
-                        if (nz_cnt>1) exit
+            real(kind=8), allocatable :: c_hat(:) !< mixed variable-activity species (speciation of u_tilde)
+            logical :: CV_impl                    !< implicit-solve convergence flag
+            integer(kind=4) :: ic, nz_idx, nz_cnt !< species-equivalent-component clamp helpers (EE fallback)
+            real(kind=8) :: cval                  !< comp_mat_aq coefficient (EE fallback)
+            allocate(c_hat(n_nc))
+            call tw%compute_c_nc_from_u_Newton_ideal(tw%get_c1(),u_tilde(:,j),c_hat,niter,CV_flag)
+            if (.not.CV_flag) then
+                print *, "Target water index: ", tw_idx
+                print *, "No convergence speciating u_tilde before the reactive mixing iteration"
+                print *, "Try reducing the time step."
+                error stop
+            end if
+            conc_nc(:,j)=c_hat !< initial guess for the implicit Newton solver
+            !> Implicit attempt: u_hat = U*c_hat = u_tilde; theta=0.5 (Crank-Nicolson), lumped ratio=1.
+            call tw%Newton_EI_eq_kin_anal_ideal_opt2(u_tilde(:,j),1d0,Delta_t,0.5d0,conc_nc(:,j),niter,CV_impl)
+            if (CV_impl) then
+                u_new(:,j)=matmul(tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
+                    conc_nc(1:tw%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species,j))
+            else
+                !> Explicit-Euler fallback for this stiff cell (EE handles depletion by clamping).
+                call tw%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react)
+                u_new(:,j)=u_tilde(:,j)+u_react
+                !> Clamp only species-equivalent components (row of comp_mat_aq is a single +1).
+                do ic=1,num_aq_comps
+                    nz_cnt=0; nz_idx=0
+                    do k=1,size(tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq,2)
+                        cval=tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(ic,k)
+                        if (cval/=0d0) then
+                            nz_cnt=nz_cnt+1; nz_idx=k
+                            if (nz_cnt>1) exit
+                        end if
+                    end do
+                    if (nz_cnt==1 .and. &
+                        tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(ic,nz_idx)==1d0) then
+                        if (u_new(ic,j)<0d0) u_new(ic,j)=0d0
                     end if
                 end do
-                if (nz_cnt==1 .and. &
-                    tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq(ic,nz_idx)==1d0) then
-                    if (u_new(ic,j)<0d0) u_new(ic,j)=0d0
+                call tw%compute_c_nc_from_u_Newton_ideal(c_hat(1:n_p),u_new(:,j),conc_nc(:,j),niter,CV_flag)
+                if (.not.CV_flag) then
+                    print *, "Target water index: ", tw_idx
+                    print *, "No convergence in EE-fallback speciation after reactive mixing"
+                    error stop
                 end if
-            end do
+                u_new(:,j)=matmul(tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
+                    conc_nc(1:tw%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species,j))
+            end if
         end block
-        call tw%compute_c_nc_from_u_Newton_ideal(tw%get_c1(),u_new(:,j),conc_nc(:,j),niter,CV_flag)
-        if (.not.CV_flag) then
-            print *, "Target water index: ", tw_idx
-            print *, "No convergence in speciation after reactive mixing iteration"
-            print *, "Try reducing the time step, or solve the reactive mixing implicitly."
-            error stop
-        end if
-        !> Make u_new consistent with the speciated state: recompute it from the
-        !> aqueous variable-activity species concentrations using comp_mat_aq.
-        !> Without this step, a species-equivalent component that was clamped to
-        !> 0 above can disagree with the small positive species concentration
-        !> recovered by Newton (e.g. ~1e-15 for dissolved O2).
-        u_new(:,j) = matmul( &
-            tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
-            conc_nc(1:tw%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species, j))
-        !> Sanity check: kinetic reactions must not drive any species
-        !> concentration negative. If they do, the time step is too large.
-        if (any(conc_nc(:,j) < 0d0)) then
-            print *, "Target water index: ", tw_idx
-            do i=1,n_nc
-                if (conc_nc(i,j) < 0d0) then
-                    print *, "  Species index ", i, " concentration: ", conc_nc(i,j)
-                end if
-            end do
-            print *, "Kinetic reactions produced a negative species concentration."
-            print *, "Try reducing the time step, or solve the reactive mixing implicitly."
-            error stop
-        end if
         !> --------------------------------------------------------------------
-        !> Step 2: kinetic reaction rates (Euler-explicit uses rk_old).
-        !> Order: aqueous (linear+redox) | mineral | gas
+        !> Step 2: kinetic reaction rates evaluated at the end-of-step (converged)
+        !> concentrations. Order: aqueous (linear+redox) | mineral | gas.
         !> --------------------------------------------------------------------
-        k=0
-        do i=1,n_aq_kin
-            rk_out(k+i,j) = tw%rk_old(i)
-        end do
-        k=k+n_aq_kin
-        do i=1,n_min_kin
-            rk_out(k+i,j) = tw%solid_chemistry%rk_old(i)
-        end do
+        block
+            real(kind=8), allocatable :: rk_new_cell(:) !< end-of-step kinetic rates for this cell
+            allocate(rk_new_cell(n_aq_kin+n_min_kin))
+            call tw%compute_rk_new(rk_new_cell)
+            rk_out(1:n_aq_kin+n_min_kin,j) = rk_new_cell
+        end block
         !> Gas kinetic rates not yet implemented in gas_chemistry_c
         end associate
     end do
