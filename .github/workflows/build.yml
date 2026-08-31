@@ -1,0 +1,53 @@
+name: build
+
+# Builds the interfaz_remix executable on Linux and macOS and uploads each as a
+# downloadable artifact. Run automatically on pushes to main, or on demand from
+# the Actions tab ("Run workflow"). Download the binaries from the run's
+# "Artifacts" section.
+#
+# This is the simplest way to produce Linux and macOS executables from a
+# Windows-only machine (native, case-sensitive build environments; macOS uses
+# the built-in Accelerate framework for LAPACK/BLAS).
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up gfortran
+        uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: gcc
+
+      - name: Install LAPACK/BLAS (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y liblapack-dev libblas-dev
+
+      - name: Build
+        run: bash build.sh
+        env:
+          FC: ${{ env.FC }}   # gfortran provided by setup-fortran
+
+      - name: Smoke test (binary exists and runs)
+        run: |
+          test -x bin/interfaz_remix
+          file bin/interfaz_remix
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: interfaz_remix-${{ matrix.os }}
+          path: bin/interfaz_remix
+          if-no-files-found: error

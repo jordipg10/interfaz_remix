@@ -46,18 +46,20 @@ The linked executable is `bin/interfaz_remix.exe` on Windows or
 
 ### Linux
 
-Install gfortran via your distro's package manager:
+Install gfortran and the LAPACK/BLAS development packages via your distro's
+package manager (the bundled `lib/*.a` archives are Windows-only and are NOT
+used on Linux):
 
 ```bash
-sudo apt-get install gfortran          # Ubuntu/Debian
-sudo yum install gcc-gfortran          # RHEL/CentOS
-sudo dnf install gcc-gfortran          # Fedora
+sudo apt-get install gfortran liblapack-dev libblas-dev   # Ubuntu/Debian
+sudo yum install gcc-gfortran lapack-devel blas-devel       # RHEL/CentOS
+sudo dnf install gcc-gfortran lapack-devel blas-devel       # Fedora
 ```
 
 ### macOS
 
 ```bash
-brew install gcc
+brew install gcc   # provides gfortran; LAPACK/BLAS come from the built-in Accelerate framework
 ```
 
 ## Windows
@@ -120,6 +122,23 @@ Helper scripts:
 
 ## Linux
 
+### Option 1 - build.sh (recommended)
+
+From the repository root:
+
+```bash
+sudo apt-get install -y gfortran liblapack-dev libblas-dev   # once
+chmod +x build.sh
+./build.sh                                # -> bin/interfaz_remix
+FFLAGS="-O2 -fbacktrace" ./build.sh       # optimised/release build
+```
+
+`build.sh` compiles every source in the correct module order (mirroring the
+`compile-*` VS Code tasks) and links against the system LAPACK/BLAS. From a
+Windows PC, run it inside WSL (Ubuntu).
+
+### Option 2 - manual
+
 ```bash
 mkdir -p obj mod bin
 
@@ -128,19 +147,24 @@ gfortran -g -c -O0 -fcheck=all -fbacktrace -ffree-line-length-none \
          -fno-range-check -J ../mod ../src/<file>.f90
 # ... repeat for every source file in the correct dependency order ...
 
-# Link (static)
-gfortran -static -o ../bin/interfaz_remix *.o lib/liblapack.a lib/librefblas.a
+# Link against the SYSTEM LAPACK/BLAS (NOT the Windows lib/*.a archives).
+# -static-libgfortran embeds the gfortran runtime; LAPACK/BLAS stay dynamic.
+gfortran -static-libgfortran -static-libgcc -o ../bin/interfaz_remix *.o -llapack -lblas
 ```
-
-`build_multiplatform.ps1` is provided as a Docker-based driver for
-multi-platform builds. A `Dockerfile.linux` is not currently included; add
-one if you want to drive the Linux build through Docker.
 
 ## macOS
 
-```bash
-brew install gcc
+### Option 1 - build.sh (recommended)
 
+```bash
+brew install gcc          # provides gfortran; Accelerate is built in
+chmod +x build.sh
+./build.sh                # -> bin/interfaz_remix
+```
+
+### Option 2 - manual
+
+```bash
 mkdir -p obj mod bin
 
 cd obj
@@ -148,12 +172,25 @@ gfortran -g -c -O0 -fcheck=all -fbacktrace -ffree-line-length-none \
          -fno-range-check -J ../mod ../src/<file>.f90
 # ... repeat for every source file in the correct dependency order ...
 
-# Link (dynamic — macOS does not support fully static linking)
-gfortran -o ../bin/interfaz_remix *.o
+# Link against LAPACK/BLAS from the built-in Accelerate framework.
+gfortran -o ../bin/interfaz_remix *.o -framework Accelerate
 ```
 
 Note: fully static linking is not supported on macOS. Distribute the dynamic
 binary alongside a note that gfortran (Homebrew `gcc`) must be installed.
+
+## Continuous Integration (Linux + macOS binaries)
+
+The repository includes a GitHub Actions workflow,
+[.github/workflows/build.yml](.github/workflows/build.yml), that builds the
+executable natively on `ubuntu-latest` and `macos-latest` and uploads each as a
+downloadable artifact. This is the simplest way to obtain Linux and macOS
+binaries from a Windows-only machine:
+
+1. Push the repository to GitHub, or open the **Actions** tab and choose
+   **build -> Run workflow**.
+2. When the run finishes, download `interfaz_remix-ubuntu-latest` and
+   `interfaz_remix-macos-latest` from the run's **Artifacts** section.
 
 ## Distribution
 
@@ -170,8 +207,11 @@ binary alongside a note that gfortran (Homebrew `gcc`) must be installed.
 
 ### Linux / macOS
 
-- Ship the dynamically-linked executable. Make sure the standard
-  gfortran / libc shared libraries exist on the target system.
+- Ship the dynamically-linked executable. On Linux the target system needs the
+  LAPACK/BLAS shared libraries (`liblapack.so.3`, `libblas.so.3`) plus the
+  standard libc; on macOS LAPACK/BLAS come from the always-present Accelerate
+  framework. (`build.sh` embeds the gfortran runtime via `-static-libgfortran`
+  on Linux.)
 - Set the executable bit: `chmod +x bin/interfaz_remix`.
 
 ## Running on another PC
