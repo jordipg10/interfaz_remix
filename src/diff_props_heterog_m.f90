@@ -37,17 +37,17 @@ module diff_props_heterog_m
         real(kind=8), allocatable :: porosity(:)   !> Porosity array at cell centers: φ(x_i) for i=1..N_cells [-]
         
         !> \var diffusion_int
-        !> \brief Dispersion coefficient at cell interfaces
-        !> \details Array storing dispersion/diffusion coefficients at cell interfaces (boundaries between cells).
+        !> \brief Molecular diffusion coefficient at cell interfaces
+        !> \details Array storing molecular diffusion coefficients at cell interfaces (boundaries between cells).
         !> Used for computing diffusive/dispersive fluxes between adjacent cells. For a grid with N cells,
         !> there are N+1 interfaces (including domain boundaries). Units: [L²/T]
-        real(kind=8), allocatable :: diff_int(:) !> Dispersion coefficient at cell interfaces: D(x_i+1/2) for flux calculations [L²/T]
+        real(kind=8), allocatable :: diff_int(:) !> molecular diffusion coefficient at cell interfaces: D_m(x_i+1/2) for flux calculations [L²/T]
         
         !> \var diffusion_cent
-        !> \brief Dispersion coefficient at cell centers
-        !> \details Array storing dispersion/diffusion coefficients at cell centers.
+        !> \brief Molecular diffusion coefficient at cell centers
+        !> \details Array storing molecular diffusion coefficients at cell centers.
         !> Used for storage, analysis, and conversion to interface values. Units: [L²/T]
-        real(kind=8), allocatable :: diff_cent(:) !> Dispersion coefficient at cell centers: D(x_i) [L²/T]
+        real(kind=8), allocatable :: diff_cent(:) !> molecular diffusion coefficient at cell centers: D_m(x_i) [L²/T]
         
         ! real(kind=8) :: long_disp !> Commented out: longitudinal dispersivity (alpha_L) - would be used for velocity-dependent dispersion [L]
     contains

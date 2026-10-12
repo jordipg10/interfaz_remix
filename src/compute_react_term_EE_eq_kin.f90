@@ -11,7 +11,7 @@ subroutine compute_react_term_EE_eq_kin(this,Delta_t,lambda_r,conc_comp_react)
 !> Variables
     real(kind=8), allocatable :: rk_old(:) !> kinetic reaction rates
 !> Process
-    rk_old=this%get_rk_old() !> we get old kinetic reaction rates
+    rk_old=this%get_rk_old_new_set() !> previous-step kinetic reaction rates in the current kinetic set (rows of U_SkT_prod)
     conc_comp_react=Delta_t*lambda_r*matmul(this%solid_chemistry%reactive_zone%U_SkT_prod,rk_old) !> we compute reaction part of new component concentrations
     !> We compute new kinetic reaction rates
     !allocate(rk(this%indices_rk%num_cols)) !> we allocate new kinetic reaction rates

@@ -91,8 +91,11 @@ module speciation_algebra_m
         real(kind=8), allocatable :: Se_1_star(:,:) !> = -inv_Se_2 · S₁ (relates primary to secondary)
         real(kind=8), allocatable :: inv_Se_nc_2(:,:) !> inverse of S₂ for variable activity secondary species
         real(kind=8), allocatable :: Se_nc_1_star(:,:) !> = -inv_Se_nc_2 · S₁ (variable activity transformation)
-        real(kind=8), allocatable :: logK_star(:) !> = inv_Se_nc_2 · log K (transformed equilibrium constants)
-        real(kind=8), allocatable :: logK_tilde(:) !> = inv_Se_2 · log K (transformed equilibrium constants, all species)
+        !> NOTE: logK_star / logK_tilde (the transformed, partial-pressure-dependent
+        !> equilibrium constants) are intentionally NOT stored here. They are per-water
+        !> state (they fold in the gas partial pressures) and a single reactive zone can
+        !> be shared by several waters/gas chemistries with different partial pressures,
+        !> so they live in aqueous_chemistry_c instead (see compute_logK_star).
         real(kind=8), allocatable :: comp_mat_cst_act(:,:) !> component matrix with constant activity species (Saaltink et al, 1998)
         real(kind=8), allocatable :: comp_mat(:,:) !> component matrix without constant activity species (De Simoni et al, 2005)
         real(kind=8), allocatable :: comp_mat_aq(:,:) !> aqueous component matrix without constant activity species
@@ -115,8 +118,6 @@ module speciation_algebra_m
         procedure, private :: compute_comp_mat                      !< Compute component matrix
         procedure, private :: compute_comp_mat_aq                   !< Compute aqueous component matrix
         procedure, private :: compute_comp_mat_cst_act              !< Compute component matrix with constant activity species
-        procedure :: compute_logK_star                      !< Compute logK_star = inv_Se_nc_2 · log K
-        procedure :: compute_logK_tilde                     !< Compute logK_tilde = inv_Se_2 · log K
         procedure :: compute_inv_Se_nc_2                    !< Compute inverse of variable activity S₂
         procedure :: compute_inv_Se_2                       !< Compute inverse of S₂
     !> Eliminate species
@@ -402,17 +403,19 @@ module speciation_algebra_m
         !>   4. Compute all derived matrices: inv_Se_2, Se_1_star, logK_tilde, comp_mat_cst_act
         !>   
         !>   Swapping strategy avoids numerical issues from near-singular matrices.
-        subroutine compute_arrays(this,Se,K,tol,flag,swap)
+        subroutine compute_arrays(this,Se,tol,flag,swap)
             implicit none
             !> Compute all speciation algebra arrays and matrices.
             !> This routine is the core of the algebraic setup, ensuring all matrices are invertible and correctly assembled.
             !> It performs error checking, swaps species/reactions if needed, and updates all dependent arrays for subsequent equilibrium calculations.
+            !> The equilibrium constants are NOT needed here: the arrays built are purely
+            !> structural (they depend only on the stoichiometric matrix Se). The transformed
+            !> constants logK_tilde/logK_star are built per-water by the owning aqueous chemistry.
             !> Example:
-            !>   call spec_algebra%compute_arrays(Se, K, tol, flag, swap)
-            !>   ! All matrices and vectors are now ready for equilibrium calculations.
+            !>   call spec_algebra%compute_arrays(Se, tol, flag, swap)
+            !>   ! All structural matrices are now ready for equilibrium calculations.
             class(speciation_algebra_s) :: this
             real(kind=8), intent(inout) :: Se(:,:) !> equilibrium stoichiometric matrix
-            real(kind=8), intent(inout) :: K(:) !> equilibrium constants
             real(kind=8), intent(in) :: tol !> for computing inverse matrix
             logical, intent(out) :: flag !> TRUE if stoichiometric matrix has been modified, FALSE otherwise
             integer(kind=4), intent(out) :: swap(:) !> indices of swapped species or reactions in reactive zone
@@ -420,7 +423,7 @@ module speciation_algebra_m
             integer(kind=4) :: i
             real(kind=8) :: det
             logical :: error
-            real(kind=8), allocatable :: Se_nc_2(:,:),Se_2(:,:),aux_Se(:,:),aux_K(:)
+            real(kind=8), allocatable :: Se_nc_2(:,:),Se_2(:,:),aux_Se(:,:)
             
             flag=.false. !> by default
             !aux_Se=Se
@@ -431,7 +434,6 @@ module speciation_algebra_m
             i=0
             !> esto de abajo deberia ir dentro del if
             aux_Se=Se
-            aux_K=K
             if (this%flag_comp .eqv. .true.) then
                 allocate(Se_nc_2(this%num_eq_reactions,this%num_eq_reactions))
                 do
@@ -457,7 +459,6 @@ module speciation_algebra_m
                         swap(1)=this%num_prim_species-i+1 !> index of primary species to swap
                         swap(2)=this%num_prim_species+1 !> index of secondary variable activity species to swap
                         call this%compute_Se_nc_1_star(Se(:,1:this%num_prim_species))
-                        call this%compute_logK_star(K)
                         call this%compute_comp_mat()
                         call this%compute_comp_mat_aq()
                         exit
@@ -493,9 +494,6 @@ module speciation_algebra_m
                         !swap(1)=this%num_species-i
                         !swap(2)=this%num_species
                         call this%compute_Se_1_star(Se(:,1:this%num_prim_species))
-                        K(swap(1))=aux_K(swap(2))
-                        K(swap(2))=aux_K(swap(1))
-                        call this%compute_logK_tilde(K)
                         call this%compute_comp_mat_cst_act()
                         exit
                     end if
@@ -571,17 +569,8 @@ module speciation_algebra_m
         !>   \f]
         !>   
         !>   Used in mass action law calculations for variable activity systems.
-        subroutine compute_logK_star(this,K)
-            implicit none
-            !> Compute logK_star vector.
-            !> This vector is used in equilibrium calculations for systems with variable activity species, representing transformed equilibrium constants.
-            !> Example:
-            !>   call spec_algebra%compute_logK_star(K)
-            !>   ! spec_algebra%logK_star is now ready for equilibrium calculations.
-            class(speciation_algebra_s) :: this
-            real(kind=8), intent(in) :: K(:) !> equilibrium constants
-            this%logK_star=matmul(this%inv_Se_nc_2,log10(K))
-        end subroutine
+        !> compute_logK_star was removed: logK_star is now computed per-water in
+        !> aqueous_chemistry_c%compute_logK_star (= inv_Se_nc_2 · log10(K), K per-water).
         
         !> \brief Compute transformed equilibrium constants for all species
         !> \param[in,out] this Speciation algebra object
@@ -593,18 +582,8 @@ module speciation_algebra_m
         !>   \f]
         !>   
         !>   Used in mass action law calculations including constant activity species.
-        subroutine compute_logK_tilde(this,K)
-            implicit none
-            !> Compute logK_tilde vector.
-            !> This vector is used in equilibrium calculations for systems without constant activity species, representing transformed equilibrium constants.
-            !> Example:
-            !>   call spec_algebra%compute_logK_tilde(K)
-            !>   ! spec_algebra%logK_tilde is now ready for equilibrium calculations.
-            class(speciation_algebra_s) :: this
-            real(kind=8), intent(in) :: K(:) !> equilibrium constants
-            !print *, log10(K)
-            this%logK_tilde=matmul(this%inv_Se_2,log10(K))
-        end subroutine
+        !> compute_logK_tilde was removed: logK_tilde is now computed per-water in
+        !> aqueous_chemistry_c%compute_logK_star (= inv_Se_2 · log10(K), K per-water).
         
         !> \brief Compute number of primary species
         !> \param[in,out] this Speciation algebra object

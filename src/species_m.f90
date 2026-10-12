@@ -41,12 +41,12 @@ module species_m
         character(len=256)  :: name              !< Element name (including oxidation state if applicable)
         integer(kind=4)     :: valence=0         !< Oxidation state (default 0 for neutral)
         real(kind=8)        :: molecular_weight=0d0  !< Molecular weight [kg/mol]
-        real(kind=8)        :: mol_vol=0d0       !< Molar volume [L/mol]
+        real(kind=8)        :: mol_vol=0d0       !< Molar volume [dm³/mol] (= L/mol)
     contains
         procedure :: set_name            !< Set element name
         procedure :: set_valence         !< Set oxidation state
         procedure :: set_molecular_weight !< Set molecular weight [kg/mol]
-        procedure :: set_mol_vol         !< Set molar volume [L/mol]
+        procedure :: set_mol_vol         !< Set molar volume [dm³/mol]
     end type
     
     !> \brief Class for chemical species (extends element_c)
@@ -388,7 +388,7 @@ module species_m
         
         !> \brief Set the molar volume of an element
         !> \param[in,out] this    Element object to modify
-        !> \param[in]     mol_vol Molar volume [L/mol]
+        !> \param[in]     mol_vol Molar volume [dm³/mol] (= L/mol; DB readers convert from cm³/mol with 1d-3)
         !> \details 
         !>   Sets molar volume with validation.
         !>   Raises error if negative value provided.
@@ -400,7 +400,7 @@ module species_m
         subroutine set_mol_vol(this,mol_vol)
             implicit none
             class(element_c) :: this                            !< Element object
-            real(kind=8), intent(in) :: mol_vol                 !< Molar volume [L/mol]
+            real(kind=8), intent(in) :: mol_vol                 !< Molar volume [dm³/mol]
             
             if (mol_vol<0d0) error stop "Molar volume cannot be negative" !< Validate non-negative
             this%mol_vol=mol_vol                                !< Assign if valid

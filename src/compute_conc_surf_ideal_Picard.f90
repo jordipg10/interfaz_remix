@@ -64,7 +64,7 @@ subroutine compute_conc_surf_ideal_Picard(this,conc_cats,act_ads_cats_ig,niter,C
         end if
         do i=1,n_ads_cats
             log_act_ads_cats_new(i)=log(this%reactive_zone%chem_syst%eq_reacts(&
-                this%reactive_zone%ind_eq_reacts(n_eq-n_ads_cats+i))%eq_cst)+LOG(conc_cats(i))+&
+                this%reactive_zone%ind_eq_reacts(n_eq-n_ads_cats+i))%eq_cst_ref)+LOG(conc_cats(i))+&
                 LOG(1d0-SUM(act_ads_cats_old))
         end do
         act_ads_cats_new=EXP(log_act_ads_cats_new)

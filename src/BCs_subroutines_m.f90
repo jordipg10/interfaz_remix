@@ -221,16 +221,29 @@ module BCs_subroutines_m
                 end if
             type is (spatial_discr_rad_c)
                 if (.not. this%dimless) then
-                    if (mesh%scheme == 2 .and. mesh%targets_flag == 0 &
-                        .and. (.not. this%tpt_props_heterog%homog_flag)) then
-                        a = mesh%Delta_r(1)
-                        b = mesh%Delta_r(1) + mesh%Delta_r(2)
-                        this%trans_mat%diag(1) = this%trans_mat%diag(1) &
-                            - q_inf/a + this%tpt_props_heterog%flux_int(2)/b &
-                            - 4d0*this%tpt_props_heterog%disp_int(2)/(b**2)
-                        this%trans_mat%super(1) = -this%tpt_props_heterog%flux_int(2)/b &
-                            + 4d0*this%tpt_props_heterog%disp_int(2)/(b**2)
-                        this%bd_mat(1) = q_inf / a
+                    if (mesh%scheme == 2 .and. mesh%targets_flag == 0) then
+                        if (this%Lagr_flag) then
+                            !> Lagrangian: advection is carried by the moving particles, so the
+                            !> dispersion operator sees a reflecting (zero dispersive flux) Robin
+                            !> inflow. Make row 1 conservative: diag(1) = -super(1), so the
+                            !> transport (dispersion) matrix row sum is zero. The advective inflow
+                            !> of conc_inf is handled by the boundary-water mixing in the WMA.
+                            this%trans_mat%diag(1) = this%trans_mat%diag(1) - this%trans_mat%super(1)
+                        else if (.not. this%tpt_props_heterog%homog_flag) then
+                            !> Eulerian heterogeneous Robin inflow
+                            a = mesh%Delta_r(1)
+                            b = mesh%Delta_r(1) + mesh%Delta_r(2)
+                            this%trans_mat%diag(1) = this%trans_mat%diag(1) &
+                                - q_inf/a + this%tpt_props_heterog%flux_int(2)/b &
+                                - 4d0*this%tpt_props_heterog%disp_int(2)/(b**2)
+                            this%trans_mat%super(1) = -this%tpt_props_heterog%flux_int(2)/b &
+                                + 4d0*this%tpt_props_heterog%disp_int(2)/(b**2)
+                            this%bd_mat(1) = q_inf / a
+                        end if
+                        !> Neumann (zero-flux) outflow: make the last row conservative so that the
+                        !> radial transport matrix has zero row sums throughout. Without this the
+                        !> mixing-ratio columns fail to sum to 1 (error growing toward the outflow).
+                        this%trans_mat%diag(n) = this%trans_mat%diag(n) - this%trans_mat%sub(n-1)
                     end if
                 end if
             end select

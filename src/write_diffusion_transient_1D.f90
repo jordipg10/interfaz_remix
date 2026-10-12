@@ -69,11 +69,11 @@ subroutine write_diffusion_transient_1D(this,Time_out,output)
         write(1,"(2x,'Dimensionless final time:'/)")
         write(1,"(2x,ES15.5/)") this%time_discr%Final_time
         if (this%sol_method.eq.1) then
-            if (this%time_discr%int_method == 1) then
+            if (this%time_discr%int_method_tpt == 1) then
                 write(1,"(2x,'Integration method:',10x,'Euler explicit'/)")
-            else if (this%time_discr%int_method == 2 .or. this%time_discr%int_method == 3) then
+            else if (this%time_discr%int_method_tpt == 2 .or. this%time_discr%int_method_tpt == 3) then
                 write(1,"(2x,'Integration method:',10x,'Euler fully implicit'/)")
-            else if (this%time_discr%int_method == 4) then
+            else if (this%time_discr%int_method_tpt == 4) then
                 write(1,"(2x,'Integration method:',10x,'Crank-Nicolson'/)")
             end if
         end if

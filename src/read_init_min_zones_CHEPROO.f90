@@ -219,12 +219,12 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
                                 !> aqui habria que comprobar si se estan repitiendo zonas reactivas
                                 call this%materials(imtype)%set_reactive_zone(react_zones(imtype))
                                 call this%materials(imtype)%compute_num_solids_solid_chem()
-                                call this%materials(imtype)%allocate_vol_fracts_mins()
+                                call this%materials(imtype)%allocate_min_pore_vol_ratios()
                                 call this%materials(imtype)%allocate_react_surfaces()
                                 call this%materials(imtype)%allocate_conc_solids()
                                 call this%materials(imtype)%allocate_log_act_coeffs_solid_chem()
                                 call this%materials(imtype)%allocate_activities()
-                                call this%materials(imtype)%set_temp(temp+273.18) !> Kelvin
+                                call this%materials(imtype)%set_temp(temp+273.15d0) !> Kelvin
                                 call this%materials(imtype)%allocate_var_act_species_indices(num_mins_vare_mean+num_mins_var_kin)
                                 call this%materials(imtype)%allocate_cst_act_species_indices(num_mins_cst_eq+num_mins_cst_kin)
                                 call this%materials(imtype)%set_indices_solids()
@@ -298,7 +298,7 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
                                         this%materials(imtype)%reactive_zone%ind_mins_chem_syst(num_mins_loc_eq)=&
                                             min_indices(num_mins_loc,num_min_zones) !> Same global index
                                         !< Set volume fraction [-] (dimensionless)
-                                        this%materials(imtype)%vol_fracts_mins(&
+                                        this%materials(imtype)%min_pore_vol_ratios(&
                                             this%materials(imtype)%mineral_zone%num_minerals_kin+num_mins_loc_eq)=vol_frac
                                         !< Set reactive surface [m² mineral/m³ rock]
                                         this%materials(imtype)%react_surfaces(&
@@ -315,7 +315,7 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
                                         this%materials(imtype)%mineral_zone%ind_min_chem_syst(num_mins_loc_kin)=&
                                             min_indices(num_mins_loc,num_min_zones) !> Global index from chemical system
                                         !< Set volume fraction [-]
-                                        this%materials(imtype)%vol_fracts_mins(num_mins_loc_kin)=vol_frac
+                                        this%materials(imtype)%min_pore_vol_ratios(num_mins_loc_kin)=vol_frac
                                         !< Set reactive surface [m² mineral/m³ rock]
                                         this%materials(imtype)%react_surfaces(num_mins_loc_kin)=react_surf
                                         !< Set concentration [M] (pure phase assumption)
@@ -403,7 +403,7 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
                             !< Update non-flowing species for combined zone
                             call this%reactive_zones(num_rz-num_gas_rz*nmtype+(i-1)*nmtype+j)%set_ind_non_flow_species()
                             !< Update speciation algebra dimensions
-                            call this%reactive_zones(num_rz-num_gas_rz*nmtype+(i-1)*nmtype+j)%set_speciation_alg_dimensions()
+                            call this%reactive_zones(num_rz-num_gas_rz*nmtype+(i-1)*nmtype+j)%set_speciation_alg_dimensions(flag_comp)
                             !< Update equilibrium reaction indices
                             call this%reactive_zones(num_rz-num_gas_rz*nmtype+(i-1)*nmtype+j)%set_ind_eq_reacts()
                             !> Update variable activity species indices

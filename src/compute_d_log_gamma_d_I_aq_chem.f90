@@ -43,18 +43,18 @@ function compute_d_log_gamma_d_I_aq_chem(this) result(d_log_gamma_d_I)
     do i=1,this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species !> Loop over all aqueous primary species
         d_log_gamma_d_I(i)=-this%aq_phase%aq_species(i)%params_act_coeff%alpha*(& !> Begin derivative computation: multiply by -αᵢ and continue on next line
             this%params_aq_sol%A*this%aq_phase%aq_species(i)%valence**2)/(2d0*sqrt(this%ionic_strength)*(& !> First term numerator: A·zᵢ², divided by 2√I times denominator part 1
-            1d0+this%aq_phase%aq_species(i)%params_act_coeff%beta*sqrt(this%ionic_strength))**2) + & !> Denominator part 2: (1 + βᵢ√I)² for extended Debye-Hückel, then add linear term on next line
-            this%aq_phase%aq_species(i)%params_act_coeff%gamma !> Add linear activity coefficient parameter γᵢ (ion-ion interaction term)
+            1d0+this%aq_phase%aq_species(i)%params_act_coeff%get_beta(this%params_aq_sol)*sqrt(this%ionic_strength))**2) + & !> Denominator part 2: (1 + βᵢ√I)² for extended Debye-Hückel (βᵢ at this water's B), then add linear term on next line
+            this%aq_phase%aq_species(i)%params_act_coeff%get_gamma(this%params_aq_sol) !> Add linear activity coefficient parameter γᵢ (ion-ion interaction term, at this water's A)
     end do !> End loop over aqueous primary species
     do i=1,this%solid_chemistry%reactive_zone%speciation_alg%num_aq_sec_var_act_species !> Loop over all aqueous secondary variable activity species
-        d_log_gamma_d_I(this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species+i)=& !> Store derivative at index: num_primary + i (after all primary species in array)
+        d_log_gamma_d_I(this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+i)=& !> Aqueous secondaries follow aqueous primaries in this aqueous-only array; use num_aq_prim_species (NOT num_prim_species, which counts the exchange free site) so the exchanger does not offset the index past the array end
             -this%aq_phase%aq_species(& !> Begin derivative computation: multiply by -αᵢ (accessing secondary species in aq_species array)
             this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+i)%params_act_coeff%alpha*& !> Extract αᵢ for secondary aqueous species at index: num_aq_primary + i
             (this%params_aq_sol%A*this%aq_phase%aq_species(& !> First term numerator part 1: Debye-Hückel constant A
             this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+i)%valence**2)/(2d0*sqrt(this%ionic_strength)& !> Numerator part 2: zᵢ², divided by 2√I
             *(1d0+this%aq_phase%aq_species(& !> Denominator part 1: (1 + βᵢ√I)², starting with 1 +
-            this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+i)%params_act_coeff%beta*& !> Extract βᵢ for secondary aqueous species
+            this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+i)%params_act_coeff%get_beta(this%params_aq_sol)*& !> Extract βᵢ for secondary aqueous species (at this water's B)
             sqrt(this%ionic_strength))**2) + & !> Complete denominator: βᵢ√I)², then add linear term on next line
-            this%aq_phase%aq_species(this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+i)%params_act_coeff%gamma !> Add linear activity coefficient parameter γᵢ for secondary species
+            this%aq_phase%aq_species(this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+i)%params_act_coeff%get_gamma(this%params_aq_sol) !> Add linear activity coefficient parameter γᵢ for secondary species (at this water's A)
     end do !> End loop over aqueous secondary variable activity species
 end function !> End of compute_d_log_gamma_d_I_aq_chem function

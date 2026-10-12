@@ -50,7 +50,7 @@ subroutine initialise_transport_1D_transient(this,dir,root)
     !my_mesh=>my_homog_mesh
     !allocate(mesh_1D_Euler_homog_c :: my_mesh) !> chapuza
     allocate(spatial_discr_rad_c :: my_mesh) !> chapuza
-    !call my_mesh%read_mesh(root//'_discr_esp.dat')
+    !call my_mesh%read_mesh(root//'_discr_space.dat')
     call my_mesh%read_mesh(dir//root//"_discr_esp_rad.dat")
     call this%set_spatial_discr(my_mesh)
 !> Boundary conditions
@@ -95,7 +95,7 @@ subroutine initialise_transport_1D_transient(this,dir,root)
         call my_props_tpt%compute_source_term(this%spatial_discr,flux_coeffs)
     end if
     call my_props_tpt%set_source_term_flag(this%BCs)
-    call my_props_tpt%compute_dispersion_1D(this%spatial_discr%scheme)
+    call my_props_tpt%compute_dispersion_1D()
     call this%set_tpt_props_heterog_obj(my_props_tpt)
 !****************************************************************************************************************************************************
 !> Stability parameters
@@ -142,11 +142,11 @@ subroutine initialise_transport_1D_transient(this,dir,root)
     call this%compute_source_term_PDE()
     call this%compute_F_mat_PDE()
     !> We compute arrays for linear system
-    if (this%time_discr%int_method.eq.1) then !> Euler explicit
+    if (this%time_discr%int_method_tpt.eq.1) then !> Euler explicit
         theta=0d0
-    else if (this%time_discr%int_method.eq.2) then !> Euler fully implicit
+    else if (this%time_discr%int_method_tpt.eq.2) then !> Euler fully implicit
         theta=1d0
-    else if (this%time_discr%int_method.eq.3) then !> Crank-Nicolson
+    else if (this%time_discr%int_method_tpt.eq.3) then !> Crank-Nicolson
         theta=0.5
     end if
     call this%compute_E_mat_1D(this%time_discr%get_Delta_t(),E_mat,E_mat_prev)

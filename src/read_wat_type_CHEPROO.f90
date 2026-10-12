@@ -87,7 +87,7 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
     integer(kind=4), intent(in) :: unit !> file unit number for reading
     integer(kind=4), intent(out) :: niter !> number of iterations in speciation calculation (output)
     logical, intent(out) :: CV_flag !> convergence flag: TRUE if converged, FALSE otherwise (output)
-    type(gas_chemistry_c), intent(in), optional, target :: gas_chem !> gas chemistry object (optional) - chapuza (temporary fix)
+    type(gas_chemistry_c), intent(in), optional :: gas_chem !> gas chemistry object (optional) - chapuza (temporary fix)
     !type(solid_chemistry_c), intent(in), optional :: surf_chem !> (COMMENTED) surface chemistry for exchange reactions
     !real(kind=8), intent(in), optional :: c1_surf !> (COMMENTED) surface species concentration - chapuza
     !real(kind=8), intent(in), optional :: CEC !> (COMMENTED) cation exchange capacity - chapuza
@@ -97,7 +97,7 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
     !> Local variables - loop counters and indices
     !> ================================================================
     integer(kind=4) :: i,j,k,l,ll,m,niwtype,nbwtype,nrwtype,gas_ind,min_ind,n_comp_aq,ind_cstr,n_gas_species_constr,n_aq_comp,icon,&
-        aq_sp_ind,ind_sp,gas_flag,n !> integer variables
+        aq_sp_ind,ind_sp,gas_flag,n,first_exch_react,last_exch_react !> integer variables
         !> i: general loop counter
         !> j: mineral equilibrium counter
         !> k: primary aqueous species counter
@@ -189,10 +189,10 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
         !call solid_chem%set_reactive_zone(react_zone) !> we set reactive zone by default
         !call solid_chem%set_mineral_zone(min_zone) !> we set mineral zone by default
         !call this%set_solid_chemistry(solid_chem) !> we set solid chemistry by default
-        !> Allocate array for non-flowing species (minerals, gases, surface species)
-        !call this%solid_chemistry%reactive_zone%allocate_ind_non_flow_species(num_cstr) !> allocate with size = number of constraints
-         allocate(ind_non_flow_species(num_cstr)) !> allocate with size = number of constraints
     end if
+    !> Scratch array for non-flowing icon=4 species (minerals/gases/surface); needed
+    !> whether or not surface complexes are present, so allocate unconditionally.
+    allocate(ind_non_flow_species(num_cstr)) !> size = number of constraints
     
     !> (COMMENTED) Alternative mineral zone setup
     !if (this%solid_chemistry%reactive_zone%chem_syst%num_minerals>0) then !> if minerals exist in chemical system
@@ -352,7 +352,11 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
                                         !> --------------------------------------------------------
                                         if (ind_cstr<=this%solid_chemistry%reactive_zone%chem_syst%num_minerals_eq_var_act) then
                                             !> Mineral with variable activity (dissolving/precipitating)
-                                            ind_mins(j)=ind_cstr !> store mineral index - chapuza
+                                            !> Store the FULL chemical-system mineral index: minerals are stored
+                                            !> kinetic-first, so add num_minerals_kin to the equilibrium-mineral
+                                            !> position (ind_cstr). This matches the convention expected by
+                                            !> set_ind_mins_chem_syst (default branch) and set_ind_non_flow_species.
+                                            ind_mins(j)=this%solid_chemistry%reactive_zone%chem_syst%num_minerals_kin+ind_cstr
                                             j=j+1 !> increment mineral counter
                                             !> Update mineral counters in reactive zone
                                             this%solid_chemistry%reactive_zone%num_minerals_var_act=&
@@ -369,7 +373,10 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
                                                 
                                         else if (ind_cstr<=this%solid_chemistry%reactive_zone%chem_syst%num_minerals_eq) then
                                             !> Mineral with constant activity (pure phase at saturation)
-                                            ind_mins(j)=ind_cstr !> store mineral index - chapuza repetida ademas
+                                            !> Store the FULL chemical-system mineral index (kinetic minerals are
+                                            !> stored first), consistent with set_ind_mins_chem_syst (default branch)
+                                            !> and the index formula in set_ind_non_flow_species.
+                                            ind_mins(j)=this%solid_chemistry%reactive_zone%chem_syst%num_minerals_kin+ind_cstr
                                             j=j+1 !> increment mineral counter
                                             !> Update constant activity mineral counters in reactive zone
                                             this%solid_chemistry%reactive_zone%num_minerals_cst_act=&
@@ -472,26 +479,31 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
             call this%solid_chemistry%reactive_zone%gas_phase%compute_num_species_phase() !> compute number of gas species
             !call this%solid_chemistry%reactive_zone%rearrange_ind_non_flow_species() !> rearrange non-flowing species array
             call this%solid_chemistry%reactive_zone%set_num_solids() !> set total number of solid species
+            !> Populate this zone's mineral indices in the chemical system BEFORE computing the
+            !> non-flowing species: the no-arg set_ind_non_flow_species() (exchange / mixed
+            !> mineral+exchange case) reads ind_mins_chem_syst for its constant-activity minerals,
+            !> so that array must already be allocated and set.
+            call this%solid_chemistry%reactive_zone%allocate_ind_mins() !> allocate mineral indices array
+            call this%solid_chemistry%reactive_zone%set_ind_mins_chem_syst(&
+                ind_mins(1:this%solid_chemistry%reactive_zone%num_minerals)) !> pass only valid mineral indices
             !> Only allocate ind_non_flow_species from the icon=4 constraints
             !> when there actually are some. Otherwise (e.g. a water in
             !> equilibrium with surface complexes only, with no icon=4 lines)
             !> the call would overwrite num_non_flow_species with 0 and wipe
             !> out the surface complexes counted in cat_exch_zone, which then
             !> breaks the reactive zone's speciation algebra dimensions.
-            if (ll>0) then
+            if (ll>0 .and. this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl==0) then
                 call this%solid_chemistry%reactive_zone%allocate_ind_non_flow_species(ll) !> allocate non-flowing species indices
                 call this%solid_chemistry%reactive_zone%set_ind_non_flow_species(ind_non_flow_species(1:ll)) !> set non-flowing species indices
             else
                 !> Recompute num_non_flow_species and the index array from the
                 !> reactive zone's own components (minerals + surface complexes
-                !> + equilibrium gases).
+                !> + equilibrium gases). Also used for the mixed case (icon=4
+                !> minerals AND surface complexes): the icon=4-only list would omit
+                !> the exchange complexes, leaving ind_non_flow_species incomplete.
                 call this%solid_chemistry%reactive_zone%allocate_ind_non_flow_species()
                 call this%solid_chemistry%reactive_zone%set_ind_non_flow_species()
             end if
-            call this%solid_chemistry%reactive_zone%allocate_ind_mins() !> allocate mineral indices array
-            !> Set mineral indices in chemical system
-            call this%solid_chemistry%reactive_zone%set_ind_mins_chem_syst(&
-                ind_mins(1:this%solid_chemistry%reactive_zone%num_minerals)) !> pass only valid mineral indices
             !call this%solid_chemistry%reactive_zone%set_ind_eq_reacts() !> set indices of heterogeneous equilibrium reactions
             call this%solid_chemistry%compute_num_solids_solid_chem() !> compute total number of solids in solid chemistry
             
@@ -515,9 +527,12 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
     !> ================================================================
     !> SECTION 5: Compute activity coefficient constants
     !> ================================================================
+    !> Temperature-independent per-species parameters of the activity coefficient model (shared by
+    !> all the waters through the aqueous phase); the Debye-Hückel A and B of each water enter at
+    !> evaluation time (params_act_coeff_c%get_beta/get_gamma with this%params_aq_sol).
     do i=1,this%aq_phase%num_species !> loop over all aqueous species
         !> Compute activity coefficient constants for each species
-        call this%aq_phase%aq_species(i)%params_act_coeff%compute_csts(this%aq_phase%aq_species(i)%valence,this%params_aq_sol,model)
+        call this%aq_phase%aq_species(i)%params_act_coeff%compute_csts(this%aq_phase%aq_species(i)%valence,model)
     end do
     
     !> ================================================================
@@ -527,16 +542,28 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
     allocate(swap(2)) !> allocate swap array for potential species swapping (dimension 2)
     flag_comp=.false. !> initialize to FALSE - we use the component matrix with constant activity species
     !> Only forward an explicit ind_eq_reacts list when icon=4 actually contributed
-    !> heterogeneous reactions beyond the chem_syst's aqueous equilibrium reactions.
-    !> Otherwise the size of ind_eq_reacts(1:n) does not match the reactive zone's
-    !> num_eq_reactions (which now includes surface complex / mineral reactions
-    !> from cat_exch_zone), so let set_ind_eq_reacts auto-discover them via
-    !> ind_non_flow_species.
-    if (n>this%solid_chemistry%reactive_zone%chem_syst%num_aq_eq_reacts) then
+    !> heterogeneous reactions beyond the chem_syst's aqueous equilibrium reactions
+    !> AND there are no surface complexes. Otherwise the size of ind_eq_reacts(1:n)
+    !> does not match the reactive zone's num_eq_reactions (which also includes the
+    !> cation-exchange reactions from cat_exch_zone), so let set_ind_eq_reacts
+    !> auto-discover all of them via ind_non_flow_species.
+    if (n>this%solid_chemistry%reactive_zone%chem_syst%num_aq_eq_reacts .and. &
+        this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl==0) then
         call this%set_spec_alg_aq_chem(flag_comp,flag_surf,flag_Se,swap,ind_eq_reacts(1:n)) !> setup speciation algebra, returns flag_Se and swap if needed
     else
-        call this%set_spec_alg_aq_chem(flag_comp,flag_surf,flag_Se,swap)
+        call this%set_spec_alg_aq_chem(flag_comp,flag_surf,flag_Se,swap) !> auto-discover eq reactions (exchange/mixed/aqueous cases)
     end if
+    
+    !> Build this water's per-reaction temperature-dependent equilibrium constants (logK)
+    !> now that the speciation algebra (num_eq_reactions, ind_eq_reacts) is established and
+    !> the temperature is set. This fills this%logK (used by get_eq_csts_aq_chem and the
+    !> kinetic-mineral saturation index) at this water's own temperature.
+    !call this%compute_logK_PHREEQC_aq_chem()
+    !> Build this water's transformed constant logK_tilde from the freshly computed, UNMODIFIED
+    !> per-reaction logK (no constant-activity gas partial-pressure fold). This is the constant
+    !> consumed by the Picard speciation (compute_c2_from_c1_Picard). logK_star is built separately
+    !> by compute_logK_star (called from set_spec_alg_aq_chem).
+    !call this%compute_logK_tilde_aq_chem()
     
     !> (COMMENTED) Alternative speciation algebra setup approach
     ! call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_comp(.false.) !> set component flag
@@ -564,23 +591,25 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
     if (flag_Se .eqv. .true.) then !> if species swap is required for numerical stability
         !> We swap indices constrains (chapuza)
         allocate(ind_swap(2)) !> allocate swap indices array (dimension 2)
-        aux_ind_cstr=indices_constrains !> backup original constraint indices
-        !indices_constrains(:,2)=indices_constrains(:,2)-this%solid_chemistry%reactive_zone%chem_syst%num_redox_eq_reacts !> (COMMENTED) adjust indices
-        
-        !> Find indices in constraint array corresponding to swap species
-        do i=1,num_cstr !> loop over all constraints
-            if (indices_constrains(i,2)==swap(1)) then !> if constraint matches first swap species
-                ind_swap(1)=i !> store constraint index
-            else if (indices_constrains(i,2)==swap(2)) then !> if constraint matches second swap species
-                ind_swap(2)=i !> store constraint index
-            else
-                continue !> skip to next constraint
+        ind_swap=0 !> sentinel: swapped species not (yet) matched to an icon=4 constraint
+        if (num_cstr>0) then !> nothing to reorder when there are no icon=4 constraints
+            aux_ind_cstr=indices_constrains !> backup original constraint indices
+            !> Find indices in constraint array corresponding to swap species
+            do i=1,num_cstr !> loop over all constraints
+                if (indices_constrains(i,2)==swap(1)) then !> if constraint matches first swap species
+                    ind_swap(1)=i !> store constraint index
+                else if (indices_constrains(i,2)==swap(2)) then !> if constraint matches second swap species
+                    ind_swap(2)=i !> store constraint index
+                end if
+            end do
+            !> Only reorder when BOTH swapped species are icon=4-constrained; otherwise the
+            !> constraint->reaction mapping is unaffected by the stoichiometric swap (e.g. the
+            !> swap involves exchange/aqueous species not named by any icon=4 constraint).
+            if (ind_swap(1)>0 .and. ind_swap(2)>0) then
+                indices_constrains(ind_swap(1),:)=aux_ind_cstr(ind_swap(2),:) !> swap constraint 1 with backup of constraint 2
+                indices_constrains(ind_swap(2),:)=aux_ind_cstr(ind_swap(1),:) !> swap constraint 2 with backup of constraint 1
             end if
-        end do
-        
-        !> Perform the swap: exchange constraint data at the two indices
-        indices_constrains(ind_swap(1),:)=aux_ind_cstr(ind_swap(2),:) !> swap constraint 1 with backup of constraint 2
-        indices_constrains(ind_swap(2),:)=aux_ind_cstr(ind_swap(1),:) !> swap constraint 2 with backup of constraint 1
+        end if
     end if
     
 !> ================================================================
@@ -636,19 +665,26 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
             !> We set initial guess for concentrations of surface complexes
             allocate(act_ads_cats_ig(this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats))
                 !> allocate array for adsorbed cation activities initial guess
-            act_ads_cats_ig(1)=1d-6 !> first cation: very small activity - chapuza (temporary value)
-            act_ads_cats_ig(2)=1d0-act_ads_cats_ig(1) !> second cation: remainder to sum to 1 - chapuza
+            !> Uniform initial guess (equal site fractions summing to <1) valid for any num_exch_cats; avoids LOG10(1-Σa)=LOG10(0) on the first Newton residual
+            act_ads_cats_ig=1d0/(this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats+1d0)
             !call this%set_conc_sec_species(c2_ig) !> (COMMENTED) set secondary species concentrations
             
+            !> The exchange reactions occupy the last equilibrium-reaction slots before the gases in this
+            !> water's per-water logK; extract exactly that block so only their equilibrium constants are passed.
+            last_exch_react=this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions-&
+                this%solid_chemistry%reactive_zone%gas_phase%num_gases_eq
+            first_exch_react=last_exch_react-this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats+1
             !> Solve for surface species concentrations
             if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats==2) then !> if exactly 2 exchange cations
                 !> Analytical solution for 2-cation exchange system
                 call this%solid_chemistry%compute_conc_surf_ideal_bin(c1(&
-                this%solid_chemistry%reactive_zone%cat_exch_zone%exch_cat_indices)) !> solve analytically for two exchange cations
+                this%solid_chemistry%reactive_zone%cat_exch_zone%exch_cat_indices),&
+                this%logK(first_exch_react:last_exch_react)) !> solve analytically for two exchange cations (exchange-only logK)
             else !> if more than 2 exchange cations
                 !> Numerical solution using Newton-Raphson method
                 call this%solid_chemistry%compute_conc_surf_ideal_Newton(c1(&
-                this%solid_chemistry%reactive_zone%cat_exch_zone%exch_cat_indices),act_ads_cats_ig,niter,CV_flag) !> iterate using Newton-Raphson
+                this%solid_chemistry%reactive_zone%cat_exch_zone%exch_cat_indices),act_ads_cats_ig,niter,CV_flag,&
+                this%logK(first_exch_react:last_exch_react)) !> iterate using Newton-Raphson (exchange-only logK)
                 !call this%solid_chemistry%compute_conc_surf_ideal_Picard(c1_aq(this%solid_chemistry%reactive_zone%cat_exch_zone%exch_cat_indices),act_ads_cats_ig,niter,CV_flag) !> (COMMENTED) alternative: Picard iteration
             end if
             
@@ -683,6 +719,7 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
         call this%set_conc_sec_species(c2_ig) !> set secondary species concentrations to initial guess
         !> Solve for secondary species using Picard iteration (activity coefficients updated each iteration)
         call this%compute_c2_from_c1_Picard(c1,c2_ig,c2_init,niter,CV_flag) !> iterate until convergence
+        if (.not. CV_flag) error stop "read_wat_type_CHEPROO: Picard speciation of the water type did not converge (activity coefficient fixed point diverged)"
     end if
     call this%compute_pH()
     call this%compute_salinity()

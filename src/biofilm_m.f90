@@ -3,24 +3,27 @@
 !> \details This module defines the biofilm class and related functionality for simulating 
 !> biofilm growth, decay, and interaction with aqueous chemistry in porous media.
 !>
-!> The biofilm is modeled as an immobile zone (extending phase_c) that:
-!> - Contains water and biomass with specific volumetric fractions
-!> - Hosts multiple microorganism species with individual growth/decay kinetics
-!> - Interacts with mobile aqueous phase through mass transfer
-!> - Has mechanical, chemical, transport, structural, and detachment properties
+!> The biofilm is modeled as an immobile zone (extending phase_c). This class holds ONLY the
+!> intrinsic, medium-independent PARAMETERS of the biofilm (constitutive properties and
+!> kinetic/model coefficients). The LOCAL STATE variables that depend on position and evolve in
+!> time — biofilm thickness, internal composition fractions (water/cells/EPS), medium porosities,
+!> morphology descriptors, the chemical microenvironment and the per-microorganism volumetric
+!> fractions — live in solid_chemistry_c (see solid_chemistry_m).
 !>
-!> Key features:
-!> - Biofilm volumetric fraction represented by immobile porosity (inherited from phase_c)
-!> - Water content within biofilm specified by f_w parameter
-!> - Multiple microorganism types with individual volumetric fractions
-!> - Biomass decay kinetics with optional decay rates per microorganism
-!> - EPS composition (polysaccharides, proteins, eDNA, lipids)
-!> - Mechanical properties (elastic modulus, yield stress, viscosity)
-!> - Transport properties (effective diffusion, tortuosity, boundary layer)
-!> - Structural properties (roughness, fractal dimension, surface coverage)
-!> - Detachment/erosion model parameters
-!> - Temperature correction via Arrhenius
-!> - Porosity-permeability coupling for porous media bioclogging
+!> As a parameter set, the biofilm type:
+!> - Hosts multiple microorganism species with individual growth/decay kinetics
+!> - Provides mechanical, EPS, transport, detachment, temperature and bioclogging parameters
+!> - Is pointed to by each solid_chemistry_c object that carries the biofilm's local state
+!>
+!> Parameter groups held by this class:
+!> - Physical/mechanical parameters (max thickness, dry density, elastic/storage/loss moduli,
+!>   yield stress, viscosity, cohesive energy, matrix permeability)
+!> - EPS composition and production (polysaccharides, proteins, eDNA, lipids; Y_eps, alpha, beta)
+!> - Transport parameters (effective diffusion ratios, tortuosity)
+!> - Detachment/erosion model coefficients
+!> - Temperature correction via Arrhenius (T_ref, theta, activation energy)
+!> - Porosity-permeability coupling for porous media bioclogging (min porosity, KC exponent)
+!> - Microorganism definitions (count and species array with kinetics)
 !>
 !> Property references grouped by category:
 !>
@@ -73,87 +76,36 @@ module biofilm_m                                                                
     private                                                                     !< Default accessibility is private; public entities must be explicitly declared
     
     !> \brief Biofilm class extending phase functionality
-    !> \details Represents a biofilm as a special type of immobile zone containing microorganisms.
+    !> \details Represents the medium-independent PARAMETER set of a biofilm (a special type of
+    !> immobile zone containing microorganisms). Local state (thickness, composition fractions,
+    !> porosities, morphology, chemical microenvironment, microorganism volume fractions) is stored
+    !> per location in solid_chemistry_c, which holds a pointer to a biofilm_c parameter object.
     !>
-    !> Physical interpretation:
+    !> Physical interpretation (the state symbols below live in solid_chemistry_c):
     !> - Biofilm occupies a volumetric fraction of the porous medium (phi_imm from parent class)
     !> - Within the biofilm, water occupies fraction f_w, biomass occupies the remainder
     !> - Each microorganism type has its own volumetric fraction within the biofilm
     !>
-    !> Mass balance considerations:
+    !> Mass balance considerations (using solid_chemistry_c state f_w, vol_fracts_microorgs):
     !> - Water in biofilm: V_water = phi_imm * f_w * V_total
     !> - Biomass volume: V_biomass = phi_imm * (1 - f_w) * V_total
-    !> - Microorganism i volume: V_microorg_i = vol_fracs(i) * V_biomass
+    !> - Microorganism i volume: V_microorg_i = vol_fracts_microorgs(i) * V_biomass
     !>
-    !> The class collects ALL known measurable properties of biofilm into a single
-    !> derived type, organized into logical groups:
-    !>   1. Volumetric/porosity
-    !>   2. Physical/mechanical
-    !>   3. EPS composition
-    !>   4. Transport
-    !>   5. Structural/morphological
-    !>   6. Detachment/erosion
-    !>   7. Temperature correction
-    !>   8. Porosity-permeability coupling (bioclogging)
-    !>   9. Biological/kinetic (microorganisms array)
+    !> The parameters are organized into logical groups:
+    !>   1. Physical/mechanical
+    !>   2. EPS composition
+    !>   3. Transport
+    !>   4. Detachment/erosion
+    !>   5. Temperature correction
+    !>   6. Porosity-permeability coupling (bioclogging)
+    !>   7. Biological/kinetic (microorganisms array)
     !>
     !> \note The immobile porosity (phi_imm) represents the total biofilm volumetric fraction
     type, public, extends(phase_c) :: biofilm_c                                 !< Biofilm class inheriting from phase base class
         
         !=====================================================================
-        ! 1. VOLUMETRIC / POROSITY PROPERTIES
+        ! 1. PHYSICAL / MECHANICAL PROPERTIES
         !=====================================================================
-        
-        !> \brief Volumetric fraction of water within the biofilm [-]
-        !> \details Represents the porosity of the biofilm itself (not the bulk porous medium).
-        !> Values typically range from 0.80 to 0.99 for hydrated biofilms.
-        !> Water content by wet weight is typically > 70 wt% (Flemming & Wingender 2010),
-        !> commonly cited as ~97 wt% (Costerton group).
-        !> The remaining fraction (1 - f_w) is occupied by biomass (cells + EPS).
-        !>
-        !> Within the biofilm water, three types exist (Quan et al. 2022):
-        !>   - Free water (highest diffusivity, in macropores/channels)
-        !>   - Confined water (in channels, intermediate mobility)
-        !>   - Bound water (adsorbed to EPS polymers, reduced mobility)
-        !>
-        !> Ref: Flemming & Wingender (2010) Nat. Rev. Microbiol. 8:623
-        !> Ref: Quan et al. (2022) Crit. Rev. Microbiol. 48:283
-        real(kind=8) :: f_w                                                     !< Water volumetric fraction in biofilm: f_w = V_water / V_biofilm [-] (typ. 0.80-0.99)
-        
-        !> \brief Volume fraction of cells within the biofilm [-]
-        !> \details Fraction of biofilm volume occupied by bacterial cells.
-        !> Typically 10-20% of total biofilm volume (0.10-0.20).
-        !> Costerton et al. (2003) report ~15% cells, ~85% water channels.
-        !> Volumetric bacterial density: 0.2-0.4 bacteria/um^3 (Quan et al. 2022).
-        !>
-        !> Ref: Costerton et al. (2003) J. Clin. Invest. 112:1466
-        !> Ref: Quan et al. (2022) Crit. Rev. Microbiol. 48:283
-        real(kind=8) :: f_cells                                                 !< Cell volume fraction in biofilm [-] (typ. 0.10-0.20)
-        
-        !> \brief Volume fraction of EPS within the biofilm [-]
-        !> \details Fraction of biofilm volume occupied by extracellular polymeric substances.
-        !> EPS can comprise 50-90% of total organic matter in biofilms.
-        !> Constraint: f_w + f_cells + f_eps ~= 1.0
-        !>
-        !> Ref: Flemming & Wingender (2010) Nat. Rev. Microbiol. 8:623
-        real(kind=8) :: f_eps                                                   !< EPS volume fraction in biofilm [-] (typ. 0.02-0.20)
-        
-        !=====================================================================
-        ! 2. PHYSICAL / MECHANICAL PROPERTIES
-        !=====================================================================
-        
-        !> \brief Biofilm thickness [m]
-        !> \details Average thickness of the biofilm layer.
-        !> Ranges from ~5 um (thin clinical) to >1 mm (industrial reactors).
-        !> Classification (Flemming et al. 2023):
-        !>   - Thin: < 10 um
-        !>   - Medium: 10-200 um
-        !>   - Thick: > 200 um
-        !> Industrial MBBR/RBC: 200-1000 um.
-        !>
-        !> Ref: Flemming et al. (2023) npj Biofilms Microbiomes 9:36
-        !> Ref: Hall-Stoodley et al. (2022) Nat. Rev. Microbiol. 20:608
-        real(kind=8) :: thickness                                               !< Biofilm thickness Lf [m] (typ. 1e-5 to 1e-3)
         
         !> \brief Maximum allowed biofilm thickness [m]
         !> \details Upper limit for biofilm growth; used in detachment models.
@@ -244,7 +196,7 @@ module biofilm_m                                                                
         real(kind=8) :: permeability                                            !< Biofilm matrix permeability kappa [m^2] (typ. 1e-15 to 1e-7)
         
         !=====================================================================
-        ! 3. EPS COMPOSITION (mass fractions of dry EPS)
+        ! 2. EPS COMPOSITION (mass fractions of dry EPS)
         !=====================================================================
         
         !> \brief Mass fraction of polysaccharides in dry EPS [-]
@@ -311,7 +263,7 @@ module biofilm_m                                                                
         real(kind=8) :: eps_beta                                                !< Luedeking-Piret beta [1/s] (non-growth-associated)
         
         !=====================================================================
-        ! 4. TRANSPORT PROPERTIES
+        ! 3. TRANSPORT PROPERTIES
         !=====================================================================
         
         !> \brief Effective diffusion ratio D_e/D_aq [-]
@@ -353,78 +305,8 @@ module biofilm_m                                                                
         !> Ref: Berg et al. (2020) Biotechnol. Bioeng. 117:2997
         real(kind=8) :: tortuosity                                              !< Tortuosity factor tau [-] (typ. 1.2-2.5)
         
-        !> \brief Oxygen penetration depth [m]
-        !> \details Depth from biofilm surface at which O2 concentration reaches zero.
-        !> P. aeruginosa flat slab, cell density 12 mg/cm^3, bulk O2 = 6 mg/L: ~77 um.
-        !> Typical range for aerobic biofilms: 50-200 um.
-        !> Biofilms > 100-200 um commonly have anoxic interior.
-        !>
-        !> Ref: Stewart (2003) J. Bacteriol. 185:1485
-        !> Ref: de Beer et al. (1993) — O2 microelectrode studies
-        real(kind=8) :: o2_penetration_depth                                    !< O2 penetration depth [m] (typ. 50e-6 to 200e-6)
-        
-        !> \brief External mass transfer boundary layer thickness [m]
-        !> \details Thickness of the liquid film at the biofilm-bulk interface
-        !> through which diffusion dominates substrate transport.
-        !> Range: 10-300 um (depends on hydrodynamic conditions).
-        !>   - Vigorous mixing/turbulent: ~10 um (minimal resistance)
-        !>   - Laminar flow: up to 300 um (significant resistance)
-        !> The boundary layer thickness determines the Sherwood number:
-        !>   Sh = Lf / L_bl (local mass transfer coefficient)
-        !>
-        !> Ref: Picioreanu (1998) ISME Symposium — multidimensional modelling
-        !> Ref: Stewart (2004) Antimicrob. Agents Chemother. 48:— (model)
-        real(kind=8) :: bl_thickness                                            !< External boundary layer thickness L_bl [m] (typ. 10e-6 to 300e-6)
-        
         !=====================================================================
-        ! 5. STRUCTURAL / MORPHOLOGICAL PROPERTIES
-        !=====================================================================
-        
-        !> \brief Surface roughness coefficient (Ra, dimensionless) [-]
-        !> \details Beyenal-Lewandowski roughness:
-        !>   Ra = sigma_L / L_mean
-        !> where sigma_L = std. dev. of thickness, L_mean = mean thickness.
-        !>   0 = perfectly smooth flat surface
-        !>   1 = very rough surface
-        !> Shewanella oneidensis thin biofilm: Ra = 0.26 +/- 0.05
-        !> Rough finger-shaped protrusions: Ra = 0.41
-        !>
-        !> Ref: Beyenal et al. (2004) Biotechnol. Bioeng. 78:359
-        !> Ref: Liu et al. (2022) AEM 88:e01072-22
-        real(kind=8) :: roughness_Ra                                            !< Roughness coefficient Ra [-] (0 to 1)
-        
-        !> \brief Fractal dimension (2D cross-section) [-]
-        !> \details Characterizes the geometric complexity of the biofilm surface.
-        !> Range 2D: 1.5-2.5.
-        !> Biofilm clusters in porous media (B. subtilis): Df ~ 1.84-1.93.
-        !> High nutrient -> low Df (compact). Low nutrient -> high Df (fingering).
-        !>
-        !> Ref: Picioreanu et al. (1999) Water Sci. Tech. 39:115
-        !> Ref: Doro et al. (2023) ETH Zurich — morphogenesis in porous media
-        real(kind=8) :: fractal_dim_2d                                          !< 2D fractal dimension Df [-] (typ. 1.5-2.5)
-        
-        !> \brief Fractal dimension (3D) [-]
-        !> \details 3D counterpart. Range: 2-3.
-        !>
-        !> Ref: Hermanowicz et al. (2001)
-        real(kind=8) :: fractal_dim_3d                                          !< 3D fractal dimension Df [-] (typ. 2-3)
-        
-        !> \brief Surface coverage fraction [-]
-        !> \details Fraction of substratum surface covered by biofilm.
-        !> Range: 0.10-1.0 (10-100%). Function of attachment time and nutrient level.
-        !>
-        !> Ref: Costerton et al. (2003) J. Clin. Invest. 112:1466
-        real(kind=8) :: surface_coverage                                        !< Surface coverage fraction [-] (0 to 1)
-        
-        !> \brief Specific biovolume per unit area [m^3/m^2 = m]
-        !> \details Biofilm biovolume per substratum area. Measured by CLSM/COMSTAT.
-        !> Range: 0.1-50 um^3/um^2 = 1e-7 to 5e-5 m.
-        !>
-        !> Ref: Renslow et al. (2011) Biotechnol. Bioeng. 108:1383
-        real(kind=8) :: specific_biovolume                                      !< Specific biovolume per area [m^3/m^2]
-        
-        !=====================================================================
-        ! 6. DETACHMENT / EROSION PARAMETERS
+        ! 4. DETACHMENT / EROSION PARAMETERS
         !=====================================================================
         
         !> \brief Continuous erosion rate coefficient [1/s]
@@ -460,7 +342,7 @@ module biofilm_m                                                                
         real(kind=8) :: k_sloughing                                             !< Sloughing coefficient k_sl [1/s]
         
         !=====================================================================
-        ! 7. TEMPERATURE CORRECTION
+        ! 5. TEMPERATURE CORRECTION
         !=====================================================================
         
         !> \brief Reference temperature for kinetic parameters [K]
@@ -492,25 +374,8 @@ module biofilm_m                                                                
         real(kind=8) :: E_activation                                            !< Activation energy E_a [J/mol] (typ. ~65400)
         
         !=====================================================================
-        ! 8. POROSITY-PERMEABILITY COUPLING (BIOCLOGGING)
+        ! 6. POROSITY-PERMEABILITY COUPLING (BIOCLOGGING)
         !=====================================================================
-        
-        !> \brief Initial (clean) porosity of porous medium [-]
-        !> \details Porosity before biofilm colonization.
-        !> Used in Kozeny-Carman type relations to compute permeability reduction:
-        !>   k_b/k_0 = (n_b/n_0)^3 * ((1-n_0)/(1-n_b))^2  (Kozeny-Carman)
-        !> where n_b = n_0 - f_biofilm (biofilm-colonized porosity).
-        !>
-        !> Ref: Hommel et al. (2018) Transport in Porous Media — review
-        real(kind=8) :: porosity_initial                                        !< Initial clean porosity of porous medium n_0 [-]
-        
-        !> \brief Biofilm-affected porosity of porous medium [-]
-        !> \details Reduced porosity due to biofilm occupying pore space:
-        !>   n_b = n_0 - phi_biofilm
-        !> where phi_biofilm is the volumetric fraction of biofilm.
-        !>
-        !> Ref: Thullner et al. (2002) Water Resources Research
-        real(kind=8) :: porosity_biofilm                                        !< Biofilm-affected porosity n_b [-]
         
         !> \brief Minimum porosity (clogging limit) [-]
         !> \details Pores will not be completely blocked; permeability
@@ -528,37 +393,7 @@ module biofilm_m                                                                
         real(kind=8) :: KC_exponent                                             !< Kozeny-Carman exponent m [-] (typ. 3-12)
         
         !=====================================================================
-        ! 9. CHEMICAL ENVIRONMENT (internal gradients)
-        !=====================================================================
-        
-        !> \brief Interior pH range — minimum [-]
-        !> \details Biofilm interior can have significant pH gradients.
-        !> Examples:
-        !>   - Dental plaque (S. mutans): pH 4.0-5.5 (lactic acid)
-        !>   - Aerobic heterotrophic surface: near bulk 7.0-8.0
-        !>   - Deep anoxic zones: can drop to 6.0-6.5
-        !>   - Nitrifying biofilm: local pH decrease (H+ from nitrification)
-        !>
-        !> Ref: Stewart & Franklin (2008) Nat. Rev. Microbiol. 6:199
-        real(kind=8) :: pH_min                                                  !< Minimum interior pH [-] (system-dependent)
-        
-        !> \brief Interior pH range — maximum [-]
-        real(kind=8) :: pH_max                                                  !< Maximum interior pH [-] (system-dependent)
-        
-        !> \brief Redox potential range in aerobic zone [mV vs SHE]
-        !> \details Aerobic zone near surface: +200 to +400 mV.
-        !> Anaerobic core: -100 to -200 mV.
-        !> Chemical heterogeneity leads to simultaneous aerobic respiration,
-        !> denitrification, and sulfate reduction in thick (>200 um) biofilms.
-        !>
-        !> Ref: Stewart & Franklin (2008) Nat. Rev. Microbiol. 6:199
-        real(kind=8) :: Eh_aerobic                                              !< Redox potential aerobic zone [mV vs SHE] (typ. +200 to +400)
-        
-        !> \brief Redox potential in anaerobic core [mV vs SHE]
-        real(kind=8) :: Eh_anaerobic                                            !< Redox potential anaerobic zone [mV vs SHE] (typ. -100 to -200)
-        
-        !=====================================================================
-        ! 10. BIOLOGICAL — MICROORGANISMS
+        ! 7. BIOLOGICAL — MICROORGANISMS
         !=====================================================================
         
         !> \brief Number of microorganism species in the biofilm [-]
@@ -571,22 +406,12 @@ module biofilm_m                                                                
         !> - Stoichiometric coefficients (yield)
         type(microorganism_c), allocatable :: microorganisms(:)                 !< Microorganism species array (size = num_microorgs)
         
-        !> \brief Volumetric fraction of each microorganism within the biomass [-]
-        !> \details Specifies the spatial distribution of different microorganism types.
-        !> Sum should equal 1.0: sum(vol_fracs) = 1.0
-        !> These fractions are relative to the biomass volume, NOT total biofilm.
-        !> Biomass volume = phi_biofilm * (1 - f_w) * V_total
-        real(kind=8), allocatable :: vol_fracs(:)                               !< Microorganism volumetric fractions [-] (size = num_microorgs)
-        
     contains
         !> Lifecycle and computation methods
         procedure :: compute_biomass_decay                                      !< First-order decay rates [M/(L^3*T)]
         procedure :: compute_D_eff                                              !< Effective diffusion from D_aq and ratio [m^2/s]
-        procedure :: compute_permeability_reduction                             !< Kozeny-Carman permeability ratio [-]
         procedure :: compute_eps_production                                     !< Luedeking-Piret EPS production rate [M/(L^3*T)]
         procedure :: correct_rate_for_temperature                               !< Arrhenius/theta correction [-]
-        procedure :: compute_detachment_rate                                    !< Detachment rate [m/s]
-        procedure :: compute_thiele_modulus                                     !< Thiele modulus phi^2 [-]
     end type
     
 contains
@@ -645,39 +470,6 @@ contains
             D_eff = D_aq * this%D_ratio_array(i_solute)
         else
             D_eff = D_aq * this%D_e_ratio
-        end if
-    end function
-    
-    !=========================================================================
-    ! KOZENY-CARMAN PERMEABILITY REDUCTION
-    !=========================================================================
-    
-    !> \brief Compute relative permeability reduction due to bioclogging
-    !> \details Generalized Kozeny-Carman for bioclogging:
-    !>   k_b/k_0 = (n_b / n_0)^m
-    !> where n_b = max(porosity_biofilm, porosity_min),
-    !> n_0 = porosity_initial, m = KC_exponent.
-    !>
-    !> Standard Kozeny-Carman (m=3, with specific surface correction):
-    !>   k_b/k_0 = (n_b/n_0)^3 * ((1-n_0)/(1-n_b))^2
-    !>
-    !> Bioclogging models show m = 6-12 may better fit experiments.
-    !>
-    !> \param[in] this Biofilm object
-    !> \return k_ratio Permeability ratio k_b/k_0 [-]
-    !>
-    !> Ref: Hommel et al. (2018) Transport in Porous Media
-    !> Ref: Thullner et al. (2002) Water Resources Research
-    pure real(kind=8) function compute_permeability_reduction(this) result(k_ratio)
-        class(biofilm_c), intent(in) :: this                                    !< Biofilm object
-        real(kind=8) :: n_b                                                     !< Effective biofilm porosity
-        
-        n_b = max(this%porosity_biofilm, this%porosity_min)
-        
-        if (this%porosity_initial > 0d0) then
-            k_ratio = (n_b / this%porosity_initial) ** this%KC_exponent
-        else
-            k_ratio = 1d0
         end if
     end function
     
@@ -749,82 +541,6 @@ contains
         else
             ! No temperature correction
             k_T = k_ref
-        end if
-    end function
-    
-    !=========================================================================
-    ! DETACHMENT RATE
-    !=========================================================================
-    
-    !> \brief Compute total detachment rate [m/s]
-    !> \details Combines continuous erosion and sloughing:
-    !>   r_det = k_det * Lf                                    (erosion)
-    !>         + k_sl * max(0, Lf - Lf_max)                    (sloughing)
-    !>         + k_det_shear * tau^gamma * Lf                   (shear-dependent, optional)
-    !>
-    !> The result is the velocity at which the biofilm surface recedes [m/s].
-    !> Thickness evolution: dLf/dt = u(Lf) - r_det
-    !> where u(Lf) is the expansion velocity from growth.
-    !>
-    !> \param[in] this Biofilm object
-    !> \param[in] tau Wall shear stress [Pa] (optional; for shear-dependent term)
-    !> \return r_det Total detachment rate [m/s]
-    !>
-    !> Ref: Wanner & Gujer (1986) Biotechnol. Bioeng. 28:314
-    !> Ref: Abbas et al. (2012) Math. Biosci. Eng. 9:215
-    pure real(kind=8) function compute_detachment_rate(this, tau) result(r_det)
-        class(biofilm_c), intent(in) :: this                                    !< Biofilm object
-        real(kind=8), intent(in), optional :: tau                               !< Wall shear stress [Pa]
-        
-        ! Continuous erosion: r = k_det * Lf
-        r_det = this%k_det * this%thickness
-        
-        ! Sloughing: r = k_sl * max(0, Lf - Lf_max)
-        if (this%thickness > this%thickness_max .and. this%k_sloughing > 0d0) then
-            r_det = r_det + this%k_sloughing * (this%thickness - this%thickness_max)
-        end if
-        
-        ! Shear-dependent: r = delta * tau^gamma * Lf
-        if (present(tau) .and. this%k_det_shear > 0d0) then
-            r_det = r_det + this%k_det_shear * (tau ** this%det_shear_exponent) * this%thickness
-        end if
-    end function
-    
-    !=========================================================================
-    ! THIELE MODULUS
-    !=========================================================================
-    
-    !> \brief Compute the Thiele modulus (phi^2) for the biofilm
-    !> \details Dimensionless number indicating diffusion vs. reaction limitation:
-    !>   phi^2 = mu_max * X * Lf^2 / (D_eff * S_bulk * Y)
-    !>
-    !> Interpretation:
-    !>   - Low phi^2 (metabolic limitation): compact, smooth, homogeneous biofilm
-    !>   - High phi^2 (diffusion limitation): rough, porous, channeled biofilm
-    !>
-    !> This determines biofilm morphology (Picioreanu 1998).
-    !>
-    !> \param[in] this Biofilm object
-    !> \param[in] mu_max Maximum specific growth rate [1/s]
-    !> \param[in] X Biomass density [M/L^3]
-    !> \param[in] D_eff Effective diffusion coefficient [m^2/s]
-    !> \param[in] S_bulk Bulk substrate concentration [M/L^3]
-    !> \param[in] Y Yield coefficient [-]
-    !> \return phi2 Thiele modulus phi^2 [-]
-    !>
-    !> Ref: Picioreanu et al. (1998) Biotechnol. Bioeng. 57:718
-    pure real(kind=8) function compute_thiele_modulus(this, mu_max, X, D_eff, S_bulk, Y) result(phi2)
-        class(biofilm_c), intent(in) :: this                                    !< Biofilm object
-        real(kind=8), intent(in) :: mu_max                                      !< Max specific growth rate [1/s]
-        real(kind=8), intent(in) :: X                                           !< Biomass density [M/L^3]
-        real(kind=8), intent(in) :: D_eff                                       !< Effective diffusion [m^2/s]
-        real(kind=8), intent(in) :: S_bulk                                      !< Bulk substrate concentration [M/L^3]
-        real(kind=8), intent(in) :: Y                                           !< Yield coefficient [-]
-        
-        if (D_eff > 0d0 .and. S_bulk > 0d0 .and. Y > 0d0) then
-            phi2 = mu_max * X * this%thickness**2 / (D_eff * S_bulk * Y)
-        else
-            phi2 = 0d0
         end if
     end function
     

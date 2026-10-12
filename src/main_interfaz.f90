@@ -5,8 +5,9 @@
 !>          loads the chemical system, writes initial/external water type
 !>          component concentrations, and runs a single reactive mixing iteration
 !>          for the given time step. Kinetics in the equilibrium+kinetic
-!>          interfaces are integrated implicitly (theta=0.5 Crank-Nicolson) with
-!>          an explicit-Euler fallback; the kinetic-only interface uses explicit Euler.
+!>          interfaces are integrated implicitly (theta=1 backward Euler, since the
+!>          initial state has zero kinetic rates) with an explicit-Euler fallback;
+!>          the kinetic-only interface uses explicit Euler.
 program main_interfaz
     !> Import chemistry container type and the five reactive-mixing interface procedures:
     !>   - interfaz_esp_arch              : kinetic-only (no equilibrium reactions).

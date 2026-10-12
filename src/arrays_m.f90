@@ -1398,48 +1398,28 @@ subroutine QR_Householder(A,Q,R)
     end do
 end subroutine QR_Householder
 
-        function compute_mix_ratios_R_opt4(this) result(mix_ratios_R)
+        function compute_mix_ratios_R_opt4(this,mix_indices) result(mix_ratios_R)
             !> \brief Computes the mixing ratios for reaction amounts in next time step at computation targets (option 4 estimation downstream waters)
             !> \details
-            !>   - Computes mixing ratios for reaction amounts in next time step at computation targets
-            !>   - Option 4: sums contributions from computation target and downstream waters
-            !>   - Assumes mixing ratios already sorted in current, upstream, downstream order
-            !>   - Efficient computation using pre-stored mixing ratios structure
-            !> \param[in] this Mixing ratios array object
+            !>   - Option 4: sums the reaction mixing ratios of the computation target and its downstream waters
+            !>   - The reaction mixing ratios (this) share the layout of the mixing water indices
+            !>     ([self, upstream..., downstream...], externals included with a zero reaction ratio),
+            !>     so the downstream block starts after the num_up upstream entries stored in
+            !>     mix_indices%cols(i)%col_1(dim-1)
+            !> \param[in] this Reaction mixing ratios array object
+            !> \param[in] mix_indices Mixing water indices array object (same layout as this)
             implicit none
-            class(real_array_c), intent(in) :: this !> mixing ratios array object
-            !integer(kind=4), intent(in) :: i !> theta parameter
-            !class(int_array_c), intent(in) :: mix_target_waters_indices !> mixing target waters indices
+            class(real_array_c), intent(in) :: this !> reaction mixing ratios array object
+            class(int_array_c), intent(in) :: mix_indices !> mixing water indices array object
             real(kind=8), allocatable :: mix_ratios_R(:) !> new mixing ratios
             
-            integer(kind=4) :: j,i,num_up,num_down,n_targets,dim
-            real(kind=8) :: sum
+            integer(kind=4) :: i,num_up
 
             allocate(mix_ratios_R(this%num_cols))
-
-            ! dim=size(mix_target_waters_indices) !> dimension of mixing waters indices
-
-            ! num_down=mix_target_waters_indices(dim) !> number of downstream waters
-            ! num_up=mix_target_waters_indices(dim-1) !> number of upstream waters
-        !     !mix_ratio_R=0d0
-            
-        !     !allocate(mix_ratios_R(this%num_cols))
-        !     !n_targets=this%spatial_discr%Num_targets
-        !     !> Mixing ratios for reaction amounts in next time step at computation targets
             do i=1,this%num_cols
-                sum=this%cols(i)%col_1(1) !> computation target contribution
-                !> loop over downstream waters
-                ! do j=1,mix_target_waters_indices%cols(i)%col_1(mix_target_waters_indices%cols(i)%dim) !> number of downstream waters
-                !     num_up=mix_target_waters_indices%cols(i)%col_1(&
-                !         mix_target_waters_indices%cols(i)%dim-1) !> number of upstream waters
-                !     sum=sum+this%cols(i)%col_1(1+num_up+j) !> we update sum with downstream waters
-                ! end do
-                do j=1,this%cols(i)%dim-i
-                    sum=sum+this%cols(i)%col_1(i+j) !> we update sum with downstream waters
-                end do
-                mix_ratios_R(i)=sum !> final mixing ratio for target i
+                num_up=mix_indices%cols(i)%col_1(mix_indices%cols(i)%dim-1) !> number of upstream waters (externals included)
+                mix_ratios_R(i)=this%cols(i)%col_1(1)+sum(this%cols(i)%col_1(2+num_up:this%cols(i)%dim)) !> self + downstream waters
             end do
-            !mix_ratios_R=mix_ratios_R*theta !> multiply by theta parameter
         end function compute_mix_ratios_R_opt4
         
         function fill_pentadiag_mat(this, Nx) result(M)

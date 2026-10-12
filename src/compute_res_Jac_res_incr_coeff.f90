@@ -87,6 +87,7 @@ subroutine compute_res_Jac_res_incr_coeff(this,c2,indices_icon,n_icon,indices_co
         call this%set_conc_prim_species(c1_pert) !> Update primary species concentrations in aqueous chemistry object to perturbed values [M/L³]
         !> Compute perturbed secondary concentrations from perturbed primary concentrations
         call this%compute_c2_from_c1_Picard(c1_pert,c2,c2_pert,niter,CV_flag) !> Use Picard iteration to compute secondary aqueous species concentrations from perturbed c₁ (initial guess from c2) [M/L³]
+        if (.not. CV_flag) error stop "compute_res_Jac_res_incr_coeff: Picard speciation did not converge at the perturbed point"
         !call this%compute_activities() !> Commented out: computation of all activities (aqueous, minerals, gases) from concentrations
         !call this%compute_pH() !> Commented out: computation of pH = -log₁₀(aH⁺) from hydrogen ion activity
         !call this%compute_salinity() !> Commented out: computation of salinity from ionic composition
@@ -97,8 +98,7 @@ subroutine compute_res_Jac_res_incr_coeff(this,c2,indices_icon,n_icon,indices_co
     end do !> End loop over primary species
     call this%set_conc_prim_species(c1) !> Restore unperturbed primary species concentrations in aqueous chemistry object [M/L³]
     call this%set_conc_sec_aq_species(c2(1:this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species)) !> Restore unperturbed secondary aqueous species concentrations (extract aqueous species from full c2 array) [M/L³]
-    call this%compute_ionic_strength() !> Recompute ionic strength I = 0.5·Σ(cᵢ·zᵢ²) using restored unperturbed concentrations [M/L³]
-    call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs) !> Recompute log₁₀(activity coefficients) for aqueous species using restored ionic strength and activity coefficient model parameters [-]
+    call this%compute_log_act_coeffs_aq_chem() !> Recompute ionic strength I = 0.5·Σ(mᵢ·zᵢ²) and log₁₀(activity coefficients) from the restored unperturbed molalities (mapped to this water's species order) [-]
     call this%compute_activities_aq() !> Recompute aqueous species activities aᵢ = γᵢ·cᵢ using restored concentrations and activity coefficients (CHAPUZA - workaround) [M/L³]
     call this%compute_log_act_coeff_wat() !> Recompute log₁₀(activity coefficient) for water using restored state [-]
 end subroutine !> End of compute_res_Jac_res_incr_coeff subroutine

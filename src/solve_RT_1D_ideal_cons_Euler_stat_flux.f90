@@ -42,11 +42,13 @@
 !> \date November 2025
 subroutine solve_RT_ideal_cons_Euler_stat_flux_1D(this,dir,root)
     use RT_m, only: RT_1D_transient_c, RT_1D_stat_c, RT_c !< Import 1D reactive transport classes
+    use chemistry_m, only: write_out_step_vars !< Shared per-output-step writer (conc/react_rate/vol_fract)
     use aqueous_chemistry_m, only: aqueous_chemistry_c, & !< Import aqueous chemistry class
         reactive_mixing_iter_EE_eq_kin_ideal, reactive_mixing_iter_EE_kin, & !< Euler explicit solvers with lumping
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, mixing_iter_comp_ideal, & !< Implicit solvers for kinetic-only and equilibrium-only systems
-        compute_r_tilde_impl_opt1, compute_r_tilde_impl_opt2, compute_c_mix, &
-        compute_r_tilde_impl_opt3, compute_r_tilde_impl_opt4 !< Utility functions for mixing calculations
+        compute_r_tilde_impl_opt1_idx, compute_r_tilde_impl_opt2_idx, compute_c_mix_by_zones_cons, compute_c_mix_global_cons, &
+        compute_r_tilde_impl_opt3_idx, compute_r_tilde_impl_opt4_idx, compute_c_hat_patankar !< Utility functions for mixing calculations
+    use arrays_m, only: int_array_c
     implicit none !< Enforce explicit variable declarations for type safety
 !> @name Arguments
 !> @{
@@ -102,8 +104,15 @@ subroutine solve_RT_ideal_cons_Euler_stat_flux_1D(this,dir,root)
     real(kind=8), allocatable :: lambdas_R(:) !< Mixed kinetic reaction rates for current cell [mol/L/s]
     REAL(KIND=8), allocatable :: c_hat(:) !< Concentrations from previous time step (before mixing) [mol/L]
     REAL(KIND=8), allocatable :: c_mix(:) !< Concentrations from previous time step (before mixing) [mol/L]
+    REAL(KIND=8), allocatable :: c_tilde(:) !< Conservative part of c_mix (no reaction rates) [mol/L]
     REAL(KIND=8), allocatable :: conc_nc(:) !< Variable activity species concentrations (solution vector) [mol/L]
     REAL(KIND=8), allocatable :: r_tilde(:) !< Variable activity species concentrations (solution vector) [mol/L]
+    !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
+    integer(kind=4) :: iunit_mb                   !< mass-balance output file unit
+    integer(kind=4) :: idx_ref                    !< reference target-water index (species names/dimension)
+    integer(kind=4) :: n_v_ref                    !< reference number of variable-activity species
+    real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
+    real(kind=8), allocatable :: mb_lhs_c(:), mb_transp_c(:), mb_react_c(:) !< per-cell terms
 !> @}
 !> @name Chemistry State Objects
 !> @{
@@ -122,10 +131,21 @@ subroutine solve_RT_ideal_cons_Euler_stat_flux_1D(this,dir,root)
     !> Procedure pointer for reactive mixing solver (selected at runtime based on chemical system)
     procedure(reactive_mixing_iter_EI_kin_anal_ideal_opt2), pointer :: p_solver=>null() !< Pointer to reactive mixing iteration solver
     !> Procedure pointer for kinetic rate mixing (selected based on integration method)
-    procedure(compute_r_tilde_impl_opt1), pointer :: p_r_tilde=>null() !< Pointer to kinetic rate mixing function
+    procedure(compute_r_tilde_impl_opt4_idx), pointer :: p_r_tilde=>null() !< Pointer to index-based kinetic rate mixing function
+    procedure(compute_c_mix_by_zones_cons), pointer :: p_mixer
+!> @}
+!> @name By-reactive-zone previous-step map (rebuilt each time step)
+!> @{
+    type(int_array_c) :: wat_indices_zones !< cols(jz)%col_1 = global target-water indices in old reaction zone jz
+    integer(kind=4) :: num_rz !< number of old reaction zones (set by link_target_waters_old_reaction_zones)
 !> @}
 !> @section init_section Initialization
 !> Initialize target waters for time stepping
+    if (this%chemistry%mix_by_zones_flag) then
+        p_mixer => compute_c_mix_by_zones_cons
+    else
+        p_mixer => compute_c_mix_global_cons
+    end if
     allocate(waters_old(this%chemistry%num_waters)) !< Allocate array for old target waters
     !allocate(waters_old_old(this%chemistry%num_waters)) !< Allocate array for old old target waters
     n_eq=0 !< Initialize total number of equilibrium reactions
@@ -145,11 +165,17 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
     k_flux=1 !< Initialize flux change counter (for time-varying velocity fields) [-]
     kk=2 !< Initialize output time step counter (start at 2, as 1 is initial condition) [-]
     ii=1 !< Initialize output target water counter (start at first output location) [-]
-    !< Set final output time step to total number of time steps (workaround for output timing)
-    this%chemistry%chem_out_options%time_steps(this%chemistry%chem_out_options%num_time_steps)=this%transport%time_discr%Num_time
     unit=7 !< Assign Fortran I/O unit number for output file (arbitrary choice) [-]
     !< Open output file for formatted sequential writing
-    open(unit,file=dir//root//'.output',form="formatted",access="sequential",status="unknown")
+    block
+        character(len=:), allocatable :: rtag
+        if (this%chemistry%lump_flag) then
+            rtag = '_Euler_lumped'
+        else
+            rtag = '_Euler_consistent'
+        end if
+        open(unit,file=dir//trim(root)//rtag//'_output.out',form="formatted",access="sequential",status="unknown")
+    end block
 !> @section solver_select Solver Selection
 !> Select reactive mixing subroutine based on:
 !> - Chemical system type (equilibrium/kinetic/both)
@@ -211,17 +237,17 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
             !< Select estimation option for kinetic-only system
             if (this%chemistry%r_down_opt==1) then !< Option 1: Use previous time step values
                 !mix_ind=2 !< Mix all waters except current
-                p_r_tilde=>compute_r_tilde_impl_opt1 !< Assign implicit rate mixing function with previous step values
+                p_r_tilde=>compute_r_tilde_impl_opt1_idx !< Assign index-based rate mixing (closest-upstream downstream estimate)
                 !p_solver=>reactive_mixing_iter_EI_kin_anal_ideal_opt2 !< Assign implicit kinetic solver with lumping
                 !mix_ind=1
                 !compute_r_tilde=>compute_r_tilde_impl_opt1_bis !< Assign implicit rate mixing function with previous step values
                 !p_solver=>reactive_mixing_iter_EI_kin_anal_ideal_opt2_bis !< Assign implicit kinetic solver with lumping
             else if (this%chemistry%r_down_opt==2) then !< Option 2: Reaction rate averaging
-                !compute_r_tilde=>compute_r_tilde_impl_opt2 !< Assign implicit rate mixing function with reaction rate averaging
+                p_r_tilde=>compute_r_tilde_impl_opt2_idx !< Assign index-based rate mixing (first-derivative downstream estimate)
             else if (this%chemistry%r_down_opt==3) then !< Option 3: No estimation (zero downstream rate)
-                !compute_r_tilde=>compute_r_tilde_impl_opt3 !< Assign implicit rate mixing function with zero downstream rate
+                p_r_tilde=>compute_r_tilde_impl_opt3_idx !< Assign index-based rate mixing (second-derivative downstream estimate)
             else if (this%chemistry%r_down_opt==4) then !< Option 4: Extrapolation based on upstream rates
-                p_r_tilde=>compute_r_tilde_impl_opt4 !< Assign implicit rate mixing function with extrapolation
+                p_r_tilde=>compute_r_tilde_impl_opt4_idx !< Assign index-based rate mixing (Eulerian consistent, current-cell solid/gas)
                 !p_solver=>reactive_mixing_iter_EI_kin_anal_ideal_opt2 !< Assign implicit kinetic solver with lumping
             else
                 error stop "Downstream reaction rate estimation option not implemented yet" !< Unsupported option
@@ -262,24 +288,31 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
         call this%chemistry%waters(i)%set_solid_chemistry_old() !< Copy current kinetic rates to old
     end do
     !allocate(mix_waters(this%chemistry%num_waters))
-    !> @section output_header Write Output File Header
-    !> Write species names as column headers in output file
-    write(unit,"(2x,'Species :',5x,*(A15))") (this%chemistry%chem_syst%aq_phase%aq_species(&
-        this%chemistry%chem_out_options%ind_aq_species(j))%name, & !< Species name for column j
-        j=1,this%chemistry%chem_out_options%num_aq_species) !< Loop over species to output
+    !> @section output_header Output headers/blocks are written per step by write_out_step_vars (honours chem_out_options%vars)
+        !> Domain-integrated mass balance: reference cell (homogeneous reactive zone) + output file
+        idx_ref=this%chemistry%tar_wat_indices(1)
+        n_v_ref=this%chemistry%waters(idx_ref)%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species
+        allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
+        open(newunit=iunit_mb, file=dir//root//'_Euler_consistent_mass_balance.out', status='replace', action='write')
+        write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
+        write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
         !> @section time_loop Main Time Loop
         !> Loop over all time steps to solve reactive transport
+        !> Write initial state (t=0) before the first time step, honouring chem_out_options%vars
+        if (this%chemistry%chem_out_options%time_steps(1)==0) then
+            call write_out_step_vars(this%chemistry, unit, 0d0)
+        end if
         do k=1,this%transport%time_discr%Num_time !< Loop from time step 1 to final time step
             Delta_t=this%transport%time_discr%get_Delta_t(k) !< Get time step size for step k [s]
             time=time+Delta_t !< Advance simulation time [s]
-            !> Write time to output file if at output time step
-            if (k==this%chemistry%chem_out_options%time_steps(kk)) then !< Check if current step is output step
-               write(unit,"(/,2x,'t = ',*(ES15.5),/)") time !< Write current time to file [s]
-            end if
+            !> Reset the domain-integrated mass-balance accumulators for this time step
+            mb_lhs=0d0
+            mb_transp=0d0
+            mb_react=0d0
             !> @subsection update_old Update Previous Time Step Values
             !> Shift time levels: current → old, old → old_old for multistep methods
             do i=1,this%chemistry%num_target_waters !< Loop over domain target waters only (not boundaries)
-                call this%target_waters(i)%update_old_attributes()
+                call this%target_waters(i)%update_attributes() !< Shift all old attributes
                 ! call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%update_conc_old() !< Shift aqueous concentrations
                 ! call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%update_conc_old() !< Shift solid concentrations
                 ! call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%update_rk_old() !< Shift aqueous kinetic rates
@@ -287,6 +320,11 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                 ! call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%update_solid_chemistry_old() !< Shift aqueous concentrations (old_old)
                 ! call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%update_indices_rk_old() !< Shift solid concentrations (old_old)
             end do
+
+            ! Build the target-water-indices-per-old-reaction-zone map used by the by-zone
+            ! previous-time-step contribution to r_tilde (rebuilt each step from solid_chemistry_old).
+            call this%chemistry%link_target_waters_old_reaction_zones(num_rz, wat_indices_zones)
+
             !call this%move_particles_stat_flux(k) !< Displace particles based on stationary flux field
             !call this%introduce_particle(k) !< Add new particles entering domain at time step k
             !> @subsection target_loop Target Waters Loop (Spatial Domain)
@@ -327,66 +365,35 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                 
                 !> @subsubsection transport_mix Transport Mixing Step
                 !> Compute mixed concentrations after advective-dispersive transport
-                !c_mix=waters_old(this%chemistry%tar_wat_indices(i))%get_conc_nc() !< Initialize with old concentrations [mol/L]
-                num_mix_loc=this%transport%mix_conc_indices%cols(i)%dim-3
-                allocate(conc_old_mix(size(this%chemistry%waters(this%transport%mix_conc_indices%cols(i)%col_1(1))%conc_old), num_mix_loc))
-                allocate(ind_aq_sp_mix(size(this%chemistry%waters(this%transport%mix_conc_indices%cols(i)%col_1(1))%indices_aq_species), num_mix_loc))
-                do j_mix=1,num_mix_loc
-                    conc_old_mix(:,j_mix)=this%chemistry%waters(this%transport%mix_conc_indices%cols(i)%col_1(j_mix+1))%conc_old
-                    ind_aq_sp_mix(:,j_mix)=this%chemistry%waters(this%transport%mix_conc_indices%cols(i)%col_1(j_mix+1))%indices_aq_species
-                end do
-                call compute_c_mix(this%chemistry%waters(this%transport%mix_conc_indices%cols(i)%col_1(1)),&
-                    conc_old_mix,ind_aq_sp_mix,&
-                    this%transport%mixing_ratios_conc%cols(i)%col_1,& !< Mixing ratios from transport [-]
-                    c_mix) !< Output: mixed aqueous concentrations
-                deallocate(conc_old_mix,ind_aq_sp_mix)
-                !call mix_waters(1)%copy_aq_chem(this%chemistry%waters(&
-                !    this%transport%mix_conc_indices%cols(&
-                !    i)%col_1(1))) !< First mixing water is current target water
-                ! do m=1,this%chemistry%num_target_waters !< Loop over mixing waters
-                !     call mix_waters(m)%copy_aq_chem(this%chemistry%waters(&
-                !         this%transport%mix_react_indices%cols(ind_non_can_vec(i))%col_1(m)))
-                ! end do
-                ! mix_waters=this%chemistry%get_mix_waters_r_tilde_Lagr(&
-                !     this%chemistry%tar_wat_indices(i),&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%col_1(1:&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%dim-2),&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%col_1(&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%dim-1),&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%col_1(&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%dim)) !< Get mixing waters for current target water
-                ! call this%transport%reorder_mixing_ratios(&
-                !     this%transport%mixing_ratios_R_init%cols(ind_non_can_vec(i))%col_1,&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%col_1(&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%dim-1),&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%col_1(&
-                !     this%transport%mix_react_indices%cols(ind_non_can_vec(i))%dim),&
-                !     lambdas_R_init) !< Reorder mixing ratios for computing r_tilde
-                !print *, this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%reactive_zone%speciation_alg%comp_mat
-                !print *, this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1
-                call p_r_tilde(this%chemistry%waters(&
-                    this%transport%mix_react_indices%cols(i)%col_1(&
-                    2:this%transport%mix_react_indices%cols(i)%dim-2)),& !< Compute mixed reaction rates for current cell
+                ! Page-4 two-stage per-reactive-zone consistent mix (within-zone speciation + cross-zone
+                ! aqueous mixing); externals folded in stage 3. Uses conc_old (previous-step Eulerian state).
+                ! The reaction mixing ratios share the concentration stencil (0 for the external waters).
+                call p_mixer(this%chemistry%waters, this%chemistry%zone_waters(i,:), &
+                    this%transport%mix_conc_indices%cols(i)%col_1(1:this%transport%mix_conc_indices%cols(i)%dim-2), &
+                    this%transport%mixing_ratios_conc%cols(i)%col_1(1:this%transport%mix_conc_indices%cols(i)%dim-2), &
+                    this%transport%mixing_ratios_R%cols(i)%col_1(1:this%transport%mix_conc_indices%cols(i)%dim-2), &
+                    this%chemistry%wat_indices_zones, this%chemistry%ext_waters_indices, Delta_t, &
+                    this%transport%time_discr%theta_r, c_mix, c_tilde, .true.)
+                call p_r_tilde(this%chemistry%waters, &
+                    this%transport%mix_conc_indices%cols(i)%col_1(&
+                    2:this%transport%mix_conc_indices%cols(i)%dim-2),& !< whole waters array + mixing-water index list (no vector-subscript gather)
                     this%chemistry%waters(this%chemistry%tar_wat_indices(i)&
                     )%solid_chemistry%reactive_zone%ind_var_act_species,&
-                    this%chemistry%waters(this%chemistry%tar_wat_indices(i)&
-                    )%solid_chemistry%reactive_zone%speciation_alg%comp_mat,&
-                    this%transport%mixing_ratios_R_init%cols(i)%col_1(&
+                    this%transport%mixing_ratios_R%cols(i)%col_1(&
                     2:),&
-                    this%transport%mix_react_indices%cols(i)%col_1(&
-                    this%transport%mix_react_indices%cols(i)%dim-1),&
-                    this%transport%mix_react_indices%cols(i)%col_1(&
-                    this%transport%mix_react_indices%cols(i)%dim),&
-                    this%transport%time_discr%theta_r,Delta_t,r_tilde) !< Time weighting factor [-]
-                !> Lumping of reaction mixing ratios for stability
-                call this%chemistry%waters(&
-                    this%chemistry%tar_wat_indices(i))%modify_mix_ratios_reacts(&
-                    this%transport%mixing_ratios_R_init%cols(i)%col_1,c_mix,&
-                    Delta_t,r_tilde,&
-                    this%transport%mixing_ratios_R%cols(i)%col_1,num_lump)
-                this%chemistry%num_lump=this%chemistry%num_lump+num_lump !> we update number of lumpings
-                c_hat=c_mix+Delta_t*r_tilde !< Update mixed concentrations with reaction contributions
-                conc_nc=this%chemistry%waters(this%chemistry%tar_wat_indices(i))%get_conc_nc() !< Reorder mixed concentrations to original ordering
+                    this%transport%mix_conc_indices%cols(i)%col_1(&
+                    this%transport%mix_conc_indices%cols(i)%dim-1),&
+                    this%transport%mix_conc_indices%cols(i)%col_1(&
+                    this%transport%mix_conc_indices%cols(i)%dim),&
+                    this%transport%time_discr%theta_r,r_tilde, & !< Time weighting factor [-]
+                    curr_water_idx=this%chemistry%tar_wat_indices(i), & !< current (self) cell index
+                    lambda_self=this%transport%mixing_ratios_R%cols(i)%col_1(1), & !< self reaction ratio (Eulerian by-reactive-zone previous-step term)
+                    wat_indices_zones=wat_indices_zones) !< target-water indices grouped by old reactive zone
+                !> Positivity-preserving reactive update (classical Patankar): keeps c_hat >= 0
+                !> WITHOUT modifying the reaction mixing ratios (dispersion unchanged).
+                call compute_c_hat_patankar(c_mix,Delta_t,r_tilde,c_hat) !< positivity-preserving mixed+reacted concentrations
+                call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%set_conc_hat(c_hat) !< aqueous blocks of the Newton speciation input, for the conc_hat attribute
+                conc_nc=this%chemistry%waters(this%chemistry%tar_wat_indices(i))%get_conc_var_act() !< Reorder mixed concentrations to original ordering
                 !> @subsubsection reactive_mix Reactive Mixing Iteration
                 !> Solve coupled transport-reaction system using selected solver
                 !print *, this%chemistry%tar_wat_indices(i)
@@ -402,9 +409,8 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                     !lambdas_R=lambdas_R*theta !< Scale by time weighting factor
                 end if
                 call p_solver(this%chemistry%waters(this%chemistry%tar_wat_indices(i)),& !< Current target water
-                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%get_c1_old_old(),& !< Primary species from k-1 [mol/L]
+                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%get_conc_old_old_prim_new_rz(),& !< Primary species from k-1 [mol/L]
                     c_hat,& !< Mixed concentrations from transport
-                    this%transport%mixing_ratios_R%cols(i)%col_1(1),& !< Mixing ratio for current target water [-]
                     lambda_R,& !< Reaction mixing ratio for current target water [-]
                     Delta_t,& !< Time step size
                     this%transport%time_discr%theta_r,& !< Time weighting factor [-]
@@ -414,38 +420,44 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                 !> @subsubsection update_derived Update Derived Quantities
                 !> Compute pH, salinity, and ionic strength from updated concentrations
                 call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%compute_pH()
+                call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%compute_saturation_mins() !< saturation indices of all minerals at the end-of-step state
                 call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%compute_salinity()
                 call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%compute_ionic_strength()
                 
                 !> @subsubsection accum_rk Accumulate Reaction Amounts
                 !> Update cumulative aqueous reaction amounts for mass balance tracking
-                this%chemistry%waters(this%chemistry%tar_wat_indices(i))%Rk_accum=&
-                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%Rk_accum+&
-                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%Rk !< Accumulate aqueous reaction amounts [mol]
+                this%chemistry%waters(this%chemistry%tar_wat_indices(i))%cum_rxn_amnt_kin=&
+                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%cum_rxn_amnt_kin+&
+                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%rxn_amnt_kin !< Accumulate aqueous reaction amounts [mol]
                 !> Update cumulative solid reaction amounts for mass balance tracking
-                this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%Rk_accum=&
-                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%Rk_accum+&
-                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%Rk !< Accumulate solid reaction amounts [mol]
+                this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%cum_rxn_amnt_kin=&
+                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%cum_rxn_amnt_kin+&
+                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%rxn_amnt_kin !< Accumulate solid reaction amounts [mol]
                 
                 !> @subsubsection eq_rates Equilibrium Reaction Rates
                 !> Compute equilibrium reaction rates from mass balance equation
-                if (this%chemistry%waters(this%chemistry%tar_wat_indices(i)&
-                    )%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0 .and. &
-                    this%chemistry%waters(this%chemistry%tar_wat_indices(i))%indices_rk%num_cols>0) &
-                        then !< Both equilibrium and kinetic reactions present
-                    call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%compute_Re_kin(&
-                        c_hat(n_p+1:n_v),& !< Secondary species concentrations
-                        Delta_t,& !< Time step size
-                        lambda_R) !< Time weighting factor [-]
-                else if (this%chemistry%waters(&
+                if (this%chemistry%waters(&
                     this%chemistry%tar_wat_indices(i))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0) &
-                        then !< Only equilibrium reactions present
+                        then !< Equilibrium reactions present (kinetic term handled inside, zero if none)
                     call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%compute_Re(&
-                        c_hat(1:n_v),& !< Secondary species concentrations
+                        c_hat(1:n_v),& !< All variable activity species concentrations
                         Delta_t,& !< Time step size
-                        lambda_R) !< Time weighting factor [-]
+                        lambda_R,& !< Reaction mixing ratio [-]
+                        this%transport%time_discr%theta_r) !< Time weighting factor [-]
                 end if
-                
+
+
+                !> Domain-integrated mass-balance contribution of this cell
+                call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%get_react_mix_mass_bal_terms( &
+                    c_mix(1:n_v), c_hat(1:n_v), lambda_R, Delta_t, this%transport%time_discr%theta_r, &
+                    mb_lhs_c, mb_transp_c, mb_react_c)
+                if (size(mb_lhs_c) == n_v_ref) then
+                    mb_lhs = mb_lhs + mb_lhs_c
+                    mb_transp = mb_transp + mb_transp_c
+                    mb_react = mb_react + mb_react_c
+                end if
+                deallocate(mb_lhs_c, mb_transp_c, mb_react_c)
+
                 !> @subsubsection solid_chem Solid Chemistry State Variablestate Variables
                 !> Update mineral state if minerals present in reactive zone
                 if (associated(this%chemistry%waters(&
@@ -457,7 +469,7 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                     !> Compute concentrations of minerals from volumetric fractions
                     call this%chemistry%waters(&
                         this%chemistry%tar_wat_indices(i))%solid_chemistry%compute_conc_minerals_iter(&
-                        Delta_t) !< Time step size [s]
+                        Delta_t,lambda_R) !< Time step size [s], reaction mixing ratio
                 end if
                 
                 !> @subsubsection gas_species_chem Gas Chemistry State Variables
@@ -469,8 +481,8 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                         this%chemistry%tar_wat_indices(i))%gas_chemistry%compute_conc_gases_iter(&
                         Delta_t,& !< Time step size [s]
                         this%chemistry%waters(this%chemistry%tar_wat_indices(i))%volume,& !< Water volume [L]
-                        [this%chemistry%waters(this%chemistry%tar_wat_indices(i))%re_mean,& !< Mean eq. rates [mol/L/s]
-                        this%chemistry%waters(this%chemistry%tar_wat_indices(i))%rk_mean]) !< Mean kin. rates [mol/L/s]
+                        [this%chemistry%waters(this%chemistry%tar_wat_indices(i))%rxn_rate_eq,& !< Mean eq. rates [mol/L/s]
+                        this%chemistry%waters(this%chemistry%tar_wat_indices(i))%rxn_rate_kin_avg]) !< Mean kin. rates [mol/L/s]
                     !> Compute volume of gas phase from concentrations
                     call this%chemistry%waters(&
                         this%chemistry%tar_wat_indices(i))%gas_chemistry%compute_vol_gas_species_conc()
@@ -478,30 +490,10 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                     call this%chemistry%waters(&
                         this%chemistry%tar_wat_indices(i))%gas_chemistry%compute_log_act_coeffs_gases()
                 end if
-                !> @subsubsection write_output Write Chemistry Output
-                !> Write concentrations to file if at output time step and output location
-                if ((k==this%chemistry%chem_out_options%time_steps(kk)) .and. & !< At output time step
-                    (this%chemistry%tar_wat_indices(i)==& !< At output location
-                    this%chemistry%chem_out_options%ind_waters(ii))) then
-                    !> Write target water index and species concentrations
-                    write(unit,"(I10,*(ES15.5))") this%chemistry%chem_out_options%ind_waters(ii), & !< Target water index
-                        (this%chemistry%waters(this%chemistry%tar_wat_indices(i))%concentrations(&
-                        this%chemistry%waters(this%chemistry%tar_wat_indices(i))%indices_aq_species(&
-                        this%chemistry%chem_out_options%ind_aq_species(j))), & !< Species conc [mol/L]
-                        j=1,this%chemistry%chem_out_options%num_aq_species) !< Loop over output species
-                    !> Update output counters
-                    if (ii<this%chemistry%chem_out_options%num_waters) then !< More locations at this time
-                        ii=ii+1 !< Advance to next output location
-                    else if (kk<this%chemistry%chem_out_options%num_time_steps) then !< More time steps to output
-                        kk=kk+1 !< Advance to next output time step
-                        ii=1 !< Reset location counter
-                    else !< All output complete
-                        continue !< Exit target waters loop
-                    end if
-                end if
                 !> @subsubsection cleanup_dealloc Cleanup and Deallocation
                 deallocate(c_hat) !< Free transport mixing array
                 deallocate(c_mix) !< Free mixed concentrations array
+                deallocate(c_tilde) !< Free conservative mixed concentrations array
                 deallocate(conc_comp) !< Free concentration array
                 deallocate(conc_nc) !< Free upstream kinetic rates array
                 deallocate(r_tilde) !< Free reaction rates array
@@ -567,13 +559,21 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
             !> Shift time levels for next time step: k+1 → k, k → k-1
             !waters_old_old=waters_old !< Store k for k-1 (previous previous)
             waters_old=this%chemistry%waters !< Store k+1 for k (previous)
+            !> Domain-integrated mass balance for this time step (per variable-activity species)
+            call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+            !> Write chemistry output honouring chem_out_options%vars (conc / react_rate / vol_fract)
+            if (k==this%chemistry%chem_out_options%time_steps(kk)) then
+                call write_out_step_vars(this%chemistry, unit, time)
+                if (kk<this%chemistry%chem_out_options%num_time_steps) kk=kk+1
+            end if
         end do !< End main time loop
     
     !> Close output file
     close(unit)
+    close(iunit_mb)
+    deallocate(mb_lhs, mb_transp, mb_react)
     end select !< End type selection
     !deallocate(lambdas_R) !< Free lumped kinetic rates array
     !deallocate(mix_waters) !< Free mixing waters array
     deallocate(waters_old) !< Free old target waters array
-    print *, "Number of lumpings performed: ", this%chemistry%num_lump
 end subroutine !< End solve_RT_ideal_cons_Euler_stat_flux_1D

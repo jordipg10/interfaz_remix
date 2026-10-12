@@ -15,7 +15,7 @@
 !> \param[in] num_time_loc         Total number of time steps in the simulation
 !> \param[in] num_non_can_vec      Number of non-canonical target waters (spatial points)
 !> \param[in] cpu_total_elapsed    Total subroutine elapsed CPU time [s]
-!> \param[in] cpu_update_old_total Accumulated CPU time for update_old_attributes [s]
+!> \param[in] cpu_update_old_total Accumulated CPU time for updating old attributes [s]
 !> \param[in] cpu_displace_total   Accumulated CPU time for particle displacement [s]
 !> \param[in] cpu_data_prep_total  Accumulated CPU time for data preparation [s]
 !> \param[in] cpu_mix_total        Accumulated CPU time for conservative mixing [s]
@@ -28,6 +28,7 @@
 !> \param[in] cpu_snapshot_total   Accumulated CPU time for write_chemistry snapshots [s]
 !> \param[in] dir                  Directory path for output files
 !> \param[in] root                 Root name for output files
+!> \param[in] title                Name of the calling solver routine (used in the report header)
 !> \author Jordi Petchamé-Guerrero
 !> \date April 2026
 !> \ingroup profiling
@@ -39,7 +40,7 @@ subroutine write_cpu_profile_report( &
         cpu_data_prep_total, cpu_mix_total, cpu_getters_total, &
         cpu_solver_total, cpu_derived_total, cpu_eq_rates_total, &
         cpu_solid_gas_total, cpu_output_total, cpu_snapshot_total, &
-        dir, root)
+        dir, root, title)
     implicit none
 !> Arguments
     integer(kind=4), intent(in) :: iunit_cpu            !< Fortran I/O unit for the profiling file
@@ -47,7 +48,7 @@ subroutine write_cpu_profile_report( &
     integer(kind=4), intent(in) :: num_time_loc         !< Total number of time steps
     integer(kind=4), intent(in) :: num_non_can_vec      !< Number of non-canonical target waters
     real(kind=8), intent(in) :: cpu_total_elapsed       !< Total subroutine elapsed CPU time [s]
-    real(kind=8), intent(in) :: cpu_update_old_total    !< CPU time for update_old_attributes [s]
+    real(kind=8), intent(in) :: cpu_update_old_total    !< CPU time for updating old attributes [s]
     real(kind=8), intent(in) :: cpu_displace_total      !< CPU time for particle displacement [s]
     real(kind=8), intent(in) :: cpu_data_prep_total     !< CPU time for data preparation [s]
     real(kind=8), intent(in) :: cpu_mix_total           !< CPU time for conservative mixing [s]
@@ -60,6 +61,7 @@ subroutine write_cpu_profile_report( &
     real(kind=8), intent(in) :: cpu_snapshot_total      !< CPU time for write_chemistry snapshots [s]
     character(len=*), intent(in) :: dir                 !< Directory path for output files
     character(len=*), intent(in) :: root                !< Root name for output files
+    character(len=*), intent(in) :: title               !< Name of the calling solver routine (report header)
 !> Local variables
     real(kind=8) :: profile_scale           !< Scaling factor for sampled profiling totals
     real(kind=8) :: s_data_prep             !< Scaled data preparation time [s]
@@ -98,7 +100,7 @@ subroutine write_cpu_profile_report( &
 
     !> Write profiling report header
     write(iunit_cpu,*) '====================================================================================='
-    write(iunit_cpu,*) '  CPU TIME PROFILING: solve_RT_ideal_lump_Lagr_stat_flux_2D'
+    write(iunit_cpu,*) '  CPU TIME PROFILING: '//trim(title)
     write(iunit_cpu,*) '  (Inner-loop phases sampled from ', num_profiled_steps, ' of ', num_time_loc, ' time steps)'
     write(iunit_cpu,*) '====================================================================================='
 

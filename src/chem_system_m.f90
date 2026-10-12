@@ -1,7 +1,18 @@
 !> @file chem_system_m.f90
-!> @brief Chemical system module containing the chemical theory (like a "chemistry book")
-!> @details This module defines the chemical system class which contains species, phases, and reactions.
-!> It provides the fundamental chemical framework including aqueous species, minerals, gases, and reactions.
+!> @brief Chemical system module: the chemical "theory" of a simulation (like a chemistry book).
+!> @details This module defines the chem_system_c class, the immutable description of the
+!>          chemistry available to a simulation. It collects:
+!>          - Species: aqueous species (aq_phase), minerals, gases (gas_phase) and surface
+!>            complexes (cation exchange zone), split into constant- and variable-activity sets.
+!>          - Reactions: equilibrium reactions (aqueous complexation, redox, mineral
+!>            dissolution/precipitation, gas exchange, cation exchange) and kinetic reactions
+!>            (mineral, linear and redox/Monod kinetics).
+!>          - Stoichiometric matrices (S, S_s, S_g, Se, ...) and the data needed for the
+!>            speciation algebra used by the equilibrium solver.
+!>          Unlike chemistry_c (which holds the spatial state), chem_system_c is shared by all
+!>          target waters and does not change during the simulation.
+!> @author Jordi Petchamé-Guerrero
+!> @date 2025
 module chem_system_m
     use eq_reaction_m, only: eq_reaction_c !< Import equilibrium reaction classes
     use kin_reaction_m, only: kin_reaction_c, kin_reaction_poly_c !< Import kinetic reaction classes
@@ -49,10 +60,10 @@ module chem_system_m
         real(kind=8), allocatable :: stoich_mat_gas(:,:) !< Gas stoichiometric matrix (S_g)
         real(kind=8), allocatable :: Se(:,:) !< Equilibrium stoichiometric matrix
         real(kind=8), allocatable :: Sk(:,:) !< Kinetic stoichiometric matrix
-        integer(kind=4) :: num_eq_reacts_init=0 !< Total number of equilibrium reactions at initialization
+        !integer(kind=4) :: num_eq_reacts_init=0 !< Total number of equilibrium reactions at initialization
         integer(kind=4) :: num_aq_eq_reacts=0 !< Number of aqueous equilibrium reactions
         integer(kind=4) :: num_aq_kin_reacts=0 !< Number of aqueous kinetic reactions
-        integer(kind=4) :: num_redox_eq_reacts=0 !< Number of redox aqueous equilibrium reactions
+        integer(kind=4) :: num_redox_eq_reacts=0 !< Number of redox equilibrium reactions
         type(eq_reaction_c), allocatable :: eq_reacts(:) !< Array of equilibrium reactions
         type(speciation_algebra_s) :: speciation_alg !< Speciation algebra object for solving chemical equilibria
         integer(kind=4) :: num_kin_reacts=0 !< Total number of kinetic reactions
@@ -122,10 +133,12 @@ module chem_system_m
         procedure :: read_chem_system_CHEPROO !< Read chemical system from CHEPROO format
         procedure :: read_chem_system_PFLOTRAN !< Read chemical system from PFLOTRAN format
         procedure :: read_master25 !< Read chemical system from master25 database
+        procedure :: read_hanford !< Read chemical system from the hanford.dat multi-temperature database
         procedure :: read_kinetics_DB !< Read kinetics database
         procedure :: read_Monod_DB !< Read Monod (redox) reactions
-        procedure :: read_PHREEQC_DB_opc1 !< Read PHREEQC database option 1
-        procedure :: read_PHREEQC_DB_opc2 !< Read PHREEQC database option 2
+        !procedure :: read_PHREEQC_DB_opc1 !< Read PHREEQC database option 1
+        !procedure :: read_PHREEQC_DB_opc2 !< Read PHREEQC database option 2
+        procedure :: read_PHREEQC_DB !< Read a full PHREEQC database (e.g. phreeqc.dat) into an already-defined chemical system
     !> @}
     !> @name Query Methods
     !> @brief Query procedures to check system contents
@@ -151,7 +164,6 @@ module chem_system_m
     !> @name Utility Methods
     !> @brief Utility and helper procedures
     !> @{
-        procedure :: compute_eq_csts_gases_cst_act !< Compute equilibrium constants for constant activity gases
         procedure :: change_spec_alg_chem_syst !< Change speciation algebra settings
     !> @}
     end type
@@ -207,6 +219,18 @@ module chem_system_m
             integer(kind=4), intent(in) :: unit !< File unit number
         end subroutine
         
+        !> @brief Read chemical system from the hanford.dat multi-temperature thermodynamic database
+        !> @param[in,out] this Chemical system object
+        !> @param[in] path Path to hanford.dat database directory
+        !> @param[in] unit File unit number for reading
+        subroutine read_hanford(this,path,unit)
+            import chem_system_c
+            implicit none
+            class(chem_system_c) :: this !< Chemical system object
+            character(len=*), intent(in) :: path !< Path to database file
+            integer(kind=4), intent(in) :: unit !< File unit number
+        end subroutine
+        
         !> @brief Read kinetics database containing kinetic reaction data
         !> @param[in,out] this Chemical system object
         !> @param[in] path Path to kinetics database file
@@ -245,6 +269,18 @@ module chem_system_m
         !> @param[in,out] this Chemical system object
         !> @param[in] filename Name of PHREEQC database file
         subroutine read_PHREEQC_DB_opc2(this,filename)
+            import chem_system_c
+            implicit none
+            class(chem_system_c) :: this !< Chemical system object
+            character(len=*), intent(in) :: filename !< Database filename
+        end subroutine
+        
+        !> @brief Read a full PHREEQC database (e.g. phreeqc.dat) into an already-defined chemical system
+        !> @details Assumes the species are already known; fills reaction thermodynamics
+        !> (log_k, delta_h, -analytic coefficients) and species/phase properties by name.
+        !> @param[in,out] this Chemical system object (species must be defined on entry)
+        !> @param[in] filename Full path to the PHREEQC database file
+        subroutine read_PHREEQC_DB(this,filename)
             import chem_system_c
             implicit none
             class(chem_system_c) :: this !< Chemical system object
@@ -964,7 +1000,7 @@ module chem_system_m
 
             allocate(K(this%speciation_alg%num_eq_reactions)) !> Allocate array for all eq reactions
             do i=1,this%speciation_alg%num_eq_reactions !> Loop through all equilibrium reactions
-                K(i)=this%eq_reacts(i)%eq_cst !> Extract equilibrium constant
+                K(i)=this%eq_reacts(i)%eq_cst_ref !> Extract equilibrium constant
             end do
         end function
 !> @brief Separator line for REARRANGE methods section
@@ -1221,24 +1257,30 @@ module chem_system_m
                 !         num_cst_act_sp=num_cst_act_sp+1
                 !     end if
                 ! end do
+                !> Constant-activity species occupy the slots AFTER all variable-activity
+                !> species (water was already placed at num_var_act_species+1). Use an absolute
+                !> offset num_sp = num_var_act_sp + num_cst_act_sp (matching the no-exchange
+                !> branch); using num_cst_act_sp directly omitted the var-act offset and
+                !> overwrote variable-activity species (dropping the last surface complex).
+                num_sp=num_var_act_sp+num_cst_act_sp
                 do i=1,this%num_minerals_kin_cst_act
-                    call this%species(num_cst_act_sp+i)%copy_species(this%minerals(this%num_minerals_kin_var_act+i)%mineral)
+                    call this%species(num_sp+i)%copy_species(this%minerals(this%num_minerals_kin_var_act+i)%mineral)
                 end do
-                num_cst_act_sp=num_cst_act_sp+this%num_minerals_kin_cst_act
+                num_sp=num_sp+this%num_minerals_kin_cst_act
                 do i=1,this%num_minerals_eq_cst_act
-                    call this%species(num_cst_act_sp+i)%copy_species(this%minerals(this%num_minerals_kin+&
+                    call this%species(num_sp+i)%copy_species(this%minerals(this%num_minerals_kin+&
                         this%num_minerals_eq_var_act+i)%mineral)
                 end do
-                num_cst_act_sp=num_cst_act_sp+this%num_minerals_eq_cst_act
+                num_sp=num_sp+this%num_minerals_eq_cst_act
                 do i=1,this%gas_phase%num_gases_kin_cst_act
-                    call this%species(num_cst_act_sp+i)%copy_species(this%gas_phase%gases(&
+                    call this%species(num_sp+i)%copy_species(this%gas_phase%gases(&
                         this%gas_phase%num_gases_eq+i))
                 end do
-                num_cst_act_sp=num_cst_act_sp+this%gas_phase%num_gases_kin_cst_act
+                num_sp=num_sp+this%gas_phase%num_gases_kin_cst_act
                 do i=1,this%gas_phase%num_gases_eq_cst_act
-                    call this%species(num_cst_act_sp+i)%copy_species(this%gas_phase%gases(i))
+                    call this%species(num_sp+i)%copy_species(this%gas_phase%gases(i))
                 end do
-                num_cst_act_sp=num_cst_act_sp+this%gas_phase%num_gases_eq_cst_act
+                num_sp=num_sp+this%gas_phase%num_gases_eq_cst_act
             else if (this%speciation_alg%flag_comp .eqv. .true. .and. this%speciation_alg%flag_cat_exch .eqv. .false.) then
                 !<      primary aqueous species
                 !<      kinetic variable activity minerals
@@ -1445,27 +1487,7 @@ module chem_system_m
             class(chem_system_c) :: this !< Chemical system object
             this%num_reacts=this%speciation_alg%num_eq_reactions+this%num_kin_reacts !> Sum equilibrium and kinetic reactions
         end subroutine
-        
-        !> @brief Compute equilibrium constants for constant activity gases
-        !> @details Modifies eq_cst values by dividing by partial pressures for gases with constant activity
-        !> @param[in,out] this Chemical system object
-        !> @param[in] part_pressures Partial pressures of constant activity equilibrium gases
-        !> @param[in] ind_gases_eq_cst_act Indices of constant activity equilibrium gases in gas phase
-        subroutine compute_eq_csts_gases_cst_act(this,part_pressures,ind_gases_eq_cst_act)
-            class(chem_system_c) :: this !< Chemical system object
-            real(kind=8), intent(in) :: part_pressures(:) !> partial pressures of gases in equilibrium with constant activity
-            integer(kind=4), intent(in) :: ind_gases_eq_cst_act(:) !> indices of gases in equilibrium with constant activity in gas phase object
-            
-            integer(kind=4) :: i !> Loop counter
-            do i=1,size(ind_gases_eq_cst_act) !> Loop through constant activity gases
-                this%eq_reacts(this%num_aq_eq_reacts+&
-                    this%num_minerals_eq+ind_gases_eq_cst_act(i))%eq_cst = this%eq_reacts(&
-                    this%num_aq_eq_reacts+this%num_minerals_eq + & 
-                    ind_gases_eq_cst_act(i))%eq_cst/part_pressures(ind_gases_eq_cst_act(i)) !> Divide eq_cst by partial pressure
-            end do
-        end subroutine
-        
-   
+
 
     !> @brief Change speciation algebra to exclude constant activity species from component matrix
     !> @details Modifies the chemical system to use a different speciation algebra formulation.
@@ -1482,7 +1504,6 @@ module chem_system_m
 
     logical :: flag_Se !> flag for computing Se matrix
     integer(kind=4), allocatable :: cols(:) !> columns of Se matrix to be swapped
-    real(kind=8), allocatable :: eq_csts(:) !> equilibrium constants of equilibrium reactions
     type(species_c), allocatable :: aux_Species(:) !> old species array before rearrangement
     integer(kind=4) :: i !> loop counter
 
@@ -1494,11 +1515,21 @@ module chem_system_m
     aux_Species=this%species !> Save old species ordering before rearrangement
     call this%rearrange_species() !> Rearrange species array based on new formulation
     call this%compute_z2() !> Recompute squared charges
-    call this%rearrange_eq_reacts() !> Rearrange equilibrium reactions
-    !> Rearrange species indices in all reactions
+    !> Update the species indices stored in every equilibrium reaction BEFORE
+    !> reclassifying/reordering them with rearrange_eq_reacts. rearrange_eq_reacts
+    !> reads this%species(eq_reacts%species_ind(last))%cst_act_flag to decide the
+    !> constant- vs variable-activity section of each reaction; at this point
+    !> this%species has already been reordered by rearrange_species, so the indices
+    !> must be remapped to the NEW ordering first. Otherwise stale old-order indices
+    !> misclassify a constant-activity mineral as variable-activity, and when
+    !> num_minerals_eq_var_act=0 (its section coincides with the cation-exchange
+    !> section) the mineral overwrites an exchange slot, leaving the first slot with
+    !> an unallocated species_ind -> out-of-bounds / SIGSEGV in set_stoich_mat.
     do i=1,this%speciation_alg%num_eq_reactions
         call this%eq_reacts(i)%rearrange_species_indices(aux_Species,this%species)
     end do
+    call this%rearrange_eq_reacts() !> Rearrange equilibrium reactions (indices already remapped)
+    !> Rearrange species indices in the remaining (kinetic) reactions
     do i=1,this%num_minerals_kin
         call this%min_kin_reacts(i)%rearrange_species_indices(aux_Species,this%species)
     end do
@@ -1511,8 +1542,7 @@ module chem_system_m
     call this%set_stoich_mat() !> Rebuild global stoichiometric matrix
     call this%set_stoich_mat_gas() !> Rebuild gas stoichiometric matrix
     call this%set_stoich_mat_sol() !> Rebuild solid stoichiometric matrix
-    eq_csts=this%get_eq_csts() !> Get equilibrium constants
-    call this%speciation_alg%compute_arrays(this%Se,eq_csts,tol,flag_Se,cols) !> Recompute speciation algebra arrays with new formulation
+    call this%speciation_alg%compute_arrays(this%Se,tol,flag_Se,cols) !> Recompute speciation algebra arrays (structural only; equilibrium constants handled per-water)
     end subroutine
 
     subroutine is_redox_kin_reaction_in_chem_syst(this,react_name,flag,react_ind)

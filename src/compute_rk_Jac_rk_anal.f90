@@ -10,6 +10,14 @@
 !> 2. Redox kinetic reactions: Monod-type rate laws with multiple reactant dependencies
 !> 3. Mineral kinetic reactions: Surface-area normalized rate laws with saturation state dependencies
 !>
+!> @par Optional Time Scaling (mineral kinetics only):
+!> When the kin_mineral_c%time_scaling flag is enabled, the mineral reaction rate (and its
+!> Jacobian) is multiplied by an additional time-dependent factor:
+!> \f[ r_{scaled} = r \cdot a_{aq} \cdot t^{-m} \f]
+!> where a_aq is the activity of the last aqueous species involved in the reaction, t is the
+!> current simulation time, and m is the exponential factor of the time scaling
+!> (kin_mineral_params_c%m). This models a power-law decay of reactivity with elapsed time.
+!>
 !> @par Mathematical Context:
 !> For each reaction k, computes:
 !> - rk_new(k): Reaction rate [mol/(L·s)]
@@ -43,7 +51,13 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
     integer(kind=4) :: num_rk !< Running counter for total number of kinetic reactions processed so far
     integer(kind=4), allocatable :: indices(:) !< Unused allocatable array (legacy code, can be removed)
     real(kind=8), allocatable :: drk_dc_loc(:) !< Local temporary array for storing Jacobian derivatives of single reaction
+    real(kind=8), allocatable :: react_surfaces(:) !< Reactive surfaces of the mineral zone on the molality basis [m² mineral/kg H₂O] (compute_react_surfaces_per_kg_water)
     real(kind=8) :: saturation !< Saturation state Ω = IAP/K_eq for mineral dissolution/precipitation kinetics
+    real(kind=8) :: rk_unscaled !< Unscaled mineral rate r (before time scaling), needed for the exact scaled Jacobian
+    real(kind=8) :: a_last !< Activity a_L of the last aqueous species in the reaction (time-scaling factor)
+    real(kind=8) :: gamma_last !< Activity coefficient γ_L of the last aqueous species (da_L/dc_L = γ_L)
+    real(kind=8) :: t_pow !< Time-scaling power t^(-m)
+    integer(kind=4) :: ind_aq_last !< Index (into activities/log_act_coeffs) of the last aqueous species L
 
     !> Debug: print entry information
     ! print *, "DEBUG compute_rk_Jac_rk_anal: entering"
@@ -81,8 +95,8 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
         call this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%compute_rk_lin(&
             this%concentrations(this%indices_aq_species(&
             this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%indices_aq_phase(1))),& !< Reactant concentration [mol/L]
-            this%rk_new(i)) !< Store rate in chemistry object
-        rk_new(i)=this%rk_new(i) !< Copy rate to output array (temporary workaround - "chapuza")
+            this%rxn_rate_kin(i)) !< Store rate in chemistry object
+        rk_new(i)=this%rxn_rate_kin(i) !< Copy rate to output array (temporary workaround - "chapuza")
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   rk_new(", i, ") =", rk_new(i)
         !> BUGFIX: previously this routine called allocate(drk_dc_loc(1)) above and
         !> then allocate(...) again here without deallocating, which is a runtime
@@ -140,9 +154,9 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
         !> object state and the Newton residual stay consistent.
         if (abs(rk_new(num_rk))<this%solid_chemistry%reactive_zone%CV_params%abs_tol**2) then
             rk_new(num_rk)      = this%solid_chemistry%reactive_zone%CV_params%abs_tol**2
-            this%rk_new(num_rk) = rk_new(num_rk)
+            this%rxn_rate_kin(num_rk) = rk_new(num_rk)
         else
-            this%rk_new(num_rk) = rk_new(num_rk)
+            this%rxn_rate_kin(num_rk) = rk_new(num_rk)
         end if
         drk_dc(num_rk,this%indices_rk%cols(num_rk)%col_1)=drk_dc_loc !< Store Jacobian in sparse format (temporary workaround - "chapuza")
         deallocate(drk_dc_loc) !< Free temporary memory for next iteration
@@ -162,6 +176,7 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
 !> Ω = IAP/K_eq where IAP = ion activity product, K_eq = equilibrium constant
 !> Ω < 1: undersaturated (dissolution), Ω > 1: supersaturated (precipitation)
     ! print *, "DEBUG compute_rk_Jac_rk_anal: --- BEGIN mineral kinetic reactions ---"
+    call this%compute_react_surfaces_per_kg_water(react_surfaces) !> Convert reactive surfaces from m2/L water to m2/kg H2O (molality basis)
     do i=1,this%solid_chemistry%mineral_zone%num_minerals_kin !< Loop over all kinetic minerals in the system
         ! print *, "DEBUG compute_rk_Jac_rk_anal: mineral reaction i =", i, " num_rk+i =", num_rk+i
         ! print *, "DEBUG compute_rk_Jac_rk_anal:   ind_min_chem_syst(i) =", &
@@ -190,29 +205,29 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
             this%activities(this%indices_aq_species(this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%cat_indices)),& !< Activities of catalyzing ions (e.g., H+ for acid dissolution)
             saturation,& !< Saturation state Ω = IAP/K_eq [-]
-            this%solid_chemistry%react_surfaces(i),& !< Reactive surface area [m²/L]
+            react_surfaces(i),& !< Reactive surface area [m²/kg H2O]
             this%solid_chemistry%temp,& !< Temperature [K] for Arrhenius temperature dependence
-            this%solid_chemistry%rk_new(i)) !< Output: mineral reaction rate [mol/(L·s)]
-        ! print *, "DEBUG compute_rk_Jac_rk_anal:   rk_mineral (before time scaling) =", this%solid_chemistry%rk_new(i)
-        !> chapuza Paulina
-        ! print *, this%activities(this%indices_aq_species(&
-        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
-        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))
-        ! this%solid_chemistry%rk_new(i)=this%solid_chemistry%rk_new(i)*this%activities(this%indices_aq_species(&
-        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
-        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))*&
-        !     this%solid_chemistry%time**(&
-        !     -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m) !< Update rate in chemistry object (temporary workaround - "chapuza")
-        rk_new(num_rk+i)=this%solid_chemistry%rk_new(i) !< Copy rate to output array (temporary workaround - "chapuza")
-        ! print *, "DEBUG compute_rk_Jac_rk_anal:   rk_new(", num_rk+i, ") (after time scaling) =", rk_new(num_rk+i)
-        ! print *, "DEBUG compute_rk_Jac_rk_anal:   time =", this%solid_chemistry%time, &
-        !     " m =", this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m
+            this%solid_chemistry%rxn_rate_kin(i)) !< Output: mineral reaction rate [mol/(L·s)]
+        !> Capture the unscaled rate r before any time scaling: it is required to form the
+        !> exact Jacobian of the scaling factor (the r·γ_L term in d(r·a_L·t^-m)/dc_L).
+        rk_unscaled=this%solid_chemistry%rxn_rate_kin(i)
+        !> Optional explicit time scaling of the mineral reaction rate (user-selectable
+        !> via the time_scaling attribute of kin_mineral_c).
+        !> Multiplies the rate by a_aq * t^(-m), where a_aq is the activity of the last
+        !> aqueous species in the reaction, t is the current time, and m is the exponential
+        !> factor of the time scaling (params%m).
+        if (this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%time_scaling) then
+            this%solid_chemistry%rxn_rate_kin(i)=this%solid_chemistry%rxn_rate_kin(i)*this%activities(this%indices_aq_species(&
+                this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+                this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
+                this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+                this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))*&
+                this%solid_chemistry%time**(&
+                -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+                this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m) !< Update rate in chemistry object (temporary workaround - "chapuza")
+        end if
+        rk_new(num_rk+i)=this%solid_chemistry%rxn_rate_kin(i) !< Copy rate to output array (temporary workaround - "chapuza")
         !> Compute Jacobian matrix drk/dc for mineral reaction
         !> Derivatives account for:
         !>   1. Effect of concentration on activity (via activity coefficients)
@@ -223,41 +238,46 @@ subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
             this%concentrations(this%indices_aq_species(&
             this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase)),& !< Concentrations of all species involved [mol/L]
-            this%activities(this%indices_aq_species(&
-            this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase)),& !< Activities of all species involved [-]
             this%log_act_coeffs(this%indices_aq_species(&
             this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase)),& !< Log activity coefficients log(γ) for chain rule derivatives
             this%activities(this%indices_aq_species(this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%cat_indices)),& !< Activities of catalyzing ions
+            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%cat_indices)),& !< Activities of catalyzing ions (for rate law)
             saturation,& !< Saturation state Ω (precomputed above)
-            this%solid_chemistry%react_surfaces(i),& !< Reactive surface area [m²/L]
+            react_surfaces(i),& !< Reactive surface area [m²/kg H2O]
             this%solid_chemistry%temp,& !< Temperature [K]
             drk_dc_loc) !< Output: Jacobian derivatives drk/dc [1/s]
-        ! print *, "DEBUG compute_rk_Jac_rk_anal:   drk_dc_loc (mineral) (before time scaling) =", drk_dc_loc
-        ! drk_dc_loc(1:this%indices_rk%cols(num_rk+i)%dim-1)=drk_dc_loc(1:this%indices_rk%cols(num_rk+i)%dim-1)*&
-        !     this%activities(this%indices_aq_species(&
-        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
-        !     this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))*&
-        !     this%solid_chemistry%time**(&
-        !     -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m)
-        ! drk_dc_loc(this%indices_rk%cols(num_rk+i)%dim)=-this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%k(1)*&
-        !     this%solid_chemistry%time**(&
-        !     -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
-        !     this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m)
-        ! print *, "DEBUG compute_rk_Jac_rk_anal:   drk_dc_loc (mineral) (after time scaling) =", drk_dc_loc
-        ! print *, "DEBUG compute_rk_Jac_rk_anal:   indices_rk (mineral) =", &
-        !     this%indices_rk%cols(num_rk+i)%col_1
+        !> Optional explicit time scaling of the mineral reaction rate Jacobian (user-selectable
+        !> via the time_scaling attribute of kin_mineral_c).
+        !> The scaled rate is r_s = r · a_L · t^(-m), where a_L is the activity of the last aqueous
+        !> species L in the reaction, r is the unscaled rate and m=params%m. Differentiating exactly
+        !> with the product rule (a_L = γ_L·c_L so da_L/dc_L = γ_L, and a_L depends only on c_L):
+        !>   ∂r_s/∂c_l = t^(-m) · a_L · ∂r/∂c_l                         (l ≠ L)
+        !>   ∂r_s/∂c_L = t^(-m) · ( a_L · ∂r/∂c_L + r · γ_L )           (l = L)
+        !> The unscaled ∂r/∂c_l are the values just returned by compute_drk_dc_mineral; the L-th
+        !> entry (column %dim) holds ∂r/∂c_L.
+        if (this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%time_scaling) then
+            associate (min_react => this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+                this%solid_chemistry%mineral_zone%ind_min_chem_syst(i)))
+                !> Index of the last aqueous species L = indices_aq_phase(num_aq_rk)
+                ind_aq_last=this%indices_aq_species(min_react%indices_aq_phase(min_react%num_aq_rk))
+                a_last=this%activities(ind_aq_last)               !< a_L
+                gamma_last=1d1**(this%log_act_coeffs(ind_aq_last)) !< γ_L (log_act_coeffs stores log10(γ))
+                t_pow=this%solid_chemistry%time**(-min_react%params%m) !< t^(-m)
+                !> L-th entry first (uses the still-unscaled ∂r/∂c_L = drk_dc_loc(%dim)):
+                !>   a_L·∂r/∂c_L + r·γ_L
+                drk_dc_loc(this%indices_rk%cols(num_rk+i)%dim)=&
+                    a_last*drk_dc_loc(this%indices_rk%cols(num_rk+i)%dim)+rk_unscaled*gamma_last
+                !> Remaining entries (l ≠ L): multiply ∂r/∂c_l by a_L
+                drk_dc_loc(1:this%indices_rk%cols(num_rk+i)%dim-1)=&
+                    drk_dc_loc(1:this%indices_rk%cols(num_rk+i)%dim-1)*a_last
+                !> Common t^(-m) factor on every entry
+                drk_dc_loc=drk_dc_loc*t_pow
+            end associate
+        end if
         drk_dc(num_rk+i,this%indices_rk%cols(num_rk+i)%col_1)=drk_dc_loc !< Store Jacobian in sparse format (temporary workaround - "chapuza")
-        ! print *, "DEBUG compute_rk_Jac_rk_anal:   drk_dc (mineral) =", drk_dc
         deallocate(drk_dc_loc) !< Free temporary memory for next iteration
     end do !< End of mineral kinetic reactions loop
     num_rk=num_rk+this%solid_chemistry%mineral_zone%num_minerals_kin !< Update total reaction counter with number of mineral reactions
-    ! print *, "DEBUG compute_rk_Jac_rk_anal: --- END mineral kinetic reactions, num_rk =", num_rk
-    ! print *, "DEBUG compute_rk_Jac_rk_anal: completed successfully, total rk_new =", rk_new(1:num_rk)
 end subroutine !< End of compute_rk_Jac_rk_anal subroutine

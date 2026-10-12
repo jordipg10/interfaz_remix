@@ -40,9 +40,9 @@ subroutine compute_rk_mineral(this,act_cat,saturation,react_surf,temp,rk)
     class(kin_mineral_c), intent(in) :: this !> Kinetic mineral object containing rate parameters (k, p, theta, eta, num_par_reacts, num_cat, act_energy) [-]
     real(kind=8), intent(in) :: act_cat(:) !> Activities of catalyser species (dimension = num_cat, e.g., H⁺, OH⁻, ligands) [-]
     real(kind=8), intent(in) :: saturation !> Saturation index: Ω = Q/K_eq (ion activity product divided by equilibrium constant) [-]
-    real(kind=8), intent(in) :: react_surf !> Reactive surface area of the mineral (specific surface area times volume fraction) [m²]
+    real(kind=8), intent(in) :: react_surf !> Reactive surface area of the mineral (specific surface area) [m²/kg_water]
     real(kind=8), intent(in) :: temp !> Temperature (absolute temperature in Kelvin) [K]
-    real(kind=8), intent(out) :: rk !> Kinetic reaction rate (output: positive for precipitation, negative for dissolution) [mol/s]
+    real(kind=8), intent(out) :: rk !> Kinetic reaction rate (output: positive for precipitation, negative for dissolution)
     
     integer(kind=4) :: zeta !> Direction indicator: +1 for precipitation (Ω>1), -1 for dissolution (Ω<1) [-]
     integer(kind=4) :: j !> Loop counter for parallel reaction mechanisms (j = 1 to num_par_reacts) [-]

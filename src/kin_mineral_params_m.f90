@@ -115,12 +115,12 @@ module kin_mineral_params_m
             !> If Ω > supersat_threshold, precipitation rate may be limited or set to zero
             !> Prevents unrealistic precipitation rates at high supersaturation
             !> Typical value: 10-100 (depends on mineral and nucleation kinetics)
-        real(kind=8) :: m                       !< Species travel time through solid portion, used for kinetic rate calculations (size = num_solids)
+        real(kind=8) :: m                       !< Decay rate of the mixing capacity ("tasa de decaimiento de la capacidad de mezcla"); exponential factor of the time scaling used to compute the kinetic rate [-]. Calibrated parameter (obtained by model calibration against data, not from first principles)
     contains
         !> Allocation procedures
         procedure :: allocate_constants !> Allocate rate constants and experimental parameters arrays
         procedure :: allocate_cat_indices !> Allocate catalyser indices array
-        procedure :: set_m                                    !< Associate with spatial target object
+        procedure :: set_m                                    !< Set the mixing-capacity decay rate m
     end type
 
 !> ================================================================================
@@ -268,6 +268,9 @@ module kin_mineral_params_m
         end subroutine
         
         subroutine set_m(this, m_val)
+    !> Set the decay rate of the mixing capacity ("tasa de decaimiento de la capacidad
+    !> de mezcla"), i.e. the exponential factor m of the time scaling used to compute
+    !> the kinetic rate. Must be strictly positive.
     class(kin_mineral_params_c) :: this
     real(kind=8), intent(in) :: m_val
     if (m_val <= 0d0) then

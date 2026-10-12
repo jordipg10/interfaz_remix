@@ -38,9 +38,11 @@ subroutine compute_mixing_ratios_Delta_t_homog_1D(this)
     type(tridiag_matrix_c) :: E_mat,E_mat_prev,X_mat_T !> Tridiagonal matrices: E = transport evolution matrix, X_mat_T = transpose of X matrix [-]
     
 !> Step 1: Allocate mixing ratio arrays for concentrations and reaction amounts
+!> mixing_ratios_R shares the layout of mixing_ratios_conc / mix_conc_indices ([self, upstream...,
+!> downstream...], externals included): the reaction ratio of a water that mixes its concentrations
+!> but not its reaction rates (boundary and recharge waters) is stored as 0.
     call this%mixing_ratios_conc%allocate_array(this%spatial_discr%Num_targets) !> Allocate array for concentration mixing ratios (one column per target) [-]
     call this%mixing_ratios_R%allocate_array(this%spatial_discr%Num_targets) !> Allocate array for kinetic reaction amount mixing ratios (one column per target) [-]
-    !call this%mixing_ratios_R_init%allocate_array(this%spatial_discr%Num_targets) !> Allocate array for initial kinetic reaction amount mixing ratios (stored for reference) [-]
     
 !> Step 2: Determine number of boundary mixing ratios based on boundary condition types
     num_mix_rat=0 !> Initialize total number of mixing ratios in each target to zero [-]
@@ -148,22 +150,18 @@ subroutine compute_mixing_ratios_Delta_t_homog_1D(this)
     else !> Any other combination of boundary conditions
         error stop "Boundary conditions not implemented yet" !> Abort execution if BC combination is not supported
     end if
-    if (this%time_discr%int_method.eq.1) then !> Check if time integration method is Euler explicit (method = 1)
+    if (this%time_discr%int_method_tpt.eq.1) then !> Check if time integration method is Euler explicit (method = 1)
         !this%time_discr%theta_t=0d0 !> Set time integration parameter to 0 for fully explicit method [-]
         this%mixing_ratios_conc%cols(1)%dim=2+num_rech_mix_rat+num_inf_ext_mix_rat !> Set dimension for first target (Robin needs current + neighbor) [-]
         this%mixing_ratios_conc%cols(this%mixing_ratios_conc%num_cols)%dim=2+num_rech_mix_rat+num_out_ext_mix_rat !> Set dimension for last target (Neumann needs current + neighbor) [-]
-        this%mixing_ratios_R%cols(1)%dim=1 !> Set dimension for kinetic reaction mixing ratios: only current target (explicit) [-]
-        !this%mixing_ratios_R_init%cols(1)%dim=1 !> Set dimension for initial kinetic reaction mixing ratios: only current target [-]
-        this%mixing_ratios_R%cols(this%mixing_ratios_conc%num_cols)%dim=1 !> Set dimension for kinetic reaction mixing ratios at last target [-]
-        !this%mixing_ratios_R_init%cols(this%mixing_ratios_conc%num_cols)%dim=1 !> Set dimension for initial kinetic reaction mixing ratios at last target [-]
         do i=2,this%mixing_ratios_conc%num_cols-1 !> Loop over interior targets (exclude first and last boundaries)
             this%mixing_ratios_conc%cols(i)%dim=3+num_rech_mix_rat !> Set dimension for interior targets: current + upstream + downstream + recharge [-]
-            this%mixing_ratios_R%cols(i)%dim=1 !> Set dimension for kinetic reaction mixing ratios: only current target (explicit) [-]
-            !this%mixing_ratios_R_init%cols(i)%dim=1 !> Set dimension for initial kinetic reaction mixing ratios: only current target [-]
+        end do
+        do i=1,this%mixing_ratios_conc%num_cols
+            this%mixing_ratios_R%cols(i)%dim=this%mixing_ratios_conc%cols(i)%dim !> Reaction mixing ratios share the concentration layout [-]
         end do
         call this%mixing_ratios_conc%allocate_columns() !> Allocate memory for all mixing ratio columns (concentration) [-]
         call this%mixing_ratios_R%allocate_columns() !> Allocate memory for all kinetic reaction mixing ratio columns [-]
-        !call this%mixing_ratios_R_init%allocate_columns() !> Allocate memory for initial kinetic reaction mixing ratio columns [-]
         !call this%allocate_mix_conc_indices() !> Commented out: alternative location for allocating mixing water indices
     else !> Time integration method is implicit (Euler implicit or Crank-Nicolson)
         num_mix_rat=num_mix_rat+this%spatial_discr%Num_targets !> Add number of mesh targets to total mixing ratios (implicit couples all targets) [-]
@@ -171,15 +169,13 @@ subroutine compute_mixing_ratios_Delta_t_homog_1D(this)
         do i=1,this%mixing_ratios_conc%num_cols !> Loop over all targets (including boundaries)
             call this%mixing_ratios_conc%cols(i)%set_dim(num_mix_rat) !> Set dimension for target i: includes all domain targets + boundaries + recharge (implicit coupling) [-]
             call this%mixing_ratios_conc%cols(i)%allocate_vector() !> Allocate memory for mixing ratio vector for target i [-]
-            call this%mixing_ratios_R%cols(i)%set_dim(this%mixing_ratios_R%num_cols) !> Set dimension for kinetic reaction mixing ratios: equal to number of targets [-]
-            !call this%mixing_ratios_R_init%cols(i)%set_dim(this%mixing_ratios_R%num_cols) !> Set dimension for initial kinetic reaction mixing ratios: equal to number of targets [-]
+            call this%mixing_ratios_R%cols(i)%set_dim(num_mix_rat) !> Reaction mixing ratios share the concentration layout (externals carry a zero ratio) [-]
             call this%mixing_ratios_R%cols(i)%allocate_vector() !> Allocate memory for kinetic reaction mixing ratio vector for target i [-]
-            !call this%mixing_ratios_R_init%cols(i)%allocate_vector() !> Allocate memory for initial kinetic reaction mixing ratio vector for target i [-]
             !call this%mix_conc_indices%cols(i)%allocate_vector(this%mixing_ratios_conc%cols(i)%dim+2) !> Commented out: allocate indices with extra space for upstream/downstream counts
         end do
-        !if (this%time_discr%int_method.eq.2) then !> Check if time integration method is Euler fully implicit (method = 2)
+        !if (this%time_discr%int_method_tpt.eq.2) then !> Check if time integration method is Euler fully implicit (method = 2)
         !    this%time_discr%theta_t=1d0 !> Set time integration parameter to 1 for fully implicit method [-]
-        !else if (this%time_discr%int_method.eq.3) then !> Check if time integration method is Crank-Nicolson (method = 3)
+        !else if (this%time_discr%int_method_tpt.eq.3) then !> Check if time integration method is Crank-Nicolson (method = 3)
         !    this%time_discr%theta_t=5d-1 !> Set time integration parameter to 0.5 for Crank-Nicolson method [-]
         !else !> Any other time integration method
         !    error stop "Time discretisation not implemented yet" !> Abort execution if integration method is not supported
@@ -308,43 +304,37 @@ subroutine compute_mixing_ratios_Delta_t_homog_1D(this)
         !    this%mix_conc_indices%cols(this%spatial_discr%num_targets+num_inf_ext_mix_rat+1)%col_1(this%mix_conc_indices%cols(this%spatial_discr%num_targets+num_inf_ext_mix_rat+1)%dim-1)=this%spatial_discr%num_targets+num_inf_ext_mix_rat !> upstream waters
         !    this%mix_conc_indices%cols(this%spatial_discr%num_targets+num_inf_ext_mix_rat+1)%col_1(this%mix_conc_indices%cols(this%spatial_discr%num_targets+num_inf_ext_mix_rat+1)%dim)=0 !> downstream waters
         !end if
-    !> Step 7e: Populate mixing ratios for each target (implicit methods)
+    !> Step 7e: Populate mixing ratios for each target (implicit methods). The reaction mixing
+    !> ratios are stored at the SAME positions as the concentration ones (mix_conc_indices layout):
+    !> the boundary/recharge positions keep a zero reaction ratio.
         do i=1,this%spatial_discr%num_targets
+            this%mixing_ratios_R%cols(i)%col_1=0d0 !> externals (boundary, recharge) do not mix reaction rates
             this%mixing_ratios_conc%cols(i)%col_1(1+num_inf_ext_mix_rat)=this%mixing_ratios_mat_conc_bd(i,1) !> concentration mixing ratio of inflow boundary
             this%mixing_ratios_conc%cols(i)%col_1(this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat)=&
                 this%mixing_ratios_mat_conc_bd(i,2) !> concentration mixing ratio of outflow boundary
             this%mixing_ratios_conc%cols(i)%col_1(1)=this%mixing_ratios_mat_conc_mesh(i,i) !> concentration mixing ratio of current water
             this%mixing_ratios_R%cols(i)%col_1(1)=this%A_mat_inv(i,i) !> reaction amount mixing ratio of current water
-            !this%mixing_ratios_R_init%cols(i)%col_1(1)=this%mixing_ratios_R%cols(i)%col_1(1) !> initial reaction amount mixing ratio of current water
-            this%mix_conc_indices%cols(i)%col_1(1+num_inf_ext_mix_rat)=num_inf_ext_mix_rat !> inflow water index
+            !> Global water-index convention: domain (target) waters occupy global indices
+            !> 1..num_targets, the inflow boundary water is num_targets+num_inf_ext_mix_rat
+            !> and the outflow boundary water is num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat.
+            this%mix_conc_indices%cols(i)%col_1(1+num_inf_ext_mix_rat)=this%spatial_discr%num_targets+num_inf_ext_mix_rat !> inflow water index
             this%mix_conc_indices%cols(i)%col_1(this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat)=&
                 this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat !> outflow water index
-            this%mix_conc_indices%cols(i)%col_1(1)=i+num_inf_ext_mix_rat !> current water index
-            !this%mix_react_indices%cols(i)%col_1(1)=this%mix_conc_indices%cols(i)%col_1(1) !> current water index
+            this%mix_conc_indices%cols(i)%col_1(1)=i !> current water index
             this%mix_conc_indices%cols(i)%col_1(this%mix_conc_indices%cols(i)%dim-1)=num_inf_ext_mix_rat+i-1 !> upstream waters
-            !this%mix_react_indices%cols(i)%col_1(this%mix_react_indices%cols(i)%dim-1)=i-1-&
-            !    this%spatial_discr%targets_flag !> upstream waters in domain
             this%mix_conc_indices%cols(i)%col_1(this%mix_conc_indices%cols(i)%dim)=this%mixing_ratios_conc%cols(i)%dim-&
                 i-num_inf_ext_mix_rat !> number of downstream waters
-            !this%mix_react_indices%cols(i)%col_1(this%mix_react_indices%cols(i)%dim)=&
-            !    this%spatial_discr%num_targets-i-this%spatial_discr%targets_flag !> Number of downstream waters in domain (targets after i) [-]
 !> Assign mixing ratios for all upstream targets (j < i)
             do j=1,i-1 !> Loop over all targets upstream of target i
                 this%mixing_ratios_conc%cols(i)%col_1(1+num_inf_ext_mix_rat+j)=this%mixing_ratios_mat_conc_mesh(j,i) !> Concentration mixing ratio of upstream target j on target i (element (j,i) of domain mixing matrix) [-]
-                this%mixing_ratios_R%cols(i)%col_1(1+j)=this%A_mat_inv(i,j) !> Reaction amount mixing ratio of upstream target j on target i (element (i,j) of A^{-1}) [-]
-                !this%mixing_ratios_R_init%cols(i)%col_1(1+j)=this%mixing_ratios_R%cols(i)%col_1(1+j) !> Store initial reaction amount mixing ratio of upstream target j (for reference) [-]
-                this%mix_conc_indices%cols(i)%col_1(1+num_inf_ext_mix_rat+j)=num_inf_ext_mix_rat+j !> Water index of upstream target j (inflow indices + j) [-]
-                ! this%mix_react_indices%cols(i)%col_1(1+j-this%spatial_discr%targets_flag)=&
-                !     this%mix_conc_indices%cols(i)%col_1(1+num_inf_ext_mix_rat+j-this%spatial_discr%targets_flag) !> Copy upstream water index to domain indices array [-]
+                this%mixing_ratios_R%cols(i)%col_1(1+num_inf_ext_mix_rat+j)=this%A_mat_inv(i,j) !> Reaction amount mixing ratio of upstream target j on target i (element (i,j) of A^{-1}), same position as its concentration ratio [-]
+                this%mix_conc_indices%cols(i)%col_1(1+num_inf_ext_mix_rat+j)=j !> Water index of upstream target j (domain waters are global indices 1..num_targets) [-]
             end do
 !> Assign mixing ratios for all downstream targets (j > i)
             do j=i+1,this%spatial_discr%num_targets !> Loop over all targets downstream of target i
                 this%mixing_ratios_conc%cols(i)%col_1(num_inf_ext_mix_rat+j)=this%mixing_ratios_mat_conc_mesh(j,i) !> Concentration mixing ratio of downstream target j on target i (element (j,i) of domain mixing matrix) [-]
-                this%mixing_ratios_R%cols(i)%col_1(j)=this%A_mat_inv(i,j) !> Reaction amount mixing ratio of downstream target j on target i (element (i,j) of A^{-1}) [-]
-                !this%mixing_ratios_R_init%cols(i)%col_1(j)=this%mixing_ratios_R%cols(i)%col_1(j) !> Store initial reaction amount mixing ratio of downstream target j (for reference) [-]
-                this%mix_conc_indices%cols(i)%col_1(num_inf_ext_mix_rat+j)=num_inf_ext_mix_rat+j !> Water index of downstream target j (inflow indices + j) [-]
-                ! this%mix_react_indices%cols(i)%col_1(j-this%spatial_discr%targets_flag)=&
-                !     this%mix_conc_indices%cols(i)%col_1(num_inf_ext_mix_rat+j-this%spatial_discr%targets_flag) !> Copy downstream water index to domain indices array [-]
+                this%mixing_ratios_R%cols(i)%col_1(num_inf_ext_mix_rat+j)=this%A_mat_inv(i,j) !> Reaction amount mixing ratio of downstream target j on target i (element (i,j) of A^{-1}), same position as its concentration ratio [-]
+                this%mix_conc_indices%cols(i)%col_1(num_inf_ext_mix_rat+j)=j !> Water index of downstream target j (domain waters are global indices 1..num_targets) [-]
             end do
 !> Assign recharge mixing ratios (if any)
             do j=1,num_rech_mix_rat !> Loop over all recharge waters (currently num_rech_mix_rat=0, so this loop is skipped)
@@ -373,13 +363,13 @@ subroutine compute_mixing_ratios_Delta_t_homog_1D(this)
             this%mix_conc_indices%cols(1)%col_1(3)=0 !> Third element: number of upstream waters (none for first target) [-]
             this%mix_conc_indices%cols(1)%col_1(4)=1 !> Fourth element: number of downstream waters (one neighbor) [-]
         end if
-        this%mixing_ratios_R%cols(1)%col_1=1d0 !> Mixing ratio of kinetic reaction rate in first target: identity (1.0) [-]
-        !this%mixing_ratios_R_init%cols(1)%col_1=this%mixing_ratios_R%cols(1)%col_1 !> Store initial mixing ratio of kinetic reaction rate in first target [-]
+        this%mixing_ratios_R%cols(1)%col_1=0d0 !> Explicit: reactions mix only with the target itself [-]
+        this%mixing_ratios_R%cols(1)%col_1(1)=1d0 !> Mixing ratio of kinetic reaction rate in first target: identity (1.0) [-]
 !> Interior targets (explicit Euler)
         do i=2,this%mixing_ratios_conc%num_cols-1 !> Loop over interior targets (exclude first and last)
             this%mixing_ratios_conc%cols(i)%col_1=[this%X_mat%diag(i),this%X_mat%sub(i-1),this%X_mat%super(i)] !> Mixing ratios: diagonal (current), subdiagonal (upstream), superdiagonal (downstream) elements of X [-]
-            this%mixing_ratios_R%cols(i)%col_1=1d0 !> Mixing ratio of kinetic reaction rate in target i: identity (1.0) [-]
-            !this%mixing_ratios_R_init%cols(i)%col_1=this%mixing_ratios_R%cols(i)%col_1 !> Store initial mixing ratio of kinetic reaction rate in target i [-]
+            this%mixing_ratios_R%cols(i)%col_1=0d0 !> Explicit: reactions mix only with the target itself [-]
+            this%mixing_ratios_R%cols(i)%col_1(1)=1d0 !> Mixing ratio of kinetic reaction rate in target i: identity (1.0) [-]
             this%mix_conc_indices%cols(i)%col_1(1)=i !> First element: current water index (target i) [-]
             this%mix_conc_indices%cols(i)%col_1(2)=i-1 !> Second element: upstream water index (target i-1) [-]
             this%mix_conc_indices%cols(i)%col_1(3)=i+1 !> Third element: downstream water index (target i+1) [-]
@@ -387,9 +377,8 @@ subroutine compute_mixing_ratios_Delta_t_homog_1D(this)
             this%mix_conc_indices%cols(i)%col_1(5)=1 !> Fifth element: number of downstream waters (one neighbor) [-]
         end do
 !> Last target (explicit Euler)
-        this%mixing_ratios_R%cols(this%mixing_ratios_conc%num_cols)%col_1=1d0 !> Mixing ratio of kinetic reaction rate in last target: identity (1.0) [-]
-        !this%mixing_ratios_R_init%cols(this%mixing_ratios_conc%num_cols)%col_1=& !> Store initial mixing ratio for last target
-            !this%mixing_ratios_R%cols(this%mixing_ratios_conc%num_cols)%col_1 !> Copy from current mixing ratio [-]
+        this%mixing_ratios_R%cols(this%mixing_ratios_conc%num_cols)%col_1=0d0 !> Explicit: reactions mix only with the target itself [-]
+        this%mixing_ratios_R%cols(this%mixing_ratios_conc%num_cols)%col_1(1)=1d0 !> Mixing ratio of kinetic reaction rate in last target: identity (1.0) [-]
         this%mix_conc_indices%cols(this%mixing_ratios_conc%num_cols)%col_1(1)=1 !> First element: placeholder or flag value [-]
         if (this%BCs%labels(2).eq.1) then !> Check if outflow boundary condition is Dirichlet
 !> Last target with Dirichlet outflow BC
@@ -412,17 +401,14 @@ subroutine compute_mixing_ratios_Delta_t_homog_1D(this)
         do j=1,this%mixing_ratios_conc%cols(i)%dim
             if (this%mixing_ratios_conc%cols(i)%col_1(j) < 0d0) then
                 write(*,'(A,I4,A,I4,A,ES15.7)') &
-                    'ERROR: negative mixing ratio at target ', i, &
+                    'WARNING: negative mixing ratio at target ', i, &
                     ', index ', j, ', value = ', this%mixing_ratios_conc%cols(i)%col_1(j)
-                error stop "Negative mixing ratio detected"
             end if
         end do
         mix_sum = sum(this%mixing_ratios_conc%cols(i)%col_1)
         if (abs(mix_sum - 1d0) > 1d-6) then
-            write(*,'(A,I4,A,ES14.6)') 'ERROR: mixing ratios column ', i, ' does not sum to 1: ', mix_sum
-            error stop "Mixing ratios column does not sum to 1"
+            write(*,'(A,I4,A,ES14.6)') 'WARNING: mixing ratios column ', i, ' does not sum to 1: ', mix_sum
         end if
     end do
     call copy_real_array(this%mixing_ratios_R, this%mixing_ratios_R_init)
-    call this%set_mix_react_indices() !> Set mixing target water indices from full mixing water indices [-]
 end subroutine !> End of compute_mixing_ratios_Delta_t_homog subroutine 

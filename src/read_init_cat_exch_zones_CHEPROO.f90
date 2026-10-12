@@ -92,11 +92,18 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
     integer(kind=4) :: k !> general loop counter (unused)
     integer(kind=4) :: ndtype !> total number of surface adsorption zone types
     integer(kind=4) :: idtype !> current adsorption zone type index
-    integer(kind=4) :: num_gas_rz !> number of existing gas reactive zones
+    integer(kind=4) :: num_min_rz !> number of existing (mineral) reactive zones read before the surface zones
     integer(kind=4) :: icon !> constraint icon (unused)
     integer(kind=4) :: num_ads_zones !> counter for adsorption zones processed
     integer(kind=4) :: num_mins_glob !> number of global minerals (unused)
     integer(kind=4) :: num_rz !> total number of reactive zones after combining
+    integer(kind=4) :: min_idx !> index of the mineral zone merged into a cat-exch zone
+    integer(kind=4) :: ns_merge !> number of surface complexes (merge helper)
+    integer(kind=4) :: nmk_merge !> number of kinetic minerals (merge helper)
+    integer(kind=4) :: off_merge !> offset of surface complexes in the combined solid arrays
+    real(kind=8), allocatable :: old_conc(:) !> saved surface-complex concentrations (merge helper)
+    real(kind=8), allocatable :: old_act(:) !> saved surface-complex activities (merge helper)
+    real(kind=8), allocatable :: old_lac(:) !> saved surface-complex log activity coefficients (merge helper)
     
 !> ================================================================
 !> LOCAL VARIABLES - Dynamic Arrays
@@ -285,82 +292,55 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
 !> ================================================================
     !if (present(reactive_zones)) then !> (COMMENTED) if optional reactive_zones parameter provided
         
-        if (allocated(this%reactive_zones)) then !> if reactive zones already exist (e.g., gas zones)
+        if (allocated(this%reactive_zones)) then !> mineral reactive zones already exist (read before the surface zones)
             !> ----------------------------------------------------------------
-            !> Case 1: Combine existing reactive zones with cation exchange zones
+            !> Case 1: keep the mineral-only zones and append combined mineral+exchange zones
             !> ----------------------------------------------------------------
-            
-            !> Get number of existing reactive zones
-            num_gas_rz=size(this%reactive_zones) !> number of existing reactive zones (assumed to be gas zones)
-            
-            !> Create auxiliary array to temporarily store existing zones
-            allocate(aux_react_zones(num_gas_rz)) !> allocate temporary array
-            
-            !> Copy existing reactive zones to auxiliary array
-            do i=1,num_gas_rz !> loop over existing reactive zones
+            !> Pre-existing reactive zones are the MINERAL zones (gas zones are read AFTER the
+            !> surface adsorption zones, so none exist yet). Keep them unchanged as the
+            !> mineral-only solid zones (indices 1..num_min_rz) and APPEND one combined
+            !> mineral+exchange reactive zone per surface adsorption zone (indices
+            !> num_min_rz+1..num_min_rz+ndtype), so <root>_tar_sol.dat can select either the
+            !> mineral-only zone (index<=num_min_rz) or the combined calcite+exchange zone
+            !> (index>num_min_rz) via its "solid zone index".
+            num_min_rz=size(this%reactive_zones)
+            allocate(aux_react_zones(num_min_rz))
+            do i=1,num_min_rz
                 call aux_react_zones(i)%copy_react_zone(this%reactive_zones(i))
-                    !> copy zone i to auxiliary array
             end do
-            
-            !> Calculate total number of reactive zones needed
-            num_rz=num_gas_rz+ndtype*(1+num_gas_rz)
-                !> total = num_gas + num_cat_exch + (num_gas * num_cat_exch)
-                !> includes: original gas zones, cat exch zones, and combined gas+cat_exch zones
-            
-            !deallocate(this%reactive_zones) !> (COMMENTED) deallocate old array
-            !allocate(this%reactive_zones(num_rz)) !> (COMMENTED) allocate new larger array
-            
-            !> Allocate new reactive zones array with combined size
-            call this%allocate_reactive_zones(num_rz) !> allocate array (size = num_rz)
-            
-            !> ----------------------------------------------------------------
-            !> Restore original gas reactive zones (indices 1 to num_gas_rz)
-            !> ----------------------------------------------------------------
-            do i=1,num_gas_rz !> loop over original gas zones
+            num_rz=num_min_rz+ndtype
+            call this%allocate_reactive_zones(num_rz)
+            !> Mineral-only zones (unchanged)
+            do i=1,num_min_rz
                 call this%reactive_zones(i)%copy_react_zone(aux_react_zones(i))
-                    !> copy gas zone back from auxiliary array
             end do
-            
-            !> ----------------------------------------------------------------
-            !> Add cation exchange only zones (indices num_gas_rz+1 to num_gas_rz+ndtype)
-            !> ----------------------------------------------------------------
-            do i=1,ndtype !> loop over cation exchange zones
-                !> Set chemical system
-                call this%reactive_zones(num_gas_rz+i)%set_chem_syst_react_zone(this%chem_syst)
-                    !> copy chemical system to reactive zone
-                
-                !> Set cation exchange zone
-                call this%reactive_zones(num_gas_rz+i)%set_cat_exch_zone(this%init_cat_exch_zones(i)%reactive_zone%cat_exch_zone)
-                    !> copy cat exch zone from initial zones
-                
-                !call this%init_cat_exch_zones(i)%set_reactive_zone(this%reactive_zones(num_gas_rz+i))
-                    !> (COMMENTED) back-link to reactive zone
-            end do
-            
-            !> ----------------------------------------------------------------
-            !> Add combined gas + cation exchange zones
-            !> (indices num_gas_rz+ndtype+1 to num_rz)
-            !> ----------------------------------------------------------------
-            do i=1,num_gas_rz !> loop over gas zones
-                do j=1,ndtype !> loop over cation exchange zones
-                    !> Calculate index for combined zone
-                    !> index = num_gas_rz + ndtype + (i-1)*ndtype + j
-                    
-                    !> Set chemical system
-                    call this%reactive_zones(num_gas_rz+i*ndtype+j)%set_chem_syst_react_zone(this%chem_syst)
-                        !> copy chemical system
-                    
-                    !> Set gas phase from original gas zone i
-                    call this%reactive_zones(num_gas_rz+i*ndtype+j)%set_gas_phase(this%reactive_zones(i)%gas_phase)
-                        !> copy gas phase from zone i
-                    
-                    !> Set cation exchange zone from cat exch zone j
-                    call this%reactive_zones(num_gas_rz+i*ndtype+j)%set_cat_exch_zone(&
+            !> Combined mineral+exchange zones: base each on its matching mineral reactive zone
+            !> (so it CONTAINS the equilibrium minerals), then add the surface complexes and
+            !> recompute the speciation algebra so num_eq_reactions / the stoichiometric matrix
+            !> cover BOTH the mineral equilibria and the exchange reactions. flag_comp=.true.
+            !> matches the chemical system (constant-activity water species ordered last).
+            do i=1,ndtype
+                min_idx=min(i,num_min_rz) !> matching mineral zone
+                if (aux_react_zones(min_idx)%num_minerals>0) then
+                    call this%reactive_zones(num_min_rz+i)%copy_react_zone(aux_react_zones(min_idx))
+                    call this%reactive_zones(num_min_rz+i)%set_cat_exch_zone(&
                         this%init_cat_exch_zones(i)%reactive_zone%cat_exch_zone)
-                        !> copy cat exch zone (note: uses i, which may be intentional for specific mapping)
-                end do
+                    call this%reactive_zones(num_min_rz+i)%set_num_solids()
+                    call this%reactive_zones(num_min_rz+i)%set_num_non_flow_species()
+                    call this%reactive_zones(num_min_rz+i)%set_ind_non_flow_species()
+                    call this%reactive_zones(num_min_rz+i)%set_speciation_alg_dimensions(.true.)
+                    call this%reactive_zones(num_min_rz+i)%set_ind_eq_reacts()
+                    call this%reactive_zones(num_min_rz+i)%allocate_ind_var_act_species()
+                    call this%reactive_zones(num_min_rz+i)%set_stoich_mat_react_zone()
+                    call this%reactive_zones(num_min_rz+i)%set_ind_mins_stoich_mat()
+                    call this%reactive_zones(num_min_rz+i)%set_ind_gases_stoich_mat()
+                else
+                    call this%reactive_zones(num_min_rz+i)%copy_react_zone(this%init_cat_exch_zones(i)%reactive_zone)
+                end if
+                !> Back-link the exchange solid chemistry to its combined reactive zone.
+                call this%init_cat_exch_zones(i)%set_reactive_zone(this%reactive_zones(num_min_rz+i))
             end do
-            
+
         else !> no existing reactive zones
             !> ----------------------------------------------------------------
             !> Case 2: Create simple cation exchange reactive zones
@@ -384,7 +364,67 @@ subroutine read_init_cat_exch_zones_CHEPROO(this,unit,ndrz)
     !end if !> (COMMENTED) end if present(reactive_zones)
     
 !> ================================================================
-!> SECTION 4: Post-processing (COMMENTED OUT)
+!> SECTION 4: Build the combined solid chemistry (minerals + surface complexes)
+!> ================================================================
+!> The surface-adsorption reactive zone now CONTAINS the equilibrium minerals (merged in
+!> SECTION 3). Here the matching solid chemistry (init_cat_exch_zones) is rebuilt so its
+!> solid-species arrays follow the combined [minerals, surface complexes] layout used
+!> throughout the code: minerals occupy the leading block (equilibrium then kinetic) and
+!> the surface complexes the trailing num_surf_compl slots. Without this a target solid
+!> that references a cation-exchange solid zone loses its mineral volumetric fractions and
+!> kinetic mineral reactions (the output then shows all-zero vol_fract for those waters,
+!> inconsistent with <root>_quim_loc.dat). Mineral zones are read before this routine, so
+!> the mineral solid chemistries already live in this%materials(1..num_mineral_zones).
+    if (this%num_mineral_zones>0) then
+        do i=1,ndtype
+            min_idx=min(i,this%num_mineral_zones) !> map cat-exch zone i to a mineral zone
+            associate(sc=>this%init_cat_exch_zones(i), mm=>this%materials(min_idx))
+            ns_merge=sc%reactive_zone%cat_exch_zone%num_surf_compl !> surface complexes
+            !> Total minerals in the combined solid chemistry: equilibrium minerals (now part
+            !> of the merged reactive zone) plus kinetic minerals (carried by the mineral zone).
+            nmk_merge=sc%reactive_zone%num_minerals+mm%mineral_zone%num_minerals_kin
+            if (nmk_merge>0) then
+                !> Preserve the surface-complex sub-arrays (currently occupying indices 1:ns)
+                old_conc=sc%concentrations(1:ns_merge)
+                old_act=sc%activities(1:ns_merge)
+                old_lac=sc%log_act_coeffs(1:ns_merge)
+                !> Associate the mineral zone (holds the kinetic minerals) and recompute the
+                !> total solid count = reactive-zone solids (eq minerals + surf compl) + kinetic minerals
+                sc%mineral_zone=>mm%mineral_zone
+                sc%num_solids=sc%reactive_zone%num_solids+mm%mineral_zone%num_minerals_kin
+                !> Reallocate the solid-species arrays for the combined layout. The allocate
+                !> routines only free their primary array, so drop the auxiliary buffers first
+                !> to avoid "already allocated" runtime errors.
+                if (allocated(sc%conc_old)) deallocate(sc%conc_old)
+                if (allocated(sc%conc_old_old)) deallocate(sc%conc_old_old)
+                if (allocated(sc%log_Jacobian_act_coeffs)) deallocate(sc%log_Jacobian_act_coeffs)
+                call sc%allocate_conc_solids()
+                call sc%allocate_activities()
+                call sc%allocate_log_act_coeffs_solid_chem()
+                !> Minerals occupy the leading block (pure phases: c=a=1, log gamma=0)
+                sc%concentrations(1:nmk_merge)=1d0
+                sc%activities(1:nmk_merge)=1d0
+                sc%log_act_coeffs(1:nmk_merge)=0d0
+                !> Surface complexes are stored at the end of the solid arrays
+                off_merge=sc%num_solids-ns_merge
+                sc%concentrations(off_merge+1:off_merge+ns_merge)=old_conc
+                sc%activities(off_merge+1:off_merge+ns_merge)=old_act
+                sc%log_act_coeffs(off_merge+1:off_merge+ns_merge)=old_lac
+                !> Mineral volumetric fractions and reactive surfaces from the mineral zone
+                sc%min_pore_vol_ratios=mm%min_pore_vol_ratios
+                sc%react_surfaces=mm%react_surfaces
+                !> Mineral variable/constant activity classification indices
+                if (allocated(mm%var_act_species_indices)) &
+                    sc%var_act_species_indices=mm%var_act_species_indices
+                if (allocated(mm%cst_act_species_indices)) &
+                    sc%cst_act_species_indices=mm%cst_act_species_indices
+            end if
+            end associate
+        end do
+    end if
+
+!> ================================================================
+!> SECTION 5: Post-processing (COMMENTED OUT)
 !> ================================================================
 !> Chapuza: Set materials in chemistry object
     !this%materials=this%init_cat_exch_zones

@@ -83,7 +83,7 @@ subroutine initialise_flow_transient(this,root)
     !                                                            !> 4: Crank-Nicolson
     !                                                            !> 5: RKF45
     !call my_time_discr%set_Delta_t(Delta_t)
-    !call my_time_discr%set_int_method(int_method)
+    !call my_time_discr%set_int_method_tpt(int_method)
     !call my_time_discr%set_Final_time(Final_time)
     !call my_time_discr%compute_Num_time()
     call my_time_discr%read_time_discr(root//"_discr_temp.dat")
@@ -141,11 +141,11 @@ subroutine initialise_flow_transient(this,root)
         error stop "Boundary conditions not implemented yet"
     end if
 !> We compute arrays for linear system
-    if (this%time_discr%int_method.eq.1) then !> Euler explicit
+    if (this%time_discr%int_method_tpt.eq.1) then !> Euler explicit
         theta=0d0
-    else if (this%time_discr%int_method.eq.2) then !> Euler fully implicit
+    else if (this%time_discr%int_method_tpt.eq.2) then !> Euler fully implicit
         theta=1d0
-    else if (this%time_discr%int_method.eq.3) then !> Crank-Nicolson
+    else if (this%time_discr%int_method_tpt.eq.3) then !> Crank-Nicolson
         theta=0.5
     end if
     call this%compute_E_mat_1D(this%time_discr%get_Delta_t(),E_mat,E_mat_prev)

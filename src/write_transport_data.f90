@@ -37,13 +37,13 @@ subroutine write_transport_data(this,unit)
         !write(unit,"(2x,'Equation:',5x,'U*dc/dt*F = U*c_nc + U*S_nc,k^T*r_k',/)")
         n=this%transport%spatial_discr%Num_targets
         num_cells=this%transport%spatial_discr%Num_targets-this%transport%spatial_discr%targets_flag !> number of cells
-        if (this%int_method_chem_reacts == 1) then
+        if (this%transport%time_discr%int_method_chem == 1) then
             write(unit,"(2x,'Integration method chemical reactions:',10x,'Euler explicit',/)")
-        !else if (this%transport%time_discr%int_method == 2) then
+        !else if (this%transport%time_discr%int_method_tpt == 2) then
         !>    write(unit,"(2x,'Integration method:',10x,'Euler semi-implicit',/)")
-        else if (this%int_method_chem_reacts == 2) then
+        else if (this%transport%time_discr%int_method_chem == 2) then
             write(unit,"(2x,'Integration method chemical reactions:',10x,'Euler fully implicit',/)")
-        !else if (this%transport%time_discr%int_method.eqv.4) then
+        !else if (this%transport%time_discr%int_method_tpt.eqv.4) then
         !>    write(unit,"(2x,'Integration method chemical reactions:',10x,'Crank-Nicolson',/)")
         else
             error stop "Integration method not implemented yet for RT"
@@ -107,12 +107,12 @@ subroutine write_transport_data(this,unit)
             do i=1,this%transport%mix_conc_indices%num_cols
                 write(unit,"(2x,I5,*(I5))") this%chemistry%num_ext_waters+i, this%transport%mix_conc_indices%cols(i)%col_1
             end do
-            !if (this%transport%time_discr%int_method.eqv.1) then
+            !if (this%transport%time_discr%int_method_tpt.eqv.1) then
             !    !write(unit,"(10x,'The first column contains the diagonal elements in the mixing ratios matrix'/)")
             !    do i=1,this%transport%mixing_ratios_conc%num_cols
             !        write(unit,"(2x,*(F15.5))") (this%transport%mixing_ratios_conc%cols(i)%col_1(j), j=1,this%transport%mixing_ratios_conc%cols(i)%dim)
             !    end do
-            !else if (this%transport%time_discr%int_method.eqv.2) then
+            !else if (this%transport%time_discr%int_method_tpt.eqv.2) then
             !    !write(unit,"(2x,*(F15.5))") (this%transport%mixing_ratios_conc%cols(1)%col_1(j), j=1,this%transport%mixing_ratios_conc%num_cols)
             !    !do i=2,this%transport%mixing_ratios_conc%num_cols-1
             !    !    write(unit,"(2x,*(F15.5))") (this%transport%mixing_ratios_conc%cols(i)%col_1(j), j=2,i),  this%transport%mixing_ratios_conc%cols(i)%col_1(1), (this%transport%mixing_ratios%cols(i)%col_1(j), j=i+1,this%transport%mixing_ratios%num_cols)
@@ -134,7 +134,7 @@ subroutine write_transport_data(this,unit)
             !>    end do
             !>    write(unit,"(2x,2F15.5,15x,F15.5/)") (this%transport%mixing_ratios(n,j), j=1,2), this%transport%mixing_ratios(n,4)!this%transport%mixing_ratios%sub(n-1), this%transport%mixing_ratios%diag(n), this%transport%f_vec(n)
             !end if
-            !if (this%transport%time_discr%int_method.eqv.1 .or. this%transport%time_discr%int_method.eqv.2) then
+            !if (this%transport%time_discr%int_method_tpt.eqv.1 .or. this%transport%time_discr%int_method_tpt.eqv.2) then
             !>    if (n.eqv.1) then
             !>        write(unit,"(2x,F15.5,/)") this%transport%X_mat%diag(1)
             !>    else if (n>2) then
@@ -144,7 +144,7 @@ subroutine write_transport_data(this,unit)
             !>        end do
             !>        write(unit,"(2x,2F15.5,15x,F15.5/)") this%transport%X_mat%sub(n-1), this%transport%X_mat%diag(n), this%transport%f_vec(n)
             !>    end if
-            !else if (this%transport%time_discr%int_method.eqv.3) then
+            !else if (this%transport%time_discr%int_method_tpt.eqv.3) then
                 !write(unit,"(/,2x,'Matrix that is inverted:'/)")
                 !if (n.eqv.1) then
                 !    write(unit,"(17x,ES15.5,/)") this%transport%A_mat%diag(1)

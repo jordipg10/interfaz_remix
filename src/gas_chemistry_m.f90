@@ -20,6 +20,7 @@ module gas_chemistry_m
         integer(kind=4), allocatable :: ind_gases_eq_cst_act(:) !> indices of gases in equilibrium with constant activity in chemical system gas phase
         integer(kind=4) :: num_gases_eq_act_fct_time=0 !> number of gases in equilibrium with activity as a function of time in chemical system gas phase
         integer(kind=4), allocatable :: ind_gases_eq_act_fct_time(:) !> indices of gases in equilibrium with activity as a function of time in chemical system gas phase
+        real(kind=8), allocatable :: mol_amounts(:) !> moles of each gas species (concentrations are moles per unit volume of gas)
     contains
     !> Set
         procedure :: set_reactive_zone
@@ -31,7 +32,7 @@ module gas_chemistry_m
         procedure :: allocate_log_act_coeffs_gases
         procedure :: allocate_ind_gases_eq_cst_act
         procedure :: allocate_ind_gases_eq_act_fct_time
-        procedure :: allocate_reaction_rates_gas_species_chem
+        procedure :: allocate_rxn_rates_and_amounts_gas_chem
     !> Compute
         procedure :: compute_log_act_coeffs_gases
         procedure :: compute_log_act_coeffs_gas
@@ -105,6 +106,9 @@ module gas_chemistry_m
             this%concentrations=0d0
             this%conc_old=this%concentrations
             this%conc_old_old=this%conc_old
+            if (allocated(this%mol_amounts)) deallocate(this%mol_amounts)
+            allocate(this%mol_amounts(this%reactive_zone%gas_phase%num_species))
+            this%mol_amounts=0d0
         end subroutine
 
         subroutine allocate_log_act_coeffs_gases(this) !> <units are atm>
@@ -168,9 +172,9 @@ module gas_chemistry_m
             implicit none
             class(gas_chemistry_c) :: this
             integer(kind=4) :: i
-            real(kind=8), parameter :: R=0.08205746 !> [atm*L/mol*K]
+            real(kind=8), parameter :: R=0.083144626 !> [bar*L/mol*K] (paper reports PCO2 in bar)
             do i=1,this%reactive_zone%gas_phase%num_species
-                this%log_act_coeffs(i)=log10(R*this%temp/this%volume)
+                this%log_act_coeffs(i)=log10(R*this%temp)
             end do
        end subroutine
 
@@ -182,40 +186,43 @@ module gas_chemistry_m
             class(gas_chemistry_c) :: this !> gas chemistry object
             integer(kind=4), intent(in) :: ind_gas !> index of the gas species
             
-            real(kind=8), parameter :: R=0.08205746 !> [atm*L/mol*K]
+            real(kind=8), parameter :: R=0.083144626 !> [bar*L/mol*K] (paper reports PCO2 in bar)
             
-            this%log_act_coeffs(ind_gas)=log10(R*this%temp/this%volume)
+            this%log_act_coeffs(ind_gas)=log10(R*this%temp)
        end subroutine
-       
+
+!> \brief Compute partial pressures for gas species from concentrations.
+!> \details Partial pressure (activity) a_i = gamma_i * c_i, where the gas activity
+!> (fugacity) coefficient gamma_i = 10**log_act_coeffs(i) and c_i is the gas
+!> concentration (n/V). The activity coefficients are computed by
+!> compute_log_act_coeffs_gases and are constant during the Picard iteration.
+!> \param this Gas chemistry object.       
        subroutine compute_partial_pressures(this)
             implicit none
             class(gas_chemistry_c) :: this
             integer(kind=4) :: i
-            real(kind=8), parameter :: R=0.08205746 !> [atm*L/mol*K]
             do i=1,this%reactive_zone%gas_phase%num_species
-                this%activities(i)=this%concentrations(i)*R*this%temp/this%volume
+                this%activities(i)=this%concentrations(i)*1d1**this%log_act_coeffs(i)
             end do
-!> \brief Compute partial pressures for gas species from concentrations.
-!> \details Calculates partial pressures (activities) for all gas species using the ideal gas law and current temperature/volume.
-!> \param this Gas chemistry object.
        end subroutine
        
        subroutine compute_conc_gases_ideal(this) !> ideal gas equation
-       !> Concentrations are expressed in moles
+       !> Concentrations are expressed in moles per volume
             implicit none
             class(gas_chemistry_c) :: this
             integer(kind=4) :: i
-            real(kind=8), parameter :: R=0.08205746 !> [atm*L/mol*K]
+            real(kind=8), parameter :: R=0.083144626 !> [bar*L/mol*K] (paper reports PCO2 in bar)
             do i=1,this%reactive_zone%gas_phase%num_species
-                this%concentrations(i)=this%activities(i)*this%volume/(this%temp*R)
+                this%concentrations(i)=this%activities(i)/(this%temp*R)
             end do
+            this%mol_amounts=this%concentrations*this%volume !> initial moles consistent with the gas volume
 !> \brief Compute concentrations for gas species using ideal gas law.
 !> \details Calculates concentrations for all gas species from their activities using the ideal gas law.
 !> \param this Gas chemistry object.
        end subroutine
        
        subroutine compute_conc_gases_iter(this,Delta_t,wat_vol,r_aq) !> gas conservation equation
-       !> Concentrations are expressed in moles
+       !> Accumulates moles of each gas species; densities (mol per unit volume of gas) are recovered in compute_vol_gas_species_conc
             implicit none
             class(gas_chemistry_c) :: this
             real(kind=8), intent(in) :: Delta_t !> time step
@@ -223,28 +230,24 @@ module gas_chemistry_m
             real(kind=8), intent(in) :: wat_vol !> water volume
             real(kind=8), intent(in), optional :: r_aq(:)
             integer(kind=4) :: i
-            real(kind=8), parameter :: R=0.08205746 !> [atm*L/mol*K]
             
             if (present(r_aq)) then
                 if (this%reactive_zone%gas_phase%num_gases_kin>0) then
                     do i=1,this%reactive_zone%gas_phase%num_cst_act_species
-                        this%concentrations(this%cst_act_species_indices(i))=this%concentrations(this%cst_act_species_indices(i))+&
+                        this%mol_amounts(this%cst_act_species_indices(i))=this%mol_amounts(this%cst_act_species_indices(i))+&
                             Delta_t*dot_product(this%reactive_zone%chem_syst%stoich_mat_gas(:,this%cst_act_species_indices(i)),&
                             r_aq)*wat_vol
                     end do
-                    if (this%concentrations(this%cst_act_species_indices(i))<0d0) then
-                        print *, "Negative concentration in gas chemistry"
+                    if (this%mol_amounts(this%cst_act_species_indices(i))<0d0) then
+                        print *, "Negative amount in gas chemistry"
                         print *, "Gas: ", this%reactive_zone%gas_phase%gases(this%cst_act_species_indices(i))%name
                     end if
                 else if (this%reactive_zone%gas_phase%num_gases_eq>0) then
                     do i=1,this%reactive_zone%gas_phase%num_cst_act_species
-                        !this%concentrations(this%cst_act_species_indices(i))=this%concentrations(this%cst_act_species_indices(i))+&
-                        !    Delta_t*dot_product(this%reactive_zone%chem_syst%stoich_mat_gas(:,this%cst_act_species_indices(i)),&
-                        !    [this%re_mean(i),r_aq])*wat_vol
-                        this%concentrations(this%cst_act_species_indices(i))=this%concentrations(this%cst_act_species_indices(i))+&
-                            Delta_t*this%re_mean(i)*wat_vol
-                        if (this%concentrations(this%cst_act_species_indices(i))<0d0) then
-                            print *, "Negative concentration in gas chemistry"
+                        this%mol_amounts(this%cst_act_species_indices(i))=this%mol_amounts(this%cst_act_species_indices(i))+&
+                            Delta_t*this%rxn_rate_eq(i)*wat_vol
+                        if (this%mol_amounts(this%cst_act_species_indices(i))<0d0) then
+                            print *, "Negative amount in gas chemistry"
                             print *, "Gas: ", this%reactive_zone%gas_phase%gases(this%cst_act_species_indices(i))%name
                         end if
                     end do
@@ -259,13 +262,14 @@ module gas_chemistry_m
        end subroutine
        
        subroutine compute_vol_gas_species_conc(this)
-       !> Computes total volume of gas from concentrations
+       !> Computes total gas volume from total moles, then gas concentrations (moles per unit volume of gas)
             implicit none
             class(gas_chemistry_c) :: this
-            real(kind=8), parameter :: R=0.08205746 !> [atm*L/mol*K]
-            this%volume=sum(this%concentrations)*R*this%temp/this%pressure !> we choose first gas species in gas phase arbitrarily
-!> \brief Compute total volume of gas from concentrations.
-!> \details Calculates the total gas volume from the sum of concentrations using the ideal gas law.
+            real(kind=8), parameter :: R=0.083144626 !> [bar*L/mol*K] (paper reports PCO2 in bar)
+            this%volume=sum(this%mol_amounts)*R*this%temp/this%pressure
+            this%concentrations=this%mol_amounts/this%volume
+!> \brief Compute total gas volume and concentrations from total moles.
+!> \details V_gas = n_total*R*T/P (ideal gas law), then concentrations = moles / V_gas.
 !> \param this Gas chemistry object.
        end subroutine
        
@@ -354,18 +358,34 @@ module gas_chemistry_m
        allocate(this%ind_gases_eq_act_fct_time(this%num_gases_eq_act_fct_time))
        end subroutine
        
-       subroutine allocate_reaction_rates_gas_species_chem(this)
+       subroutine allocate_rxn_rates_and_amounts_gas_chem(this)
            class(gas_chemistry_c) :: this
-           if (allocated(this%re_mean) .and. allocated(this%Re)) then
-               deallocate(this%re_mean,this%Re)
+           integer(kind=4) :: n_eq !> number of gas equilibrium reactions
+           if (allocated(this%rxn_rate_eq) .and. allocated(this%rxn_amnt_eq)) then
+               deallocate(this%rxn_rate_eq,this%rxn_amnt_eq)
            end if
+           if (allocated(this%cum_rxn_amnt_eq)) deallocate(this%cum_rxn_amnt_eq)
+           if (allocated(this%rxn_rate_eq_old)) deallocate(this%rxn_rate_eq_old)
+           if (allocated(this%rxn_rate_eq_old_old)) deallocate(this%rxn_rate_eq_old_old)
+           if (allocated(this%rxn_rate_eq_old_old_old)) deallocate(this%rxn_rate_eq_old_old_old)
 !> \brief Allocate reaction rates arrays for gas-phase reactions.
 !> \details Allocates and initializes arrays for mean and instantaneous reaction rates for equilibrium gases.
 !> \param this Gas chemistry object.
-           allocate(this%re_mean(this%reactive_zone%gas_phase%num_gases_eq))
-           allocate(this%Re(this%reactive_zone%gas_phase%num_gases_eq))
-           this%re_mean=0d0 !> by default
-           this%Re=0d0 !> by default
+           n_eq=this%reactive_zone%gas_phase%num_gases_eq
+           !> full eq-rate history: aqueous_chemistry_c%allocate_rxn_rates_and_amounts skips this block
+           !> once rxn_rate_eq is allocated, so the *_old arrays must be allocated here too
+           allocate(this%rxn_rate_eq(n_eq))
+           allocate(this%rxn_amnt_eq(n_eq))
+           allocate(this%cum_rxn_amnt_eq(n_eq))
+           allocate(this%rxn_rate_eq_old(n_eq))
+           allocate(this%rxn_rate_eq_old_old(n_eq))
+           allocate(this%rxn_rate_eq_old_old_old(n_eq))
+           this%rxn_rate_eq=0d0 !> by default
+           this%rxn_amnt_eq=0d0 !> by default
+           this%cum_rxn_amnt_eq=0d0 !> by default
+           this%rxn_rate_eq_old=0d0 !> by default
+           this%rxn_rate_eq_old_old=0d0 !> by default
+           this%rxn_rate_eq_old_old_old=0d0 !> by default
        end subroutine
 
        subroutine copy_gas_chemistry(this,other)
@@ -390,6 +410,9 @@ module gas_chemistry_m
            end if
            if (allocated(other%ind_gases_eq_act_fct_time)) then
                this%ind_gases_eq_act_fct_time=other%ind_gases_eq_act_fct_time
+           end if
+           if (allocated(other%mol_amounts)) then
+               this%mol_amounts=other%mol_amounts
            end if
        end subroutine
 end module

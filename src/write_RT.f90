@@ -34,8 +34,11 @@ subroutine write_RT(this,dir,root,path_py)
             end if
         end if
         close(unit)
-        !> Write chemistry data and results to {root}_chemistry.out
-        call this%chemistry%write_chemistry(dir, root)
+        !> Write chemistry data and results to {root}_transport_chemistry.out
+        call this%chemistry%write_chemistry(dir, root, Lagr_flag=this%transport%Lagr_flag, &
+            num_time=this%transport%time_discr%Num_time)
+        !> Write per-cell concentrations and reaction rates to a compact binary file (for plotting)
+        call this%write_mesh_bin(dir, root)
     type is (RT_2D_transient_c)
         !> Write transport data to {root}_transport.out
         call this%transport%write_transport_data_WMA(dir, root)
@@ -58,7 +61,10 @@ subroutine write_RT(this,dir,root,path_py)
             end if
         end if
         close(unit)
-        !> Write chemistry data and results to {root}_chemistry.out
-        call this%chemistry%write_chemistry(dir, root)
+        !> Write chemistry data and results to {root}_transport_chemistry.out
+        call this%chemistry%write_chemistry(dir, root, Lagr_flag=this%transport%Lagr_flag, &
+            num_time=this%transport%time_discr%Num_time)
+        !> Write per-cell concentrations and reaction rates to a compact binary file (for plotting)
+        call this%write_mesh_bin(dir, root)
     end select
 end subroutine write_RT

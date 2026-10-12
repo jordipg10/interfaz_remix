@@ -600,20 +600,21 @@ module aq_phase_m
          !> - b-dot (Helgeson): α=1, β=B·aTJ, γ=ḃ(T)
          !>
          !> @par Ionic Strength:
-         !> I = 0.5·Σ(cᵢ·zᵢ²) where cᵢ is concentration [mol/L] and zᵢ is valence
+         !> I = 0.5·Σ(mᵢ·zᵢ²) where mᵢ is the molality [mol/kg H₂O] and zᵢ the valence of species i
+         !> (compute_ionic_strength of the aqueous chemistry, evaluated on molalities)
          !>
          !> @par Water Treatment:
          !> Water is typically excluded (constant activity aH₂O = 1 in dilute solutions).
          !> Only dissolved solids (ions and complexes) require activity corrections.
          !>
          !> @param[in] this Aqueous phase object
-         !> @param[in] ionic_strength Ionic strength I [mol/L]
+         !> @param[in] ionic_strength Ionic strength I [mol/kg H₂O]
          !> @param[in] params_aq_sol Aqueous solution parameters (Debye-Hückel constants A, B)
          !> @param[out] log_act_coeffs Array of log₁₀(γᵢ) values (must be pre-allocated, size: num_species) [-]
 subroutine compute_log_act_coeffs_aq_phase(this,ionic_strength,params_aq_sol,log_act_coeffs)
     implicit none !< Enforce explicit variable declarations
     class(aq_phase_c), intent(in) :: this !< Aqueous phase object [-]
-    real(kind=8), intent(in) :: ionic_strength !< Ionic strength I [mol/L]
+    real(kind=8), intent(in) :: ionic_strength !< Ionic strength I [mol/kg H₂O]
     class(params_aq_sol_s), intent(in) :: params_aq_sol !< Debye-Hückel parameters (A, B) [-]
     real(kind=8), intent(out) :: log_act_coeffs(:) !< Output: log₁₀ activity coefficients (pre-allocated) [-]
     
@@ -637,12 +638,15 @@ subroutine compute_log_act_coeffs_aq_phase(this,ionic_strength,params_aq_sol,log
         
         !> Compute log₁₀(γᵢ) using generalized formula:
         !> log₁₀(γᵢ) = -α·A·zᵢ²·√I / (1 + β·√I) + γ·I
-        log_act_coeffs(this%ind_diss_solids(i))=-this%aq_species(this%ind_diss_solids(i))%params_act_coeff%alpha*(params_aq_sol%A*&
-        this%aq_species(this%ind_diss_solids(i))%valence**2)*sqrt(ionic_strength)/(1d0+this%aq_species(&
-        this%ind_diss_solids(i))%params_act_coeff%beta*sqrt(ionic_strength)) +&
-         this%aq_species(this%ind_diss_solids(i))%params_act_coeff%gamma*ionic_strength
+        !> (β and γ evaluated with the A and B of THIS water, see params_act_coeff_c%get_beta/get_gamma)
+        associate(pac => this%aq_species(this%ind_diss_solids(i))%params_act_coeff)
+        log_act_coeffs(this%ind_diss_solids(i))=-pac%alpha*(params_aq_sol%A*&
+        this%aq_species(this%ind_diss_solids(i))%valence**2)*sqrt(ionic_strength)/(1d0+&
+        pac%get_beta(params_aq_sol)*sqrt(ionic_strength)) +&
+         pac%get_gamma(params_aq_sol)*ionic_strength
          !< First term: -α·A·z²·√I/(1+β·√I)  [Debye-Hückel with extensions]
          !< Second term: +γ·I  [Linear ionic strength correction]
+        end associate
     end do
     !log_act_coeffs(this%ind_wat)  !< Commented: Water activity coefficient (typically log₁₀(γH₂O) = 0)
 end subroutine

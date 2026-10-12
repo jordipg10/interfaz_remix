@@ -5,7 +5,7 @@
 !! We average the kinetic reaction rates of this target water
 
 subroutine reactive_mixing_iter_EI_kin_anal_ideal_opt2(this,c1_old,c_hat,&
-    mix_ratio_r_old,mix_ratio_r_new,Delta_t,theta,conc_nc,conc_comp,c1_downstream)
+    mix_ratio_r,Delta_t,theta,conc_nc,conc_comp,c1_downstream)
     use aqueous_chemistry_m, only: aqueous_chemistry_c, initialise_iterative_method
     use vectors_m, only: inf_norm_vec_real
     implicit none
@@ -16,8 +16,7 @@ subroutine reactive_mixing_iter_EI_kin_anal_ideal_opt2(this,c1_old,c_hat,&
     !real(kind=8), intent(in) :: rk_tilde_old(:) !> old kinetic reaction rates after mixing (de momento no se usa)
     !real(kind=8), intent(in) :: rk_tilde(:) !> kinetic reaction rate contributions after mixing, ordered in upstream & downstream respectively
     real(kind=8), intent(in) :: c_hat(:) !> new kinetic reaction rates after mixing (de momento no se usa)
-    real(kind=8), intent(in) :: mix_ratio_r_old !> mixing ratio of kinetic reaction amount in this target
-    real(kind=8), intent(in) :: mix_ratio_r_new !> mixing ratio of kinetic reaction amount in this target
+    real(kind=8), intent(in) :: mix_ratio_r !> reaction mixing ratio of this target water
     real(kind=8), intent(in) :: Delta_t !> time step
     real(kind=8), intent(in) :: theta !> time weighting factor
     real(kind=8), intent(inout) :: conc_nc(:) !> variable activity species concentrations (already allocated)
@@ -72,8 +71,8 @@ subroutine reactive_mixing_iter_EI_kin_anal_ideal_opt2(this,c1_old,c_hat,&
         do
             do !> loop until convergence is reached
             !> We apply Newton method to compute aqueous concentrations
-                call this%Newton_EI_kin_anal_ideal_opt2(c_hat,mix_ratio_r_old,&
-                    mix_ratio_r_new,Delta_t_bis,theta,conc_nc,niter,&
+                call this%Newton_EI_kin_anal_ideal_opt2(c_hat,&
+                    mix_ratio_r,Delta_t_bis,theta,conc_nc,niter,&
                     CV_flag)
             !> We check convergence
                 if (CV_flag.eqv..false.) then !> no CV

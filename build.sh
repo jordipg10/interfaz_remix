@@ -53,7 +53,7 @@ SRCS=(
   spatial_discr_rad_m
   time_discr_m
   # --- chemistry layer + routines (compile-chem) ---
-  convergence_params_m
+  params_iter_methods_m
   params_aq_sol_m
   params_spec_vol_m
   params_act_coeff_m
@@ -89,14 +89,17 @@ SRCS=(
   solid_chemistry_m
   aqueous_chemistry_m
   chem_out_options_m
-  chemistry_interface_m
+  chemistry_m
+  initialise_chemistry
   compare_react_zones
   compute_c_nc_from_u_Newton_ideal
   compute_c_nc_from_u_Newton
+  equilibrate_water
+  equilibrate_water_ideal
   compute_c2_from_c1_ideal
   compute_c2_from_c1_Picard
   compute_c2nc_from_c1_ideal
-  compute_c2nc_from_c1_Picard
+  compute_c2v_from_c1_Picard
   compute_conc_surf_ideal_Newton
   compute_conc_surf_ideal_Picard
   compute_conc_surf_ideal_bin
@@ -106,13 +109,13 @@ SRCS=(
   compute_dc2nc_dc1_ideal
   compute_dc2nc_dc1
   compute_dfk_dc1_EI_ideal
+  compute_dfk_dc1_EI
   compute_dfk_dc_EI_ideal
   compute_drk_dc_mineral
   compute_drk_dc_Monod
   compute_Jacobian_rk_anal
   compute_mass_bal_mins
   compute_Re
-  compute_Re_kin
   compute_res_init
   compute_res_Jac_res_anal_ideal
   compute_res_Jac_res_anal_exch
@@ -122,7 +125,7 @@ SRCS=(
   compute_rk_Jac_rk_incr_coeff
   compute_rk_mineral
   compute_rk_Monod
-  compute_rk_new
+  compute_rxn_rate_kin
   compute_rk_drk_dc_Monod
   get_indices_reaction
   initialise_conc_anal_ideal
@@ -137,7 +140,8 @@ SRCS=(
   link_target_solids_reactive_zone
   link_target_solids_mineral_zone
   link_target_waters_mineral_zone
-  link_target_waters_reactive_zone
+  set_wat_indices_zones
+  link_target_waters_old_reaction_zones
   link_target_waters_target_gases
   link_target_waters_target_solids
   mixing_iter_comp_ideal
@@ -146,11 +150,13 @@ SRCS=(
   Newton_EI_eq_ideal
   Newton_EI_kin_anal_ideal_opt2
   Newton_EI_eq_kin_anal_ideal_opt2
+  Newton_EI_eq_kin_anal_opt2
   compute_react_term_EE_eq_kin
   compute_react_term_EE_kin
   read_association_react_PHREEQC
   read_chem_system_CHEPROO
-  read_chemistry_interface_CHEPROO
+  read_chemistry_CHEPROO
+  read_chemistry
   read_chemistry_interface
   read_dissolution_react_PHREEQC
   read_exchange_react_PHREEQC
@@ -163,8 +169,8 @@ SRCS=(
   read_Monod_DB
   read_PFLOTRAN_chemistry
   read_PFLOTRAN_DB
-  read_PHREEQC_DB_opc1
-  read_PHREEQC_DB_opc2
+  read_PHREEQC_DB
+  read_hanford
   read_species
   read_waters_init
   read_tar_gas
@@ -175,6 +181,10 @@ SRCS=(
   set_stoich_mat_sol
   set_stoich_mat
   solve_reactive_mixing_ideal_lump_iter
+  solve_reactive_mixing_lump
+  solve_reactive_mixing_ideal_cons
+  solve_reactive_mixing_cons
+  solve_reactive_mixing_ideal_lump
   update_eq_reactions
   reactive_mixing_iter_EE_eq_kin_ideal
   reactive_mixing_iter_EE_eq_kin
@@ -182,6 +192,7 @@ SRCS=(
   reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2
   reactive_mixing_iter_EI_kin_anal_ideal_opt2
   reactive_mixing_iter_EI_eq_anal_ideal
+  reactive_mixing_iter_EI_eq_kin_anal_opt2
   write_chemistry
   # --- driver (compile-main) ---
   main_interfaz

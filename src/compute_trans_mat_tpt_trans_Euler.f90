@@ -161,14 +161,26 @@ subroutine compute_trans_mat_tpt_trans_Euler(this)
                 this%trans_mat%sub(n-1)=8d0*this%tpt_props_heterog%disp_int(n)/((mesh%Delta_r(n-1)+mesh%Delta_r(n))*& !> Last subdiagonal using interface dispersion and non-uniform spacing [1/T]
                     (3d0*mesh%Delta_r(n)+mesh%Delta_r(n-1))) + & !> Denominator: product of averaged spacing and total spacing for last cell
                     this%tpt_props_heterog%flux_int(n)/(mesh%Delta_r(n-1)+mesh%Delta_r(n)) !> Add advection contribution using interface flux [1/T]
-            else if (mesh%scheme.eq.3) then !> Upwind scheme (scheme=3) for radial case (commented out - not fully implemented)
-                !if (minval(this%tpt_props_heterog%flux)>=0d0 .or. maxval(this%tpt_props_heterog%flux)<0d0) then !> Check for uniform flux direction
-                !    sign_flux=sign(1d0,this%tpt_props_heterog%flux(1)) !> Extract flux sign
-                !    this%trans_mat%sub=this%tpt_props_heterog%dispersion(2:n)/(mesh%Delta_x**2)+((sign_flux+1d0)/2)*& !> Subdiagonal with upwind
-                !    this%tpt_props_heterog%flux(2:n)/mesh%Delta_x !> Upwind advection term
-                !    this%trans_mat%super=this%tpt_props_heterog%dispersion(1:n-1)/(mesh%Delta_x**2)+((sign_flux-1d0)/2)*& !> Superdiagonal with upwind
-                !    this%tpt_props_heterog%flux(1:n-1)/mesh%Delta_x !> Upwind advection term
-                !end if
+            else if (mesh%scheme.eq.3) then !> Upwind scheme (scheme=3): interface-based dispersion (as in Petchamé-Carrera scheme 2) with fully upwinded advection; numerical dispersion D_num = v*Delta_x/2*(1-Co) cancels at Courant number Co=1 [1/T]
+                if (minval(this%tpt_props_heterog%flux_int)>=0d0 .or. maxval(this%tpt_props_heterog%flux_int)<0d0) then !> Require a uniform flux sign (no flow reversal in space) so the upwind direction is well defined
+                    sign_flux=sign(1d0,this%tpt_props_heterog%flux_int(2)) !> Upwind direction from first interior interface: +1 outward (r increasing), -1 inward (r decreasing) [-]
+                    b=0.5d0*(mesh%Delta_r(1)+mesh%Delta_r(2)) !> Half-spacing to right interface of first cell [L]
+                    this%trans_mat%super(1)=8d0*this%tpt_props_heterog%disp_int(2)/((mesh%Delta_r(1)+mesh%Delta_r(2))*& !> First superdiagonal dispersion (interface-based, non-uniform) [1/T]
+                        (3d0*mesh%Delta_r(1)+mesh%Delta_r(2)))+((sign_flux-1d0)/2d0)*this%tpt_props_heterog%flux_int(2)/b !> Upwind advection at right interface: active only for inward flow (sign_flux=-1) [1/T]
+                    do i=2,n-1 !> Loop over interior radial cells i=2..n-1 to fill sub/super with dispersion + upwind advection
+                        a=0.5d0*(mesh%Delta_r(i)+mesh%Delta_r(i-1)) !> Half-spacing to left interface: a = (Δrᵢ + Δrᵢ₋₁)/2 [L]
+                        b=0.5d0*(mesh%Delta_r(i)+mesh%Delta_r(i+1)) !> Half-spacing to right interface: b = (Δrᵢ + Δrᵢ₊₁)/2 [L]
+                        this%trans_mat%sub(i-1)=2d0*this%tpt_props_heterog%disp_int(i)/(a*(a+b))+((sign_flux+1d0)/2d0)*& !> Subdiagonal: 2Dᵢ₋₁/₂/(a·(a+b)) + full upwind advection (active for outward flow, sign_flux=+1) [1/T]
+                            this%tpt_props_heterog%flux_int(i)/a !> Upwind advection taken from upstream (inner) cell across left interface [1/T]
+                        this%trans_mat%super(i)=2d0*this%tpt_props_heterog%disp_int(i+1)/(b*(a+b))+((sign_flux-1d0)/2d0)*& !> Superdiagonal: 2Dᵢ₊₁/₂/(b·(a+b)) + full upwind advection (active for inward flow, sign_flux=-1) [1/T]
+                            this%tpt_props_heterog%flux_int(i+1)/b !> Upwind advection taken from upstream (outer) cell across right interface [1/T]
+                    end do
+                    a=0.5d0*(mesh%Delta_r(n-1)+mesh%Delta_r(n)) !> Half-spacing to left interface of last cell [L]
+                    this%trans_mat%sub(n-1)=8d0*this%tpt_props_heterog%disp_int(n)/((mesh%Delta_r(n-1)+mesh%Delta_r(n))*& !> Last subdiagonal dispersion (interface-based, non-uniform) [1/T]
+                        (3d0*mesh%Delta_r(n)+mesh%Delta_r(n-1)))+((sign_flux+1d0)/2d0)*this%tpt_props_heterog%flux_int(n)/a !> Upwind advection at left interface: active only for outward flow (sign_flux=+1) [1/T]
+                else !> Non-uniform flux sign (flow reversal in space): upwind direction is ambiguous
+                    error stop "Upwind scheme requires a uniform flux sign (no spatial flow reversal) in radial Eulerian transport" !> Abort for mixed-sign flux field
+                end if
             else !> Invalid scheme number for radial case
                 error stop "Scheme not implemented yet" !> Terminate program with error message for unsupported radial scheme
             end if

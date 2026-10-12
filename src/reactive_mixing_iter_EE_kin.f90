@@ -25,7 +25,7 @@ subroutine reactive_mixing_iter_EE_kin(this,c1_old,c_hat,mix_ratio_r,Delta_t,the
     ! call this%update_rk_old() !> we update old values of kinetic reaction rates
     ! call this%solid_chemistry%update_rk_old() !> we update old values of kinetic reaction rates
 !> Aqueous concentrations
-    !call this%compute_rk_new(rk_new) !> we compute chemical part of concentrations
+    !call this%compute_rxn_rate_kin(rk_new) !> we compute chemical part of concentrations
     call this%compute_react_term_EE_kin(Delta_t,mix_ratio_r,conc_react) !> we compute chemical part of concentrations
     !conc_react=Delta_t*mix_ratio_r*rk_new !> we compute chemical part of concentrations
     conc_nc=c_hat+conc_react !> we sum chemical and mixing parts

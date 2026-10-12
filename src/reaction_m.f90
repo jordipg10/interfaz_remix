@@ -23,9 +23,10 @@
 !>   - 6: Gas phase reaction
 !>   - 7: Nonlinear kinetic reaction
 !>   
-!>   Temperature dependence of K_eq:
+!>   Temperature dependence of K_eq (PHREEQC analytic expression, when its 6 coefficients are given):
 !>   \f[ \log_{10}(K) = a_1 + a_2 T + \frac{a_3}{T} + a_4 \log_{10}(T) + \frac{a_5}{T^2} + a_6 T^2 \f]
-!>   where coeffs_logK_T = [a_1, a_2, a_3, a_4, a_5, a_6]
+!>   where coeffs_logK_T = [a_1, a_2, a_3, a_4, a_5, a_6]; otherwise the integrated Van't Hoff
+!>   equation from eq_cst_ref and delta_h_ref [J/mol] (see compute_logK_dep_T_Vant_Hoff).
 !>   
 !> \author Jordi Petchamé-Guerrero
 !> \date October 2025
@@ -65,9 +66,10 @@ module reaction_m
         character(len=256) :: name                                !< Reaction name (e.g., "calcite_dissolution")
         integer(kind=4) :: num_species                            !< Number of species involved
         integer(kind=4) :: react_type                             !< Reaction type code (1-7, see module header)
-        real(kind=8) :: eq_cst                                    !< Equilibrium constant K_eq at reference T
+        real(kind=8) :: eq_cst_ref=0d0                                !< Equilibrium constant K_eq at the REFERENCE temperature (0 = not defined). Intrinsic reaction property shared by all waters (NOT a per-water state variable); the T-dependent K_eq(T) is computed per-water by compute_logK_dep_T_PHREEQC / compute_logK_dep_T_Vant_Hoff.
+        real(kind=8), allocatable :: eq_csts(:)                   !< Equilibrium constants K_eq at ALL temperature points of the database (same order as the database temperature list, e.g. the 8 points of hanford.dat). eq_cst_ref holds the value at the reference temperature; this array holds the full set for temperature interpolation. Allocated only when a multi-temperature database is read.
         real(kind=8), allocatable :: coeffs_logK_T(:)             !< 6 coefficients for log(K) temperature dependence
-        real(kind=8) :: delta_h                                   !< Enthalpy of reaction [kJ/mol]
+        real(kind=8) :: delta_h_ref=0d0                               !< Standard enthalpy of reaction at the REFERENCE temperature [J/mol], for the SAME reaction direction as eq_cst_ref and the stored stoichiometry (the DB readers flip the sign of a value given in the opposite, database-line direction, exactly as they store K = 10**(-log_K)). 0 = not defined => no Van't Hoff correction. Intrinsic reaction property shared by all waters (NOT a per-water state variable).
     contains
     !> Set procedures
         procedure :: set_stoichiometry                    !< Set stoichiometric coefficients
@@ -75,8 +77,9 @@ module reaction_m
         procedure :: set_species_indices_from_names                  !< Set species indices from array
         procedure :: rearrange_species_indices                  !< Set species indices from array
         procedure :: set_single_species                   !< Set individual species by index
-        procedure :: set_eq_cst                           !< Set equilibrium constant
-        procedure :: set_delta_h                          !< Set enthalpy
+        procedure :: set_eq_cst_ref                           !< Set equilibrium constant at reference temperature
+        procedure :: set_eq_csts                          !< Set equilibrium constants at all database temperature points
+        procedure :: set_delta_h_ref                          !< Set enthalpy of reaction at reference temperature
         procedure :: set_react_name                       !< Set reaction name
         procedure :: set_react_type                       !< Set reaction type code
     !> Allocate/deallocate procedures
@@ -86,7 +89,8 @@ module reaction_m
         procedure :: is_species_in_react                  !< Check if single species participates
         procedure :: are_species_in_react                 !< Check if multiple species participate
     !> Computation procedures
-        procedure :: compute_logK_dep_T                   !< Compute K_eq at given temperature
+        procedure :: compute_logK_dep_T_PHREEQC           !< Compute log10(K_eq) at given temperature via PHREEQC analytical expression
+        procedure :: compute_logK_dep_T_Vant_Hoff         !< Compute log10(K_eq) at given temperature via the Van't Hoff equation
     !> Write procedures
         procedure :: write_reaction=>write_reaction_sup   !< Write reaction to file
     !> Utility procedures
@@ -117,6 +121,7 @@ contains
             end if
             !> Allocate all dynamic arrays: stoichiometry coefficients, species array, and 6 temperature coefficients
             allocate(this%stoichiometry(this%num_species),this%species_ind(this%num_species),this%coeffs_logK_T(6)) !< Allocate arrays [-]
+            this%coeffs_logK_T=0d0 !< Initialise T-dependence coefficients to 0 so an unset DB (e.g. master25) does not feed garbage to the PHREEQC logK(T) expression [-]
        end subroutine
        
        !> @brief Deallocate reaction arrays
@@ -223,25 +228,41 @@ contains
        !> For equilibrium reactions: K_eq = ∏[products]^ν / ∏[reactants]^ν
        !> @param[in,out] this Reaction object to configure
        !> @param[in] eq_cst Equilibrium constant K_eq (dimensionless) [-]
-       subroutine set_eq_cst(this,eq_cst)
+       subroutine set_eq_cst_ref(this,eq_cst)
             implicit none !< Enforce explicit variable declarations
             class(reaction_c), intent(inout) :: this !< Reaction object to configure [-]
             real(kind=8), intent(in) :: eq_cst !< Equilibrium constant value at reference temperature [-]
             
-            this%eq_cst=eq_cst !< Assign equilibrium constant [-]
+            this%eq_cst_ref=eq_cst !< Assign equilibrium constant [-]
+       end subroutine
+       
+       !> @brief Set equilibrium constants at all database temperature points
+       !> @details Stores the equilibrium constants K_eq evaluated at every temperature
+       !> point of the thermodynamic database (e.g. the 8 points of hanford.dat), in the
+       !> same order as the database temperature list. The reference-temperature value is
+       !> kept separately in eq_cst_ref. The target array is (re)allocated to match the
+       !> size of the input via intrinsic assignment.
+       !> @param[in,out] this Reaction object to configure
+       !> @param[in] eq_csts Equilibrium constants at each database temperature point [-]
+       subroutine set_eq_csts(this,eq_csts)
+            implicit none !< Enforce explicit variable declarations
+            class(reaction_c), intent(inout) :: this !< Reaction object to configure [-]
+            real(kind=8), intent(in) :: eq_csts(:) !< Equilibrium constants at each database temperature point [-]
+            
+            this%eq_csts=eq_csts !< Assign (intrinsic assignment auto-allocates to size(eq_csts)) [-]
        end subroutine
        
        !> @brief Set enthalpy of reaction
-       !> @details Assigns standard enthalpy change ΔH for the reaction.
+       !> @details Assigns standard enthalpy change ΔH for the reaction (same direction as eq_cst_ref).
        !> Used for temperature-dependent K_eq calculations via van't Hoff equation.
        !> @param[in,out] this Reaction object to configure
-       !> @param[in] delta_h Enthalpy of reaction [kJ/mol]
-       subroutine set_delta_h(this,delta_h)
+       !> @param[in] delta_h Enthalpy of reaction [J/mol]
+       subroutine set_delta_h_ref(this,delta_h)
             implicit none !< Enforce explicit variable declarations
             class(reaction_c), intent(inout) :: this !< Reaction object to configure [-]
-            real(kind=8), intent(in) :: delta_h !< Standard enthalpy change of reaction [kJ/mol]
+            real(kind=8), intent(in) :: delta_h !< Standard enthalpy change of reaction [J/mol]
             
-            this%delta_h=delta_h !< Assign enthalpy of reaction [kJ/mol]
+            this%delta_h_ref=delta_h !< Assign enthalpy of reaction [J/mol]
        end subroutine
        
        !> @brief Set reaction name
@@ -369,7 +390,8 @@ contains
         !>   - species array (polymorphic copy)
         !>   - stoichiometry coefficients
         !>   - name and type
-        !>   - thermodynamic properties (eq_cst, delta_h, coeffs_logK_T)
+        !>   - thermodynamic properties (eq_cst_ref, delta_h_ref, coeffs_logK_T, and
+        !>     eq_csts when the source reaction has multi-temperature constants)
         !>   
         !>   Both reactions must have arrays allocated before calling.
         !> \param[in,out] this The reaction object (destination)
@@ -390,41 +412,61 @@ contains
             this%name=reaction%name !< Copy reaction name [-]
             this%num_species=reaction%num_species !< Copy number of species [-]
             this%react_type=reaction%react_type !< Copy reaction type code [-]
-            this%delta_h=reaction%delta_h !< Copy enthalpy of reaction [kJ/mol]
-            this%eq_cst=reaction%eq_cst !< Copy equilibrium constant [-]
+            this%delta_h_ref=reaction%delta_h_ref !< Copy enthalpy of reaction [J/mol]
+            this%eq_cst_ref=reaction%eq_cst_ref !< Copy equilibrium constant [-]
+            if (allocated(reaction%eq_csts)) this%eq_csts=reaction%eq_csts !< Copy multi-temperature equilibrium constants (only if the source reaction has them) [-]
             this%coeffs_logK_T=reaction%coeffs_logK_T !< Copy temperature dependence coefficients [-]
         end subroutine
     !******************************************************************************************************************************
-        !> \brief Compute temperature-dependent equilibrium constant
+        !> \brief Compute temperature-dependent log10 equilibrium constant (PHREEQC analytical expression)
         !> \details
-        !>   Computes K_eq at specified temperature using PHREEQC analytical expression:
+        !>   Computes log10(K_eq) at the specified temperature using the PHREEQC analytical
+        !>   expression:
         !>   \f[ \log_{10}(K) = a_1 + a_2 T + \frac{a_3}{T} + a_4 \log_{10}(T) + \frac{a_5}{T^2} + a_6 T^2 \f]
-        !>   
-        !>   where T is temperature [K] and coeffs_logK_T = [a_1, ..., a_6]
-        !>   
-        !>   Updates this%eq_cst with K = 10^(logK)
-        !> \param[in,out] this The reaction object (modified: eq_cst is updated)
+        !>   where T is temperature [K] and coeffs_logK_T = [a_1, ..., a_6].
+        !>
+        !>   Returns log10(K_eq(T)) (does NOT modify this%eq_cst_ref).
+        !> \param[in] this The reaction object (read-only)
         !> \param[in] temp Temperature [K]
-        !> @brief Compute temperature-dependent equilibrium constant
-        !> @details Calculates K_eq at specified temperature using PHREEQC analytical expression:
-        !> log₁₀(K) = a₁ + a₂T + a₃/T + a₄log₁₀(T) + a₅/T² + a₆T²
-        !> Updates this%eq_cst with computed K = 10^(logK).
-        !> @param[in,out] this Reaction object (eq_cst is updated)
-        !> @param[in] temp Temperature of solution [K]
-        subroutine compute_logK_dep_T(this,temp)
+        !> \return logK log10 of the equilibrium constant at temperature temp [-]
+        function compute_logK_dep_T_PHREEQC(this,temp) result(logK)
             implicit none !< Enforce explicit variable declarations
-            class(reaction_c), intent(inout) :: this !< Reaction object (eq_cst modified) [-]
+            class(reaction_c), intent(in) :: this !< Reaction object (read-only) [-]
             real(kind=8), intent(in) :: temp !< Temperature for K_eq calculation [K]
-            
-            real(kind=8) :: logK !< Logarithm base 10 of equilibrium constant [-]
-            
+            real(kind=8) :: logK !< log10 of the temperature-dependent equilibrium constant [-]
+
             !> Validate that exactly 6 temperature coefficients are available
             if (size(this%coeffs_logK_T)/=6) error stop "There must be 6 coefficients to compute logK(T)" !< Halt if wrong array size
-            !> Compute log₁₀(K) using PHREEQC analytical expression with 6 terms
-            logK=this%coeffs_logK_T(1)+this%coeffs_logK_T(2)*temp+this%coeffs_logK_T(3)/temp+this%coeffs_logK_T(4)*log10(temp)+&
-                this%coeffs_logK_T(5)/(temp**2)+this%coeffs_logK_T(6)*(temp**2) !< Calculate logK from polynomial [-]
-            this%eq_cst=10**logK !< Convert from log₁₀(K) to K via antilog [-]
-        end subroutine
+            !> Compute log10(K) using the PHREEQC analytical expression (6 terms)
+            logK= this%coeffs_logK_T(1)+this%coeffs_logK_T(2)*temp+this%coeffs_logK_T(3)/temp+this%coeffs_logK_T(4)*log10(temp)+&
+                this%coeffs_logK_T(5)/(temp**2)+this%coeffs_logK_T(6)*(temp**2) !< log10(K) from polynomial [-]
+        end function
+    !******************************************************************************************************************************
+        !> \brief Compute temperature-dependent log10 equilibrium constant (Van't Hoff equation)
+        !> \details
+        !>   Computes log10(K_eq) at the specified temperature from the reference-temperature
+        !>   equilibrium constant and standard reaction enthalpy, assuming a temperature-
+        !>   independent enthalpy (integrated Van't Hoff equation):
+        !>   \f[ \log_{10}K(T) = \log_{10}K_{ref} - \frac{\Delta H^{\circ}_{ref}}{R\,\ln 10}\left(\frac{1}{T} - \frac{1}{T_{ref}}\right) \f]
+        !>   with T_ref = 298.15 K, R the ideal gas constant, and delta_h_ref in J/mol.
+        !>
+        !>   Returns log10(K_eq(T)) (does NOT modify this%eq_cst_ref).
+        !> \param[in] this The reaction object (read-only)
+        !> \param[in] temp Temperature [K]
+        !> \return logK log10 of the equilibrium constant at temperature temp [-]
+        function compute_logK_dep_T_Vant_Hoff(this,temp) result(logK)
+            implicit none !< Enforce explicit variable declarations
+            class(reaction_c), intent(in) :: this !< Reaction object (read-only) [-]
+            real(kind=8), intent(in) :: temp !< Temperature for K_eq calculation [K]
+            real(kind=8) :: logK !< log10 of the temperature-dependent equilibrium constant [-]
+
+            real(kind=8), parameter :: R=8.31446261815324d0     !< Ideal gas constant [J/(mol*K)]
+            real(kind=8), parameter :: T_ref=298.15d0           !< Reference temperature (25 C) [K]
+            real(kind=8), parameter :: ln10=2.302585092994046d0 !< Natural logarithm of 10 [-]
+
+            !> Integrated Van't Hoff equation (constant standard reaction enthalpy, J/mol).
+            logK=log10(this%eq_cst_ref)-(this%delta_h_ref/(R*ln10))*(1.0d0/temp-1.0d0/T_ref) !< log10(K(T)) [-]
+        end function
     !******************************************************************************************************************************
         !> \brief Allocate temperature coefficient array
         !> \details
@@ -492,7 +534,7 @@ contains
             write(unit,"(10x,A30/)") this%name !< Write reaction name (30 character field) [-]
             ! write(unit,"(10x,I5/)") this%react_type !< Write reaction type code (integer) [-]
             ! write(unit,"(10x,I5/)") this%num_species !< Write number of species (integer) [-]
-            ! write(unit,"(10x,ES15.5/)") this%eq_cst !< Write equilibrium constant (scientific notation) [-]
+            ! write(unit,"(10x,ES15.5/)") this%eq_cst_ref !< Write equilibrium constant (scientific notation) [-]
         end subroutine
         
         subroutine rearrange_Species_indices(this,old_Species,new_Species)
@@ -508,6 +550,11 @@ contains
             if (size(old_Species)/=size(new_species)) then
                 error stop "Dimension error in 'rearrange_Species_indices'" !< Halt if size mismatch detected
             end if
+            !> Nothing to remap for an empty / placeholder reaction slot: if the species-index
+            !> array was never allocated (or the reaction has no species), skip. Without this a
+            !> zero-species placeholder in the (re)allocated eq_reacts array would copy an
+            !> unallocated species_ind and then index old_species_ind(1) out of bounds.
+            if (.not. allocated(this%species_ind) .or. this%num_species<=0) return
             !> Save old indices before remapping
             old_species_ind=this%species_ind
             !> For each species in the reaction, find its new index in the rearranged species array

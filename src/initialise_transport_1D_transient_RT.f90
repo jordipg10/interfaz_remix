@@ -96,17 +96,17 @@ subroutine initialise_transport_1D_transient_RT(this,path,root,mesh_type)
     dimless=.false. !> Set dimensionless form flag to FALSE (use dimensional equations, should be read from input file)
     this%dimless=dimless !> Store dimensionless flag in transport object
 !> Mesh (chapuza)
-    mesh_file=trim(path//root//'_discr_esp.dat') !> Construct mesh filename by concatenating path, root, and '_discr_esp.dat' (spatial discretization file)
+    mesh_file=trim(path//root//'_discr_space.dat') !> Construct mesh filename by concatenating path, root, and '_discr_space.dat' (spatial discretization file)
     if (mesh_type.eq.1) then !> Check if mesh type is 1 (1D homogeneous)
         allocate(mesh_1D_Euler_homog_c :: my_mesh) !> Allocate pointer to 1D homogeneous Eulerian mesh class
     else if (mesh_type.eq.2) then !> Check if mesh type is 2 (1D heterogeneous)
         allocate(mesh_1D_Euler_heterog_c :: my_mesh) !> Allocate pointer to 1D heterogeneous Eulerian mesh class
     else if (mesh_type.eq.3) then !> Check if mesh type is 3 (radial)
         allocate(spatial_discr_rad_c :: my_mesh) !> Allocate pointer to radial spatial discretization class
-        mesh_file=trim(path//root//'_discr_esp_rad.dat') !> Override mesh filename for radial case (use '_discr_esp_rad.dat')
+        mesh_file=trim(path//root//'_discr_space_rad.dat') !> Override mesh filename for radial case (use '_discr_space_rad.dat')
         !write(*,*) "Porosity?" !> Print prompt for porosity input (interactive)
         !read(*,*) phi !> Read porosity value from user input [-]
-        phi=1d-4 !> Set porosity to 1d-4 (hardcoded workaround for push-pull test) [-]
+        phi=1d0 !> Set porosity to 1 (hardcoded workaround for push-pull test) [-]
     else if (mesh_type.eq.4) then !> Check if mesh type is 4 (2D homogeneous)
         allocate(mesh_2D_Euler_homog_c :: my_mesh) !> Allocate pointer to 2D homogeneous spatial discretization class
     else !> If mesh type is not 1, 2, or 3
@@ -117,7 +117,7 @@ subroutine initialise_transport_1D_transient_RT(this,path,root,mesh_type)
 !> Boundary conditions
     call my_BCs%read_BCs(path//root//'_BCs.dat') !> Read boundary condition types and values from file (Dirichlet, Neumann, Robin, PMF)
     !if (my_BCs%labels(1).eq.1 .and. my_BCs%labels(2).eq.1 .and. this%spatial_discr%targets_flag.eq.0) then !> (commented out) Check if both BCs are Dirichlet and no internal targets
-        call my_BCs%read_caudal_inf(path//root//'_caudal_inf.dat') !> Read inflow flux (caudal) data from file q(t) [L³/T or L/T depending on dimension]
+        call my_BCs%read_caudal_inf(path//root//'_discharge_inf.dat') !> Read inflow flux (caudal) data from file q(t) [L³/T or L/T depending on dimension]
     ! else if (my_BCs%labels(1).eq.3) then !> (commented out) Check if left BC is Robin type
     !     call my_BCs%read_Robin_BC_inflow(path//root//'_Robin_BC_inflow.dat') !> (commented out) Read Robin BC inflow data from file
     !end if !> (commented out) End BC type check
@@ -126,7 +126,7 @@ subroutine initialise_transport_1D_transient_RT(this,path,root,mesh_type)
 !> Time discretization setup
     !my_time_discr=>my_homog_time_discr !> Alternative: use pointer assignment instead of allocation (commented out)
     allocate(time_discr_homog_c :: my_time_discr) !> Allocate pointer to homogeneous time discretization class (uniform time steps) [-]
-    call my_time_discr%read_time_discr(path//root//'_discr_temp.dat') !> Read time discretization from file: initial time t₀, final time t_f, time step Δt [T]
+    call my_time_discr%read_time_discr(path//root//'_discr_time.dat') !> Read time discretization from file: initial time t₀, final time t_f, time step Δt [T]
     call this%set_time_discr(my_time_discr) !> Assign time discretization object to transport%time_discr member [-]
 !****************************************************************************************************************************************************
 !> Transport properties configuration
@@ -155,7 +155,7 @@ subroutine initialise_transport_1D_transient_RT(this,path,root,mesh_type)
         call my_props_tpt%compute_source_term(this%spatial_discr,flux_coeffs) !> Compute source term field from flux: f = -∇·q = -dq/dx [C/T or 1/T]
     end if
     call my_props_tpt%set_source_term_flag(this%BCs) !> Set flag indicating presence of source/sink term based on boundary conditions [-]
-    call my_props_tpt%compute_dispersion_1D(this%spatial_discr%scheme) !> Compute dispersion at cell interfaces from cell-centered values using numerical scheme [L²/T]
+    call my_props_tpt%compute_dispersion_1D() !> Compute hydrodynamic dispersion (mechanical alpha_L*q + molecular phi*D_m) [L²/T]
     call this%set_tpt_props_heterog_obj(my_props_tpt) !> Assign transport properties object to transport%tpt_props_heterog member [-]
 !****************************************************************************************************************************************************
 !> Stability parameters computation

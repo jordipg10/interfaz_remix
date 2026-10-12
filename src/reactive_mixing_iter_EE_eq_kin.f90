@@ -54,7 +54,7 @@ subroutine reactive_mixing_iter_EE_eq_kin(this,c1_old,c_hat,mix_ratio_r,Delta_t,
         !k=0
         !k_div=0
         !Delta_t_bis=Delta_t
-        call this%compute_rk_new(rk_new) !> we compute new values of kinetic reaction rates
+        call this%compute_rxn_rate_kin(rk_new) !> we compute new values of kinetic reaction rates
         !call this%compute_react_term_EE_eq_kin(Delta_t_aux,rk_tilde,conc_comp_react) !> chemical part
         !conc_comp_react=Delta_t*rk_tilde,theta) !> chemical part
         conc_comp_react=Delta_t*mix_ratio_r*matmul(this%solid_chemistry%reactive_zone%U_SkT_prod,&

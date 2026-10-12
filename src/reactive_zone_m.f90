@@ -40,6 +40,12 @@
 !>     * All minerals
 !>     * Cation exchange
 !>     * All gases
+!>
+!>   Relationship to the rest of the model:
+!>   - chemistry_c owns the array of reactive zones; each target solid/water references the
+!>     reactive zone that applies at its location.
+!>   - Identical zones (same set of non-flowing species) can be detected with the public
+!>     compare_react_zones routine, used to spot zone changes during reactive transport.
 !>   
 !> \author Jordi Petchamé-Guerrero
 !> \date October 2025
@@ -48,7 +54,7 @@ module reactive_zone_m
     use species_m, only: species_c
     use surf_compl_m, only: cat_exch_zone_c
     use gas_phase_m, only: gas_phase_c
-    use CV_params_m, only: CV_params_s
+    use params_iter_methods_m, only: params_iter_methods_s
     use speciation_algebra_m, only: speciation_algebra_s
     use arrays_m, only: id_matrix
     implicit none
@@ -103,7 +109,7 @@ module reactive_zone_m
         integer(kind=4), allocatable :: ind_eq_reacts(:)             !< Heterogeneous equilibrium reaction indices in chemical system (same order as in chemical system)
         class(chem_system_c), pointer :: chem_syst                   !< Pointer to chemical system (shared)
         type(speciation_algebra_s) :: speciation_alg                 !< Speciation algebra object
-        class(CV_params_s), pointer :: CV_params                     !< Convergence parameters for speciation/mixing
+        class(params_iter_methods_s), pointer :: CV_params                     !< Convergence parameters for speciation/mixing
         real(kind=8), allocatable :: U_SkT_prod(:,:)                 !< Product U*S_k,nc^T for computations
         integer(kind=4), allocatable :: ind_var_act_species(:)       !< Indices of variable activity species in the chemical system (primary then secondary variable activity)
     contains
@@ -126,6 +132,8 @@ module reactive_zone_m
         procedure :: set_speciation_alg_dimensions           !< Set speciation algebra dimensions
         procedure :: set_CV_params                           !< Set convergence parameters
         procedure :: set_ind_var_act_species                 !< Set aqueous var act species indices
+    !> Initialisation procedures
+        procedure :: initialise_reactive_zone                !< Compute the derived counts and build every derived array from the zone definition
     !> Allocate/deallocate procedures
         procedure :: allocate_ind_non_flow_species            !< Allocate non-flowing species array
         procedure :: allocate_ind_mins                       !< Allocate mineral indices array
@@ -442,10 +450,19 @@ module reactive_zone_m
                 end do
                 counter=counter+this%num_minerals_var_act
                 !> Fourth: minerals with constant activity
+                !> Use this reactive zone's actual mineral indices (ind_mins_chem_syst) rather than the
+                !> local loop counter: a zone may contain any subset of the chemical system's minerals,
+                !> not necessarily the first ones. The constant-activity minerals of this zone occupy
+                !> ind_mins_chem_syst(num_minerals_var_act+1 : num_minerals_var_act+num_minerals_cst_act)
+                !> (minerals are stored in chemical-system order: kinetic, then eq var-act, then eq cst-act).
+                !> The position of each within the chemical system's constant-activity equilibrium minerals
+                !> is ind_mins_chem_syst(...) - num_minerals_kin - num_minerals_eq_var_act.
                 do i=1,this%num_minerals_cst_act
                     this%ind_non_flow_species(counter+i)=this%chem_syst%speciation_alg%num_species-&
                         this%chem_syst%gas_phase%num_cst_act_species-&
-                        this%chem_syst%num_minerals_eq_cst_act+i    !> Indexing in chem system
+                        this%chem_syst%num_minerals_eq_cst_act+&
+                        (this%ind_mins_chem_syst(this%num_minerals_var_act+i)-&
+                         this%chem_syst%num_minerals_kin-this%chem_syst%num_minerals_eq_var_act)    !> Indexing in chem system
                 end do
                 counter=counter+this%num_minerals_cst_act
                 !> Fifth: gases with constant activity
@@ -596,77 +613,35 @@ module reactive_zone_m
             this%chem_syst=>chem_syst
         end subroutine
     !******************************************************************************************************************************
-        !> \brief Get equilibrium constants for reactive zone
+        !> \brief Get (base) equilibrium constants for reactive zone
         !> \details
-        !>   Retrieves equilibrium constants for all reactions in proper order.
-        !>   For gas reactions, can adjust K by constant activity gases:
-        !>   K_adj = K_eq / P_gas (for constant pressure gases)
-        !>   
-        !>   Ordering depends on speciation_alg%flag_comp:
-        !>   - If TRUE: cst act minerals, cst act gases, redox, aq complex, var act minerals, exch, var act gases
-        !>   - If FALSE: redox, aq complex, all minerals, exch, all gases
+        !>   Retrieves the base equilibrium constants K_eq of all heterogeneous
+        !>   equilibrium reactions of the zone, ordered as in ind_eq_reacts (the
+        !>   same order as the rows of stoich_mat and the speciation algebra).
+        !>
+        !>   These constants are UNMODIFIED: constant-activity phases are not folded
+        !>   in here. When a constant-activity phase has activity /= 1 (e.g. a gas at
+        !>   partial pressure P /= 1), the modified constant K' = K_eq / a is produced
+        !>   by the aqueous chemistry that owns both the solid and gas chemistry
+        !>   (see aqueous_chemistry_c%get_eq_csts_aq_chem).
         !> \param[in] this Reactive zone object (const)
-        !> \param[in] cst_act_gases Optional: constant activity gas pressures
-        !> \return K Array of equilibrium constants
-        function get_eq_csts_react_zone(this,cst_act_gases) result(K)
+        !> \return K Array of base equilibrium constants (size num_eq_reactions)
+        function get_eq_csts_react_zone(this) result(K)
             implicit none
             class(reactive_zone_c), intent(in) :: this !> reactive zone object
-            real(kind=8), intent(in), optional :: cst_act_gases(:) !> constant activity gases in gas phase
-            real(kind=8), allocatable :: K(:) !> equilibrium constants
-            
-            integer(kind=4) :: i,ind_eq_react
-          
+            real(kind=8), allocatable :: K(:) !> base equilibrium constants
+
+            integer(kind=4) :: i
+
             allocate(K(this%speciation_alg%num_eq_reactions))
-            
+
             if (this%speciation_alg%num_eq_reactions/=size(this%ind_eq_reacts)) error stop "Wrong size of ind_eq_reacts array"
 
-            ind_eq_react=0 !> counter equilibrium reactions
-
-            if (this%speciation_alg%flag_comp .eqv. .true.) then !> If component matrix has NO variable activity species
-                do i=1,this%num_minerals_cst_act
-                    K(i)=this%chem_syst%eq_reacts(this%ind_eq_reacts(i))%eq_cst
-                end do
-                ind_eq_react=ind_eq_react+this%num_minerals_cst_act
-                if (present(cst_act_gases)) then
-                    do i=1,this%gas_phase%num_gases_eq_cst_act
-                        K(this%num_minerals_cst_act+i) = this%chem_syst%eq_reacts(this%ind_eq_reacts(&
-                            this%num_minerals_cst_act+i))%eq_cst/cst_act_gases(i)
-                    end do
-                else
-                    do i=1,this%gas_phase%num_gases_eq_cst_act
-                        K(this%num_minerals_cst_act+i) = this%chem_syst%eq_reacts(this%ind_eq_reacts(&
-                            this%num_minerals_cst_act+i))%eq_cst
-                    end do
-                end if
-                ind_eq_react=ind_eq_react+this%gas_phase%num_gases_eq_cst_act
-                do i=ind_eq_react+1,this%speciation_alg%num_eq_reactions
-                    K(i)=this%chem_syst%eq_reacts(this%ind_eq_reacts(i))%eq_cst
-                end do
-            else !> If component matrix has variable activity species
-                do i=1,this%chem_syst%num_aq_eq_reacts
-                    K(i)=this%chem_syst%eq_reacts(this%ind_eq_reacts(i))%eq_cst
-                end do
-                ind_eq_react=ind_eq_react+this%chem_syst%num_aq_eq_reacts !> counter equilibrium reactions
-                do i=1,this%num_minerals
-                    K(ind_eq_react+i)=this%chem_syst%eq_reacts(this%ind_eq_reacts(ind_eq_react+i))%eq_cst
-                end do
-                ind_eq_react=ind_eq_react+this%num_minerals
-                do i=1,this%cat_exch_zone%num_exch_cats
-                    K(ind_eq_react+i)=this%chem_syst%eq_reacts(this%ind_eq_reacts(ind_eq_react+i))%eq_cst
-                end do
-                ind_eq_react=ind_eq_react+this%cat_exch_zone%num_exch_cats
-                if (present(cst_act_gases)) then
-                    do i=1,this%gas_phase%num_gases_eq
-                        K(ind_eq_react+i) = this%chem_syst%eq_reacts(this%ind_eq_reacts(&
-                            ind_eq_react+i))%eq_cst/cst_act_gases(i)
-                    end do
-                else
-                    do i=1,this%gas_phase%num_gases_eq
-                        K(ind_eq_react+i) = this%chem_syst%eq_reacts(this%ind_eq_reacts(&
-                            ind_eq_react+i))%eq_cst
-                    end do
-                end if
-            end if
+            !> Base constants in ind_eq_reacts order. Activities of constant-activity
+            !> phases are assumed 1 here; the gas chemistry applies K/P for its gases.
+            do i=1,this%speciation_alg%num_eq_reactions
+                K(i)=this%chem_syst%eq_reacts(this%ind_eq_reacts(i))%eq_cst_ref
+            end do
             
             
            
@@ -1230,11 +1205,11 @@ module reactive_zone_m
         !>   
         !>   If no non-flowing species: uses only aqueous chemistry from chem_syst.
         !> \param[in,out] this Reactive zone object
-        !> \param[in] flag_comp Optional: TRUE if component matrix has no constant activity species
+        !> \param[in] flag_comp TRUE if component matrix has no constant activity species
         subroutine set_speciation_alg_dimensions(this,flag_comp)
             implicit none
             class(reactive_zone_c) :: this
-            logical, intent(in), optional :: flag_comp !> TRUE if component matrix has no constant activity species (De Simoni et al, 2005), FALSE otherwise
+            logical, intent(in) :: flag_comp !> TRUE if component matrix has no constant activity species (De Simoni et al, 2005), FALSE otherwise
             
             integer(kind=4) :: i,n_sp,n_c,n_eq,n_gas_kin  !< Dimension counters
             logical :: flag_cat_exch  !< Flag for cation exchange presence
@@ -1298,22 +1273,25 @@ module reactive_zone_m
                 n_c=this%chem_syst%aq_phase%num_cst_act_species  !< Only aqueous constant activity species (water, etc.)
                 n_eq=this%chem_syst%num_aq_eq_reacts  !< Only aqueous equilibrium reactions
                 
-                !> Check for cation exchange in chemical system
-                !> (even though no non-flowing species in reactive zone, chem system may have it)
-                if (this%chem_syst%cat_exch_zone%num_surf_compl>0) then
-                    flag_cat_exch=.true.  !< Cation exchange defined in chem system
+                !> A reactive zone with no non-flowing species cannot host any
+                !> surface complexes, so it has no cation exchange regardless of
+                !> what the chemical system defines. Keying flag_cat_exch off the
+                !> chem system here would wrongly flag aqueous-only zones (e.g. the
+                !> external inflow water / dummy zones) as exchanging, which makes
+                !> compute_num_prim_species reserve a phantom free-site slot and
+                !> yields inconsistent dimensions (num_aq_prim off by one) that
+                !> overrun get_conc_var_act. Use this zone's own cat_exch_zone instead.
+                if (this%cat_exch_zone%num_surf_compl>0) then
+                    flag_cat_exch=.true.  !< Cation exchange present in this reactive zone
                 else
                     flag_cat_exch=.false.  !< No cation exchange
                 end if
             end if
             
-            !> \subsection set_flags Set optional flags
-            !> Set component matrix flag if provided
+            !> \subsection set_flags Set flags
             !> flag_comp = TRUE: component matrix U excludes constant activity species (De Simoni approach)
             !> flag_comp = FALSE: component matrix U includes constant activity species
-            if (present(flag_comp)) then
-                call this%speciation_alg%set_flag_comp(flag_comp)
-            end if
+            call this%speciation_alg%set_flag_comp(flag_comp)
             
             !> Set cation exchange flag in speciation algebra
             call this%speciation_alg%set_flag_cat_exch(flag_cat_exch)
@@ -1345,17 +1323,20 @@ module reactive_zone_m
         !> \param[in,out] this Reactive zone object
         !> \param[out] flag TRUE if stoichiometric matrix modified, FALSE otherwise
         !> \param[out] swap Species/reaction indices to swap [2] (already allocated)
-        !> \param[in] cst_act_gases Optional: constant activity gas pressures
-        subroutine compute_speciation_alg_arrays(this,flag,swap,cst_act_gases)
+        subroutine compute_speciation_alg_arrays(this,flag,swap)
             implicit none
             class(reactive_zone_c) :: this !< Reactive zone object
             logical, intent(out) :: flag !< TRUE if stoichiometric matrix has been modified, FALSE otherwise
             integer(kind=4), intent(out) :: swap(:) !< Species or reactions to swap in stoichiometric matrix (already allocated)
-            real(kind=8), intent(in), optional :: cst_act_gases(:) !< Constant activity of gases in reactive zone (chapuza)
+            !< NOTE: no equilibrium constants are needed here. This routine builds ONLY the
+            !< K-independent structural arrays (inverse Se, component matrices, Se_1_star),
+            !< which depend solely on the stoichiometric matrix. The transformed constants
+            !< logK_tilde/logK_star depend on the (per-water, T- and P-dependent) equilibrium
+            !< constants and are built by the owning aqueous chemistry (compute_logK_star),
+            !< since a single reactive zone may be shared by several waters/gas chemistries.
 
             !< Local variable declarations
             real(kind=8), allocatable :: Se(:,:) !< Stoichiometric matrix (temporary)
-            real(kind=8), allocatable :: K(:) !< Equilibrium constants array
             real(kind=8), allocatable :: aux_Se(:,:) !< Auxiliary stoichiometric matrix for swapping
             real(kind=8), allocatable :: aux_Sk(:,:) !< Auxiliary kinetic stoichiometric matrix
             integer(kind=4) :: aux_col !< Auxiliary column index
@@ -1372,10 +1353,8 @@ module reactive_zone_m
             
             !> \par Case 1: Reactive zone has equilibrium reactions
             if (this%speciation_alg%num_eq_reactions>0) then
-                !Se=this%stoich_mat
-                K=this%get_eq_csts_react_zone(cst_act_gases) !< Get equilibrium constants
-                !< Compute component matrix, inverse Se, logK_tilde
-                call this%speciation_alg%compute_arrays(this%stoich_mat,K,this%CV_params%zero,flag,swap)
+                !< Compute the structural arrays (component matrix, inverse Se, Se_1_star)
+                call this%speciation_alg%compute_arrays(this%stoich_mat,this%CV_params%zero,flag,swap)
                 !< Check if matrix modification (swap) was required
                 if (flag .eqv. .true.) then
                     !allocate(aux_Se(this%speciation_Alg%num_eq_reactions,this%speciation_alg%num_Species))
@@ -1410,11 +1389,9 @@ module reactive_zone_m
                     end if
                     !deallocate(aux_Se)
                 end if
-                deallocate(K) !< Free equilibrium constants array
             !> \par Case 2: No equilibrium reactions in reactive zone, use chemical system
             else if (associated(this%chem_syst)) then
                 Se=this%chem_syst%Se !< Get stoichiometric matrix from chemical system
-                K=this%chem_syst%get_eq_csts() !< Get equilibrium constants from chemical system
                 !> \par Case 2A: Component matrix includes constant activity species
                 if (this%speciation_alg%flag_comp .eqv. .false.) then
                     !< Set component matrix for constant activity species as identity
@@ -1423,8 +1400,8 @@ module reactive_zone_m
                     call this%speciation_alg%compute_inv_Se_2(Se(&
                         :,this%speciation_alg%num_prim_species+1:this%speciation_alg%num_species),&
                         this%CV_params%zero)
-                    !< Compute modified equilibrium constants
-                    call this%speciation_alg%compute_logK_tilde(K)
+                    !< The transformed constants (logK_tilde) are built per-water by the
+                    !< owning aqueous chemistry (compute_logK_star), not stored here.
                 !> \par Case 2B: Component matrix excludes constant activity species
                 else
                     !< Set component matrix as identity (variable activity only)
@@ -1454,8 +1431,106 @@ module reactive_zone_m
         subroutine set_CV_params(this,CV_params)
             implicit none
             class(reactive_zone_c) :: this
-            class(CV_params_s), intent(in), target :: CV_params  !< Convergence parameters (must be target)
+            class(params_iter_methods_s), intent(in), target :: CV_params  !< Convergence parameters (must be target)
             this%CV_params=>CV_params  !< Associate pointer (shallow copy)
+        end subroutine
+
+        !> \brief Initialise a reactive zone from its definition
+        !> \details
+        !>   Sets the zone's equilibrium minerals, computes the derived counts and builds every
+        !>   derived array of the zone from scratch, in the same order the readers apply. To be
+        !>   called once the zone is DEFINED:
+        !>   - chemical system and convergence parameters associated (set_chem_syst_react_zone,
+        !>     set_CV_params)
+        !>   - cation exchange zone (set_cat_exch_zone) and gas phase (set_gas_phase) assigned,
+        !>     both possibly empty
+        !>   The equilibrium minerals are given as indices in chem_syst%minerals (default: all the
+        !>   equilibrium minerals of the chemical system).
+        !>
+        !>   **Steps:**
+        !>   1. Equilibrium minerals: validated (equilibrium minerals of the chemical system, no
+        !>      repetition) and stored in ind_mins_chem_syst with the variable activity ones first and
+        !>      the constant activity ones after (the layout set_ind_non_flow_species and
+        !>      set_ind_mins_stoich_mat rely on), each group in the given order; num_minerals,
+        !>      num_minerals_var_act and num_minerals_cst_act are derived from the chemical system's
+        !>      activity flags (allocate_ind_mins, set_ind_mins_chem_syst, set_num_mins_var_act,
+        !>      set_num_mins_cst_act)
+        !>   2. Counts: num_solids (set_num_solids) and num_non_flow_species (set_num_non_flow_species)
+        !>   3. Speciation algebra dimensions (set_speciation_alg_dimensions)
+        !>   4. Index arrays: non-flowing species (set_ind_non_flow_species), equilibrium reactions
+        !>      (set_ind_eq_reacts) and variable activity species (allocate_ind_var_act_species:
+        !>      identity permutation, then filled by the stoichiometric matrix set-up)
+        !>   5. Stoichiometric matrix (set_stoich_mat_react_zone) and the mineral and gas column
+        !>      indices in it (set_ind_mins_stoich_mat, set_ind_gases_stoich_mat)
+        !>
+        !>   **NOT built here** (owned by the chemistry using the zone, which may be shared by
+        !>   several waters): the structural speciation arrays (compute_speciation_alg_arrays, whose
+        !>   species/reaction swap the owning waters must mirror in their own index arrays), the
+        !>   U*S_k^T product (compute_U_SkT_prod: depends on the mineral zone's kinetic set) and the
+        !>   per-water transformed constants logK_tilde / logK_star.
+        !> \param[in,out] this Reactive zone object
+        !> \param[in] flag_comp TRUE for a component matrix without constant activity species
+        !>            (De Simoni et al., 2005); forwarded to set_speciation_alg_dimensions
+        !> \param[in] ind_mins_chem_syst Optional: indices in chem_syst%minerals of the zone's
+        !>            equilibrium minerals, in any order (default: all equilibrium minerals of the
+        !>            chemical system)
+        subroutine initialise_reactive_zone(this,flag_comp,ind_mins_chem_syst)
+            implicit none
+            class(reactive_zone_c) :: this
+            logical, intent(in) :: flag_comp
+            integer(kind=4), intent(in), optional :: ind_mins_chem_syst(:)
+            integer(kind=4), allocatable :: ind_mins(:) !< zone minerals as given
+            integer(kind=4), allocatable :: ind_mins_sorted(:) !< zone minerals, variable activity first, then constant activity
+            integer(kind=4) :: i,j,n_var,n_cst
+            !> Definition checks
+            if (.not. associated(this%chem_syst)) error stop "initialise_reactive_zone: chemical system not associated"
+            if (.not. associated(this%CV_params)) error stop "initialise_reactive_zone: convergence parameters not associated"
+            !> 1. Equilibrium minerals
+            if (present(ind_mins_chem_syst)) then
+                ind_mins=ind_mins_chem_syst
+            else
+                ind_mins=[(this%chem_syst%num_minerals_kin+i, i=1,this%chem_syst%num_minerals_eq)]
+            end if
+            do i=1,size(ind_mins)
+                if (ind_mins(i)<=this%chem_syst%num_minerals_kin .or. ind_mins(i)>this%chem_syst%num_minerals) then
+                    error stop "initialise_reactive_zone: mineral index is not an equilibrium mineral of the chemical system"
+                end if
+                do j=1,i-1
+                    if (ind_mins(j)==ind_mins(i)) error stop "initialise_reactive_zone: repeated mineral index"
+                end do
+            end do
+            allocate(ind_mins_sorted(size(ind_mins)))
+            n_var=0
+            n_cst=0
+            do i=1,size(ind_mins)
+                if (.not. this%chem_syst%minerals(ind_mins(i))%mineral%cst_act_flag) then
+                    n_var=n_var+1
+                    ind_mins_sorted(n_var)=ind_mins(i)
+                end if
+            end do
+            do i=1,size(ind_mins)
+                if (this%chem_syst%minerals(ind_mins(i))%mineral%cst_act_flag) then
+                    n_cst=n_cst+1
+                    ind_mins_sorted(n_var+n_cst)=ind_mins(i)
+                end if
+            end do
+            call this%allocate_ind_mins(size(ind_mins_sorted)) !< num_minerals and both mineral index arrays
+            call this%set_ind_mins_chem_syst(ind_mins_sorted)
+            call this%set_num_mins_var_act(n_var)
+            call this%set_num_mins_cst_act(n_cst)
+            !> 2. Counts
+            call this%set_num_solids()
+            call this%set_num_non_flow_species()
+            !> 3. Speciation algebra dimensions
+            call this%set_speciation_alg_dimensions(flag_comp)
+            !> 4. Index arrays (set_ind_non_flow_species and set_ind_eq_reacts allocate their own)
+            call this%set_ind_non_flow_species()
+            call this%set_ind_eq_reacts()
+            call this%allocate_ind_var_act_species()
+            !> 5. Stoichiometric matrix and its mineral and gas columns
+            call this%set_stoich_mat_react_zone()
+            call this%set_ind_mins_stoich_mat()
+            call this%set_ind_gases_stoich_mat()
         end subroutine
         
         !> \brief Compute U*S_k^T product matrix for kinetic reactions

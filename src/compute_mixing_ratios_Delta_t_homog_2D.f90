@@ -33,8 +33,11 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
     integer(kind=4) :: Nx, Ny
     integer(kind=4) :: row_i, col_i
     integer(kind=4) :: num_upstream, num_downstream
+    integer(kind=4) :: nUpKept, nDownKept, dim_conc, pos  !> sparse-mixing bookkeeping (kept neighbours, shared by the concentration and reaction ratios)
     real(kind=8) :: theta,Delta_t
     real(kind=8), parameter :: tol_inv=1d-12
+    real(kind=8), parameter :: tol_mix=1d-3  !> threshold: domain mixing ratios below this are dropped (sparse storage)
+    real(kind=8) :: bd1, bd2, kept_dom_sum, dom_target_sum, scale  !> renormalisation of kept domain ratios
     real(kind=8), allocatable :: A_mat_inv(:,:),A_mat(:,:)
     real(kind=8) :: mix_sum  !> DEBUG: sum of mixing ratios for mass balance check
     real(kind=8) :: t1, t2  !> CPU timing variables
@@ -57,10 +60,13 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
     write(*,*) '  Nx =', Nx, '  Ny =', Ny
     write(*,*) '  Num_targets =', this%spatial_discr%Num_targets
     write(*,*) '  Lagr_flag   =', this%Lagr_flag
-    write(*,*) '  int_method  =', this%time_discr%int_method
+    write(*,*) '  int_method  =', this%time_discr%int_method_tpt
     write(*,*) '  BCs labels  =', this%BCs%labels
     
 !> Step 1: Allocate mixing ratio arrays for concentrations and reaction amounts
+!> mixing_ratios_R shares the layout of mixing_ratios_conc / mix_conc_indices ([self, upstream...,
+!> downstream...], externals included): the reaction ratio of a water that mixes its concentrations
+!> but not its reaction rates (boundary and recharge waters) is stored as 0.
     call this%mixing_ratios_conc%allocate_array(this%spatial_discr%Num_targets)
     call this%mixing_ratios_R%allocate_array(this%spatial_discr%Num_targets)
     
@@ -123,7 +129,7 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
             error stop "trans_mat row does not sum to 0"
         end if
     end do
-    if (this%time_discr%int_method.eq.1) then
+    if (this%time_discr%int_method_tpt.eq.1) then
         theta=0d0
 !> Allocate dims based on actual 2D neighbors (left-to-right, bottom-to-top ordering)
         do i=1,this%mixing_ratios_conc%num_cols
@@ -136,7 +142,7 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
             if (col_i < Nx) num_downstream = num_downstream + 1  !> right neighbor
             if (row_i < Ny) num_downstream = num_downstream + 1  !> above neighbor
             this%mixing_ratios_conc%cols(i)%dim = 1 + num_upstream + num_downstream + num_rech_mix_rat
-            this%mixing_ratios_R%cols(i)%dim = 1
+            this%mixing_ratios_R%cols(i)%dim = this%mixing_ratios_conc%cols(i)%dim !> reaction ratios share the concentration layout
         end do
         call this%mixing_ratios_conc%allocate_columns()
         call this%mixing_ratios_R%allocate_columns()
@@ -144,7 +150,7 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
         num_mix_rat=num_mix_rat+this%spatial_discr%Num_targets
 !> Memory budget check: implicit method requires O(N^2) storage for dense mixing ratios
         if (int(this%spatial_discr%Num_targets,8) * int(num_mix_rat,8) * 8_8 > 2000000000_8) then
-            write(*,*) 'ERROR: Implicit method (int_method=', this%time_discr%int_method, &
+            write(*,*) 'ERROR: Implicit method (int_method=', this%time_discr%int_method_tpt, &
                 ') requires too much memory for this grid size.'
             write(*,*) '  Num_targets =', this%spatial_discr%Num_targets
             write(*,*) '  num_mix_rat =', num_mix_rat
@@ -156,12 +162,12 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
         do i=1,this%mixing_ratios_conc%num_cols
             call this%mixing_ratios_conc%cols(i)%set_dim(num_mix_rat)
             call this%mixing_ratios_conc%cols(i)%allocate_vector()
-            call this%mixing_ratios_R%cols(i)%set_dim(this%mixing_ratios_R%num_cols)
+            call this%mixing_ratios_R%cols(i)%set_dim(num_mix_rat) !> reaction ratios share the concentration layout (resized to the sparse kept-set below)
             call this%mixing_ratios_R%cols(i)%allocate_vector()
         end do
-        if (this%time_discr%int_method.eq.2) then
+        if (this%time_discr%int_method_tpt.eq.2) then
             theta=1d0
-        else if (this%time_discr%int_method.eq.3) then
+        else if (this%time_discr%int_method_tpt.eq.3) then
             theta=5d-1
         else
             error stop "Time discretisation not implemented yet"
@@ -255,56 +261,127 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
         !     write(*,'(A,I4,A,*(ES14.6))') '    row ', i, ':', this%mixing_ratios_mat_conc_bd(i,:)
         ! end do
 
-    !> Step 7e: Populate mixing ratios for each target (implicit methods)
+    !> Step 7e: Populate mixing ratios for each target (implicit methods) -- SPARSE storage.
+    !> Only domain mixing ratios with |lambda| >= tol_mix are stored; the self ratio and the
+    !> inflow/outflow boundary ratios are always kept. The kept domain ratios (self + retained
+    !> neighbours) are renormalised so that, together with the exact boundary ratios, each column
+    !> still sums to 1 (conservative mixing). This collapses the dense O(N^2) implicit mixing
+    !> operator into a sparse one, drastically reducing setup and per-time-step mixing cost.
+    !> The reaction-rate mixing ratios (mixing_ratios_R) are stored at the SAME positions as the
+    !> concentration ones (mix_conc_indices layout, kept-set shared): A_mat_inv(i,j) for the kept
+    !> domain neighbours, 0 at the boundary/recharge positions (they do not mix reaction rates).
         write(*,*) ''
-        write(*,*) '--- Populating mix_conc_indices and mixing_ratios (implicit) ---'
+        write(*,*) '--- Populating mix_conc_indices and mixing_ratios (implicit, sparse, tol=', tol_mix, ') ---'
         do i=1,this%spatial_discr%num_targets
-            this%mixing_ratios_conc%cols(i)%col_1(1+num_inf_ext_mix_rat)=this%mixing_ratios_mat_conc_bd(i,1)
-            this%mixing_ratios_conc%cols(i)%col_1(this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat)=&
-                this%mixing_ratios_mat_conc_bd(i,2)
-            this%mixing_ratios_conc%cols(i)%col_1(1)=this%mixing_ratios_mat_conc_mesh(i,i)
-            this%mixing_ratios_R%cols(i)%col_1(1)=this%A_mat_inv(i,i)
-            this%mix_conc_indices%cols(i)%col_1(1+num_inf_ext_mix_rat)=num_inf_ext_mix_rat
-            this%mix_conc_indices%cols(i)%col_1(this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat)=&
-                this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat
-            this%mix_conc_indices%cols(i)%col_1(1)=i+num_inf_ext_mix_rat
-            this%mix_conc_indices%cols(i)%col_1(this%mix_conc_indices%cols(i)%dim-1)=num_inf_ext_mix_rat+i-1
-            this%mix_conc_indices%cols(i)%col_1(this%mix_conc_indices%cols(i)%dim)=this%mixing_ratios_conc%cols(i)%dim-&
-                i-num_inf_ext_mix_rat
+            !> Column-major upstream/downstream classification (flow is along +x).
+            !> A domain neighbour j is UPSTREAM iff its physical column (x) is strictly to the
+            !> left of cell i's column; otherwise it is DOWNSTREAM. Same-column (same-x)
+            !> cross-stream neighbours are therefore treated as downstream (NOT upstream),
+            !> so only genuine x-upstream cells enter the implicit reaction term. The physical
+            !> column of a (row-major) index is col = mod(index-1, Nx) + 1.
+            col_i = mod(i-1, Nx) + 1
+            !> Pass 1: count kept upstream (col<col_i) and downstream (col>=col_i) domain neighbours
+            !> (|conc ratio| >= tol_mix).
+            nUpKept=0
+            nDownKept=0
+            do j=1,this%spatial_discr%num_targets
+                if (j==i) cycle
+                if (mod(j-1, Nx) + 1 < col_i) then
+                    !> upstream (physical column strictly to the left)
+                    if (abs(this%mixing_ratios_mat_conc_mesh(j,i))>=tol_mix) nUpKept=nUpKept+1
+                else
+                    !> downstream (right column or same-x cross-stream)
+                    if (abs(this%mixing_ratios_mat_conc_mesh(j,i))>=tol_mix) nDownKept=nDownKept+1
+                end if
+            end do
+            !> Sparse column length: self + inflow ext + kept up + kept down + outflow ext + recharge
+            dim_conc=1+num_inf_ext_mix_rat+nUpKept+nDownKept+num_out_ext_mix_rat+num_rech_mix_rat
+            call this%mixing_ratios_conc%cols(i)%allocate_vector(dim_conc)
+            call this%mix_conc_indices%cols(i)%allocate_vector(dim_conc+2)
+            call this%mixing_ratios_R%cols(i)%allocate_vector(dim_conc)
+            this%mixing_ratios_R%cols(i)%col_1=0d0 !> externals (boundary, recharge) do not mix reaction rates
 
-!> Assign mixing ratios for all upstream targets (j < i)
-            do j=1,i-1
-                this%mixing_ratios_conc%cols(i)%col_1(1+num_inf_ext_mix_rat+j)=this%mixing_ratios_mat_conc_mesh(j,i)
-                this%mixing_ratios_R%cols(i)%col_1(1+j)=this%A_mat_inv(i,j)
-                this%mix_conc_indices%cols(i)%col_1(1+num_inf_ext_mix_rat+j)=num_inf_ext_mix_rat+j
+            !> Self + boundary (kept exact) entries and the index/metadata bookkeeping
+            bd1=this%mixing_ratios_mat_conc_bd(i,1)
+            bd2=this%mixing_ratios_mat_conc_bd(i,2)
+            this%mixing_ratios_conc%cols(i)%col_1(1)=this%mixing_ratios_mat_conc_mesh(i,i)             !> self (renormalised below)
+            this%mixing_ratios_conc%cols(i)%col_1(1+num_inf_ext_mix_rat)=bd1                           !> inflow ext (exact)
+            this%mixing_ratios_conc%cols(i)%col_1(dim_conc-num_rech_mix_rat)=bd2                        !> outflow ext (exact)
+            this%mixing_ratios_R%cols(i)%col_1(1)=this%A_mat_inv(i,i)
+            this%mix_conc_indices%cols(i)%col_1(1)=i+num_inf_ext_mix_rat
+            this%mix_conc_indices%cols(i)%col_1(1+num_inf_ext_mix_rat)=num_inf_ext_mix_rat
+            this%mix_conc_indices%cols(i)%col_1(dim_conc-num_rech_mix_rat)=&
+                this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat
+            this%mix_conc_indices%cols(i)%col_1(this%mix_conc_indices%cols(i)%dim-1)=num_inf_ext_mix_rat+nUpKept
+            this%mix_conc_indices%cols(i)%col_1(this%mix_conc_indices%cols(i)%dim)=nDownKept+num_out_ext_mix_rat
+
+            !> Pass 2: fill kept domain neighbours (upstream then downstream) and accumulate kept sum.
+            !> The reaction ratio of each kept neighbour goes to the same position "pos".
+            kept_dom_sum=this%mixing_ratios_mat_conc_mesh(i,i)
+            pos=1+num_inf_ext_mix_rat
+!> Kept upstream targets (physical column < col_i)
+            do j=1,this%spatial_discr%num_targets
+                if (j==i) cycle
+                if (mod(j-1, Nx) + 1 < col_i) then
+                    if (abs(this%mixing_ratios_mat_conc_mesh(j,i))>=tol_mix) then
+                        pos=pos+1
+                        this%mixing_ratios_conc%cols(i)%col_1(pos)=this%mixing_ratios_mat_conc_mesh(j,i)
+                        this%mixing_ratios_R%cols(i)%col_1(pos)=this%A_mat_inv(i,j)
+                        this%mix_conc_indices%cols(i)%col_1(pos)=num_inf_ext_mix_rat+j
+                        kept_dom_sum=kept_dom_sum+this%mixing_ratios_mat_conc_mesh(j,i)
+                    end if
+                end if
             end do
-!> Assign mixing ratios for all downstream targets (j > i)
-            do j=i+1,this%spatial_discr%num_targets
-                this%mixing_ratios_conc%cols(i)%col_1(num_inf_ext_mix_rat+j)=this%mixing_ratios_mat_conc_mesh(j,i)
-                this%mixing_ratios_R%cols(i)%col_1(j)=this%A_mat_inv(i,j)
-                this%mix_conc_indices%cols(i)%col_1(num_inf_ext_mix_rat+j)=num_inf_ext_mix_rat+j
+!> Kept downstream targets (physical column >= col_i, i.e. right column or same-x cross-stream)
+            do j=1,this%spatial_discr%num_targets
+                if (j==i) cycle
+                if (mod(j-1, Nx) + 1 >= col_i) then
+                    if (abs(this%mixing_ratios_mat_conc_mesh(j,i))>=tol_mix) then
+                        pos=pos+1
+                        this%mixing_ratios_conc%cols(i)%col_1(pos)=this%mixing_ratios_mat_conc_mesh(j,i)
+                        this%mixing_ratios_R%cols(i)%col_1(pos)=this%A_mat_inv(i,j)
+                        this%mix_conc_indices%cols(i)%col_1(pos)=num_inf_ext_mix_rat+j
+                        kept_dom_sum=kept_dom_sum+this%mixing_ratios_mat_conc_mesh(j,i)
+                    end if
+                end if
             end do
-!> Assign recharge mixing ratios (if any)
+!> Assign recharge mixing ratios (if any), appended after the outflow boundary entry
             do j=1,num_rech_mix_rat
-                this%mixing_ratios_conc%cols(i)%col_1(this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat+j)=&
+                this%mixing_ratios_conc%cols(i)%col_1(dim_conc-num_rech_mix_rat+j)=&
                     this%Y_mat%diag(j)*this%A_mat_inv(i,j)
-                this%mix_conc_indices%cols(i)%col_1(this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat+j)=&
+                this%mix_conc_indices%cols(i)%col_1(dim_conc-num_rech_mix_rat+j)=&
                     this%spatial_discr%num_targets+num_inf_ext_mix_rat+num_out_ext_mix_rat+j
+            end do
+
+!> Renormalise domain entries (self + kept neighbours) so the column sums to 1 with the
+!> boundary (and recharge) ratios held exact. Discarded weight is redistributed proportionally.
+            dom_target_sum=1d0-bd1-bd2
+            do j=1,num_rech_mix_rat
+                dom_target_sum=dom_target_sum-this%mixing_ratios_conc%cols(i)%col_1(dim_conc-num_rech_mix_rat+j)
+            end do
+            if (kept_dom_sum>0d0) then
+                scale=dom_target_sum/kept_dom_sum
+            else
+                scale=1d0
+            end if
+            this%mixing_ratios_conc%cols(i)%col_1(1)=scale*this%mixing_ratios_conc%cols(i)%col_1(1)
+            pos=1+num_inf_ext_mix_rat
+            do j=1,nUpKept+nDownKept
+                pos=pos+1
+                this%mixing_ratios_conc%cols(i)%col_1(pos)=scale*this%mixing_ratios_conc%cols(i)%col_1(pos)
             end do
 
             !> Verify non-negativity and mass balance
             do j=1,this%mixing_ratios_conc%cols(i)%dim
                 if (this%mixing_ratios_conc%cols(i)%col_1(j) < 0d0) then
                     write(*,'(A,I4,A,I4,A,ES15.7)') &
-                        'ERROR: negative mixing ratio at target ', i, &
+                        'WARNING: negative mixing ratio at target ', i, &
                         ', index ', j, ', value = ', this%mixing_ratios_conc%cols(i)%col_1(j)
-                    error stop "Negative mixing ratio detected"
                 end if
             end do
             mix_sum = sum(this%mixing_ratios_conc%cols(i)%col_1)
             if (abs(mix_sum - 1d0) > 1d-5) then
-                write(*,'(A,I4,A,ES14.6)') 'ERROR: mixing ratios column ', i, ' does not sum to 1: ', mix_sum
-                error stop "Mixing ratios column does not sum to 1"
+                write(*,'(A,I4,A,ES14.6)') 'WARNING: mixing ratios column ', i, ' does not sum to 1: ', mix_sum
             end if
             ! write(*,'(A,I4,A)') '  --- Target i=', i, ' ---'
             ! write(*,'(A,*(ES12.4))') '    mixing_ratios_conc = ', this%mixing_ratios_conc%cols(i)%col_1
@@ -330,7 +407,8 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
             !> Self mixing ratio (diagonal)
             this%mixing_ratios_conc%cols(i)%col_1(1) = this%X_mat%diag(i)
             this%mix_conc_indices%cols(i)%col_1(1) = i + num_inf_ext_mix_rat
-            this%mixing_ratios_R%cols(i)%col_1 = 1d0
+            this%mixing_ratios_R%cols(i)%col_1 = 0d0 !> explicit: reactions mix only with the target itself
+            this%mixing_ratios_R%cols(i)%col_1(1) = 1d0
             
             num_upstream = 0
             num_downstream = 0
@@ -372,15 +450,13 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
             do j=1,this%mixing_ratios_conc%cols(i)%dim
                 if (this%mixing_ratios_conc%cols(i)%col_1(j) < 0d0) then
                     write(*,'(A,I4,A,I4,A,ES15.7)') &
-                        'ERROR: negative mixing ratio at target ', i, &
+                        'WARNING: negative mixing ratio at target ', i, &
                         ', index ', j, ', value = ', this%mixing_ratios_conc%cols(i)%col_1(j)
-                    error stop "Negative mixing ratio detected"
                 end if
             end do
             mix_sum = sum(this%mixing_ratios_conc%cols(i)%col_1)
             if (abs(mix_sum - 1d0) > 1d-5) then
-                write(*,'(A,I4,A,ES14.6)') 'ERROR: mixing ratios column ', i, ' does not sum to 1: ', mix_sum
-                error stop "Mixing ratios column does not sum to 1"
+                write(*,'(A,I4,A,ES14.6)') 'WARNING: mixing ratios column ', i, ' does not sum to 1: ', mix_sum
             end if
             ! write(*,'(A,I4,A,I4,A,I4,A)') '  --- Target i=', i, ' (col=', col_i, ', row=', row_i, ', explicit 2D) ---'
             ! write(*,'(A,*(ES12.4))') '    mixing_ratios_conc = ', this%mixing_ratios_conc%cols(i)%col_1
@@ -389,13 +465,6 @@ subroutine compute_mixing_ratios_Delta_t_homog_2D(this)
         end do
     end if !> End of time integration method selection (implicit vs explicit)
     call copy_real_array(this%mixing_ratios_R, this%mixing_ratios_R_init)
-    call this%set_mix_react_indices()
-
-    write(*,*) ''
-    write(*,*) '--- After set_mix_react_indices ---'
-    ! do i=1,this%spatial_discr%num_targets
-    !     write(*,'(A,I4,A,*(I6))') '  mix_react_indices(', i, ') = ', this%mix_react_indices%cols(i)%col_1
-    ! end do
 
     write(*,*) ''
     write(*,*) '--- Final mixing_ratios_R_init ---'

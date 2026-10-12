@@ -45,12 +45,12 @@
 !>
 !> \note This subroutine assumes equilibrium reactions only (no kinetics)
 !> \note Time step reduction must be done externally if Newton fails
-!> \note Parameters rk_tilde and mix_ratio_Rk are currently unused (for future kinetic extension)
+!> \note Parameter mix_ratio_r is currently unused (for future kinetic extension)
 !>
 !> \see mixing_iter_comp For non-ideal version (with activity coefficients)
 !> \see mixing_iter_comp_ideal_lump For lumped version
-!> \see compute_c_nc_from_u_aq_Newton_ideal For Newton speciation procedure
-!> \see initialise_c1_aq_iterative_method For initialization strategy
+!> \see compute_c_nc_from_u_Newton_ideal For Newton speciation procedure
+!> \see initialise_iterative_method For initialization strategy
 !>
 !> \author jordi Petchamé-Guerrero
 !> \date 2024
@@ -63,30 +63,28 @@
 !>
 !> \param[in,out] this Aqueous chemistry object at current time step
 !> \param[in] c1_old Primary species concentrations at beginning of previous time step
-!> \param[in] c_mix Variable activity species concentrations after mixing
-!> \param[in] rk_tilde Kinetic reaction rate contributions after mixing (currently unused)
-!> \param[in,out] mix_ratio_Rk Mixing ratio of kinetic reaction rate in target (currently unused)
+!> \param[in] c_hat Variable activity species concentrations after mixing
+!> \param[in] mix_ratio_r Mixing ratio of kinetic reaction rate (currently unused)
 !> \param[in] Delta_t Time step size (currently unused but kept for interface consistency)
 !> \param[in] theta Time weighting factor (currently unused but kept for interface consistency)
 !>                  - θ = 0: Explicit (forward Euler)
 !>                  - θ = 0.5: Crank-Nicolson
 !>                  - θ = 1: Implicit (backward Euler)
 !> \param[out] conc_nc Variable activity (non-conservative) species concentrations (already allocated)
+!> \param[out] conc_comp Component concentrations u = U·c_hat (already allocated)
 !>
 !> \pre this%solid_chemistry%reactive_zone must be initialized
 !> \pre Component matrix must be set in speciation_alg
-!> \pre c_mix must have correct dimension
+!> \pre c_hat must have correct dimension
 !> \pre conc_nc must be pre-allocated with correct dimension
 !>
 !> \post conc_nc contains equilibrium concentrations of variable activity species
 !>
-!> \note Parameters rk_tilde, mix_ratio_Rk, Delta_t, theta are reserved for future extensions
+!> \note Parameters mix_ratio_r, Delta_t, theta are reserved for future extensions
 
-subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_new,Delta_t,theta,conc_nc,conc_comp)
+subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r,Delta_t,theta,conc_nc,conc_comp)
     use aqueous_chemistry_m, only: aqueous_chemistry_c, initialise_iterative_method
-    use vectors_m, only: inf_norm_vec_real
         !> aqueous_chemistry_c: Aqueous chemistry class with speciation methods
-        !> inf_norm_vec_real: Infinity norm function for convergence checking
     implicit none !> Enforce explicit variable declaration (no implicit typing)
 
 !> ================================================================================
@@ -111,11 +109,7 @@ subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_
         !> Reserved for future extension with kinetic reactions
         !> Would contribute to source/sink terms in reactive transport
     
-    real(kind=8), intent(in) :: mix_ratio_r_old !> Mixing ratio of kinetic reaction rate at previous time step (currently unused) [-]
-        !> Reserved for future extension with kinetic reactions
-        !> Would weight kinetic contributions from different mixing zones
-    
-    real(kind=8), intent(in) :: mix_ratio_r_new !> Mixing ratio of kinetic reaction rate at new time step (currently unused) [-]
+    real(kind=8), intent(in) :: mix_ratio_r !> Mixing ratio of reaction rate (currently unused) [-]
         !> Reserved for future extension with kinetic reactions
         !> Would weight kinetic contributions from different mixing zones
     
@@ -158,6 +152,9 @@ subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_
     logical :: CV_flag !> Convergence flag from Newton iteration
         !> .true. = Newton converged to tolerance
         !> .false. = Newton failed to converge
+    integer(kind=4) :: i !> loop index
+    integer(kind=4) :: n_p !> number of primary species (cached deep dereference)
+    real(kind=8) :: max_diff !> inf-norm of the primary-species mixing change
     
     !> ----------------------------------------------------------------
     !> Newton initialization and time stepping
@@ -181,16 +178,17 @@ subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_
         !> Retrieved from chemistry object at current state
         !> All aqueous species
     
-    real(kind=8), allocatable :: c1_ig(:) !> Component concentrations u
+    real(kind=8), allocatable :: c1_ig(:) !> Newton initial guess for primary species concentrations
         !> Array dimension: (num_prim_species)
-        !> Computed from mixing: u = U·c̃
-        !> Components are conserved quantities in equilibrium
+        !> Built by initialise_iterative_method: c₁^(0) = (1-μ)c₁^old + μc₁^current
 
 !> ================================================================================
 !> PRE-PROCESSING: Setup and allocation
 !> ================================================================================
     
     c1=this%get_c1() !> Get primary species concentrations at current time step
+    n_p=this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species !> cache primary-species count
+    allocate(c1_ig(n_p)) !> Newton initial guess (must be allocated before initialise_iterative_method)
         !> Retrieves c₁ from aqueous chemistry object
         !> These are the "current" concentrations for Newton initialization
         !> All primary species are aqueous in this formulation
@@ -216,14 +214,17 @@ subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_
     !> ------------------------------------------------------------------------
     !> Step 2: Check if mixing changed concentrations significantly
     !> ------------------------------------------------------------------------
-    if (inf_norm_vec_real(c_hat(1:this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)-c1)< &
-        this%solid_chemistry%reactive_zone%CV_params%abs_tol) then
+    max_diff=0d0 !> ||c_hat(1:n_p) - c1||_inf computed in place (avoids an array temporary + function call)
+    do i=1,n_p
+        max_diff=max(max_diff,abs(c_hat(i)-c1(i)))
+    end do
+    if (max_diff<this%solid_chemistry%reactive_zone%CV_params%abs_tol) then
         !> Compute infinity norm: ||c̃₁ - c₁||∞
         !> c̃₁: Primary species subset of mixed concentrations
         !> c₁: Current primary species concentrations
-        !> If ||c̃₁ - c₁||∞ < ε_zero: Concentrations unchanged (within tolerance)
+        !> If ||c̃₁ - c₁||∞ < abs_tol: Concentrations unchanged (within tolerance)
         
-        conc_nc=this%get_conc_nc() !> No change: Use current non-conservative species concentrations
+        conc_nc=this%get_conc_var_act() !> No change: Use current non-conservative species concentrations
             !> Skip speciation since mixing didn't alter primary species
             !> Retrieve existing variable activity concentrations from chemistry object
     
@@ -235,7 +236,9 @@ subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_
         !> ----------------------------------------------------------------
         !> Initialize Newton's method
         !> ----------------------------------------------------------------
+        mu=0d0 !> reset per call (the declaration initialiser only runs once via implicit SAVE)
         call initialise_iterative_method(c1_old,c1,mu,c1_ig) !> we compute initial guess for primary concentrations
+        call this%set_conc_prim_species(c1_ig) !> set the new primary concentrations in the aqueous chemistry object
             !> Initialize primary aqueous concentrations for Newton iteration
             !> Uses current chemistry object state and μ parameter
             !> Sets up initial guess: c₁^(0) = (1-μ)c₁^old + μc₁^current
@@ -284,6 +287,7 @@ subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_
                             !> Sequence: 0 → 0.25 → 0.5 → 0.75 → 1.0
                             !> Larger μ gives more weight to current mixed state
                         call initialise_iterative_method(c1_old,c1,mu,c1_ig)
+                        call this%set_conc_prim_species(c1_ig) !> set the new primary concentrations in the aqueous chemistry object
                             !> Recompute initial guess with new μ
                             !> Try again with different initialization
                     
@@ -329,7 +333,7 @@ subroutine mixing_iter_comp_ideal(this,c1_old,c_hat,mix_ratio_r_old,mix_ratio_r_
     
     deallocate(c1,c1_ig) !> Deallocate local concentration arrays
         !> Free memory for primary species concentrations c1
-        !> Free memory for component concentrations conc_comp
+        !> Free memory for the primary-species initial guess c1_ig
         !> conc_nc remains allocated (output parameter, managed by caller)
     
     !> (Commented) Validation checks

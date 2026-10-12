@@ -2,6 +2,8 @@
 !> It has to be called only once in each time step
 !> It is supposed to be called after the conservative transport has been solved
 !> It uses Euler explicit and applies lumping to the kinetic mixing ratios
+!> NOTE: the explicit kinetic term uses the previous-step rates, which are zero in the initial
+!> state read by the interface; a single call therefore carries no kinetic reaction
 !> It assumes that there are no equilibrium reactions
 !> It reads the concentrations after conservative transport in a file, and writes the concentrations after reactive mixing in a different file
 subroutine interfaz_esp_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
@@ -48,16 +50,16 @@ subroutine interfaz_esp_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
         associate(tw => this%waters(tw_idx))
         call tw%compute_react_term_EE_kin(Delta_t,1.0d0,c_react) !> chemical part of aqueous species concentrations
         c_new(:,j)=c_tilde(:,j)+c_react !> we sum transport and reaction parts
-        !> Kinetic reaction rates effectively used in this iteration (Euler-explicit uses rk_old).
+        !> Kinetic reaction rates effectively used in this iteration (Euler-explicit uses rxn_rate_kin_old).
         !> Order: aqueous (linear+redox) | mineral | gas
         if (n_kin_tot > 0) then
             k=0
             do i=1,n_aq_kin
-                rk_out(k+i,j) = tw%rk_old(i)
+                rk_out(k+i,j) = tw%rxn_rate_kin_old(i)
             end do
             k=k+n_aq_kin
             do i=1,n_min_kin
-                rk_out(k+i,j) = tw%solid_chemistry%rk_old(i)
+                rk_out(k+i,j) = tw%solid_chemistry%rxn_rate_kin_old(i)
             end do
             !> Gas kinetic rates not yet implemented in gas_chemistry_c
         end if

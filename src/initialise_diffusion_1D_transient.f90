@@ -76,7 +76,7 @@ subroutine initialise_diffusion_transient(this, root)
                                                                 !> 4: Crank-Nicolson
                                                                 !> 5: RKF45
     call my_time_discr%set_Delta_t(Delta_t)
-    call my_time_discr%set_int_method(int_method)
+    call my_time_discr%set_int_method_tpt(int_method)
     call my_time_discr%set_Final_time(Final_time)
     call my_time_discr%compute_Num_time()
     call this%set_time_discr(my_time_discr)

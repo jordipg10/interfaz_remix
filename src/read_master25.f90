@@ -1,6 +1,17 @@
 !> @brief Reads 'master25_modif.dat' database
 !> @details This subroutine parses the master25_modif.dat database file to populate
-!> the chemical system object with species, minerals, gases, and surface complexes
+!> the chemical system object with species, minerals, gases, and surface complexes.
+!> master25 is a single-temperature (25 C) database. An OPTIONAL trailing section
+!>     'delta_h'
+!>     '<reaction name>'  <delta_H>     ! standard enthalpy of reaction [J/mol], one line per reaction
+!>     'null'
+!> may follow the surface-complex 'null' terminator; it gives the reaction enthalpy used by
+!> aqueous_chemistry_c%compute_logK_PHREEQC_aq_chem (Van't Hoff) for waters not at 25 C. The
+!> reaction name is the secondary species / mineral / gas / surface complex it defines (as in
+!> the sections above) and the enthalpy refers to the SAME reaction direction as the log K
+!> written on its reaction line (defined species on the left). Like that log K, which is stored
+!> as K = 10**(-log_K), it is stored sign-reversed so that delta_h_ref and eq_cst_ref share the
+!> internal (formation) direction. Names not in the chemical system are skipped.
 !> @param[in,out] this Chemical system object to be populated
 !> @param[in] path Directory path where the database file is located
 !> @param[in] unit File unit number for reading the database
@@ -76,7 +87,8 @@ subroutine read_master25(this,path,unit)
     !> @var diff_vol Diffusion volume parameter
     !> @var mol_vol Molar volume in cm³/mol
     !> @var valence Valence (charge) of species
-    real(kind=8) :: log_K,mol_weight,diff_vol,mol_vol,valence
+    !> @var delta_h Standard enthalpy of reaction [J/mol] in the database-line direction (optional trailing 'delta_h' section)
+    real(kind=8) :: log_K,mol_weight,diff_vol,mol_vol,valence,delta_h
     !> @var stoich_coeffs Array of stoichiometric coefficients for reaction
     real(kind=8), allocatable :: stoich_coeffs(:)
     !> @var str Temporary string variable for reading file
@@ -238,7 +250,7 @@ subroutine read_master25(this,path,unit)
                 !> Legacy code for assigning mineral species (commented out)
                 !call mineral%mineral%copy_species(this%minerals(min_ind)%mineral)
                 !call mineral%mineral%set_name(mineral%name)
-                !> Set molar volume, converting from cm³/mol to m³/mol
+                !> Set molar volume: DB gives cm³/mol, stored as dm³/mol (1 cm³ = 1d-3 dm³)
                 call this%minerals(min_ind)%mineral%set_mol_vol(mol_vol*1d-3)
                 !> Legacy code for setting activity properties (commented out)
                 !call mineral%mineral%set_cst_act_flag(.true.)
@@ -500,7 +512,7 @@ subroutine read_master25(this,path,unit)
                 !> Assign species to aqueous phase species array
                 call this%aq_phase%aq_species(indices_aq_sp(num_pr_aq_sp+ind_aq_compl))%copy_species(aq_species)
                 !> Set equilibrium constant (converting from log K to K)
-                call this%eq_reacts(ind_reacts)%set_eq_cst(10**(-log_K))
+                call this%eq_reacts(ind_reacts)%set_eq_cst_ref(10**(-log_K))
                 !> Assign product species to last position in reaction species array
                 call this%eq_reacts(ind_reacts)%set_single_species(&
                     this%eq_reacts(ind_reacts)%num_species, indices_aq_sp(num_pr_aq_sp+ind_aq_compl))
@@ -552,7 +564,7 @@ subroutine read_master25(this,path,unit)
                 call this%eq_reacts(ind_reacts)%set_species_indices_from_names(&
                     species_names,this%species)
                 !> Set equilibrium constant (converting from log K to K)
-                call this%eq_reacts(ind_reacts)%set_eq_cst(10**(-log_K))
+                call this%eq_reacts(ind_reacts)%set_eq_cst_ref(10**(-log_K))
                 !> Set product mineral name on the species in the chemical system via species_ind
                 sp_ind_chem_syst=this%eq_reacts(ind_reacts)%species_ind(this%eq_reacts(ind_reacts)%num_species)
                 call this%species(sp_ind_chem_syst)%set_name(species_names(this%eq_reacts(ind_reacts)%num_species))
@@ -591,7 +603,7 @@ subroutine read_master25(this,path,unit)
                 !> Set species names for the kinetic reaction
                 call this%min_kin_reacts(ind_reacts)%set_species_indices_from_names(species_names,this%species)
                 !> Set equilibrium constant (converting from log K to K)
-                call this%min_kin_reacts(ind_reacts)%set_eq_cst(10**(-log_K))
+                call this%min_kin_reacts(ind_reacts)%set_eq_cst_ref(10**(-log_K))
                 !> Set product mineral name on the species in the chemical system via species_ind
                 sp_ind_chem_syst=this%min_kin_reacts(ind_reacts)%species_ind(this%min_kin_reacts(ind_reacts)%num_species)
                 call this%species(sp_ind_chem_syst)%set_name(species_names(this%min_kin_reacts(ind_reacts)%num_species))
@@ -655,7 +667,7 @@ subroutine read_master25(this,path,unit)
                 !> Set species names for the reaction
                 call this%eq_reacts(ind_reacts)%set_species_indices_from_names(species_names,this%species)
                 !> Set equilibrium constant (converting from log K to K)
-                call this%eq_reacts(ind_reacts)%set_eq_cst(10**(-log_K))
+                call this%eq_reacts(ind_reacts)%set_eq_cst_ref(10**(-log_K))
                 !> Set product gas properties on the species in the chemical system
                 sp_ind_chem_syst=this%eq_reacts(ind_reacts)%species_ind(this%eq_reacts(ind_reacts)%num_species)
                 call this%species(sp_ind_chem_syst)%set_name(species_names(this%eq_reacts(ind_reacts)%num_species))
@@ -724,6 +736,12 @@ subroutine read_master25(this,path,unit)
                 call this%eq_reacts(ind_reacts)%set_species_indices_from_names(species_names,this%species)
                 !> Set valence by converting real to integer
                 call surf_compl%set_valence(int(valence))
+                !> Adsorbed-cation surface complexes are VARIABLE activity (their site
+                !> fraction varies). The local surf_compl defaults to constant activity, so
+                !> set it explicitly before storing; otherwise the flag_comp species-array
+                !> rearrangement (change_spec_alg_chem_syst) routes them to the constant-activity
+                !> region, overwriting variable-activity slots and dropping a surface complex.
+                call surf_compl%set_cst_act_flag(.false.)
                 !> Assign surface complex to cation exchange array
                 this%cat_exch_zone%surf_compl(indices_exch_cats(ind_exch_cats))=surf_compl
                 !> Assign surface complex to main species array at appropriate index
@@ -732,7 +750,7 @@ subroutine read_master25(this,path,unit)
                 !> Legacy code for assigning to variable activity species (commented out)
                 !call this%var_act_species(ind_var_act_sp+indices_exch_cats(ind_exch_cats))%copy_species(surf_compl)
                 !> Set equilibrium constant (converting from log K to K)
-                call this%eq_reacts(ind_reacts)%set_eq_cst(10**(-log_K))
+                call this%eq_reacts(ind_reacts)%set_eq_cst_ref(10**(-log_K))
                 !> Set reaction name to surface complex name
                 call this%eq_reacts(ind_reacts)%set_react_name(surf_compl%name)
                 !> Assign product species to last position in reaction species array
@@ -760,6 +778,25 @@ subroutine read_master25(this,path,unit)
         do
             read(unit,*,iostat=int_var) name
             if (name=='null') exit !> Exit when end marker is reached
+        end do
+    end if
+    !> @subsection delta_h_data Optional reaction enthalpies (Van't Hoff temperature dependence)
+    !> @details Section header 'delta_h', then '<reaction name>' <delta_H [J/mol]> per line, ended
+    !> by 'null'. Absent in the original master25 (end of file reached instead).
+    read(unit,*,iostat=int_var) str
+    if (int_var==0 .and. str=='delta_h') then
+        do
+            read(unit,*,iostat=int_var) name, delta_h
+            if (int_var/=0) exit !> end of file: tolerate a missing 'null' terminator
+            if (name=='null') exit
+            !> the line direction is the reverse of the stored one (K = 10**(-log_K)), hence -delta_h
+            do i=1,size(this%eq_reacts)
+                if (.not. allocated(this%eq_reacts(i)%species_ind)) cycle !> slot not read yet (e.g. redox eq reactions)
+                if (this%eq_reacts(i)%name==name) call this%eq_reacts(i)%set_delta_h_ref(-delta_h)
+            end do
+            do i=1,this%num_minerals_kin
+                if (this%min_kin_reacts(i)%name==name) call this%min_kin_reacts(i)%set_delta_h_ref(-delta_h)
+            end do
         end do
     end if
     !> Close database file

@@ -21,21 +21,55 @@ module solid_chemistry_m
     !! Inheritance: Extends local_chemistry_c to add solid-specific functionality
     !! Design Pattern: Composition pattern with pointers to reactive and mineral zones
     type, public, extends(local_chemistry_c) :: solid_chemistry_c
+        !=====================================================================
+        ! COMMON / SHARED SOLID-PHASE STATE
+        !=====================================================================
         integer(kind=4) :: num_solids=0                                     !< Total number of solid species (temporary variable - "chapucilla")
-        real(kind=8), allocatable :: equivalents(:)                        !< Equivalents of adsorbed cations [eq/L_bulk] for charge balance
-        real(kind=8), allocatable :: vol_fracts_mins(:)                         !< Volumetric fractions of minerals (dimensionless, range 0-1)
-                                                                            !! Order: kinetic minerals first, then equilibrium minerals
-        real(kind=8), allocatable :: react_surfaces(:)                     !< Specific surface area per unit volume [m²/m³_bulk]
-                                                                            !! Used for surface complexation and mineral kinetics
-        class(reactive_zone_c), pointer :: reactive_zone                   !< Pointer to reactive zone containing equilibrium solids
+        class(reactive_zone_c), pointer :: reactive_zone                   !< Pointer to reactive zone containing equilibrium solids (minerals, surface complexes, gases)
+        class(target_c), pointer :: tar                                    !< Pointer to associated spatial target (bijective mapping)
+        real(kind=8) :: time                       !< Species travel time through solid portion, used for kinetic rate calculations (size = num_solids)
+        logical :: is_interface = .false.                           !< Flag indicating whether the solid chemistry object is an interface
+        !=====================================================================
+        ! MINERALS
+        !=====================================================================
         class(mineral_zone_c), pointer :: mineral_zone                     !< Pointer to mineral zone containing kinetic and equilibrium minerals
+        real(kind=8), allocatable :: min_pore_vol_ratios(:)                         !< Mineral-to-pore volume ratios V_min/V_pore (dimensionless, >= 0, may exceed 1)
+                                                                            !! Order: kinetic minerals first, then equilibrium minerals
+        real(kind=8), allocatable :: react_surfaces(:)                     !< Reactive surface area of each mineral per unit volume of water [m² mineral/L water] as read from the input (aqueous_chemistry_c%compute_react_surfaces_per_kg_water returns the per-kg-H2O values without modifying this array)
+                                                                            !! Used for surface complexation and mineral kinetics
+
+        !=====================================================================
+        ! CATION EXCHANGE
+        !=====================================================================
         real(kind=8) :: CEC                                                !< Cation Exchange Capacity [eq/L_bulk]
                                                                             !! Assumption: maximum one adsorption surface per solid chemistry object
-        class(target_c), pointer :: tar                                    !< Pointer to associated spatial target (bijective mapping)
-        class(biofilm_c), pointer :: biofilm                               !< Pointer to associated biofilm object
+        real(kind=8), allocatable :: equivalents(:)                        !< Equivalents of adsorbed cations [eq/L_bulk] for charge balance
+
+        !=====================================================================
+        ! BIOFILM
+        !=====================================================================
+        class(biofilm_c), pointer :: biofilm                               !< Pointer to associated biofilm object (intrinsic, medium-independent parameters)
         real(kind=8), allocatable :: vol_fracts_microorgs(:)                !< Microorganism volumetric fractions: vol_fracs(i) = V_microorg_i / V_total_biomass (size = num_microorgs) [-]
-        real(kind=8) :: time                       !< Species travel time through solid portion, used for kinetic rate calculations (size = num_solids)
+        !> Biofilm LOCAL STATE (medium-dependent; the intrinsic biofilm parameters live in the biofilm pointer above)
+        real(kind=8) :: f_w                          !< Water volumetric fraction in biofilm: f_w = V_water / V_biofilm [-]
+        real(kind=8) :: f_cells                      !< Cell volume fraction in biofilm [-]
+        real(kind=8) :: f_eps                        !< EPS volume fraction in biofilm [-]
+        real(kind=8) :: thickness                    !< Biofilm thickness Lf [m]
+        real(kind=8) :: o2_penetration_depth         !< O2 penetration depth [m]
+        real(kind=8) :: bl_thickness                 !< External mass-transfer boundary layer thickness L_bl [m]
+        real(kind=8) :: roughness_Ra                 !< Surface roughness coefficient Ra [-]
+        real(kind=8) :: fractal_dim_2d               !< 2D fractal dimension Df [-]
+        real(kind=8) :: fractal_dim_3d               !< 3D fractal dimension Df [-]
+        real(kind=8) :: surface_coverage             !< Surface coverage fraction [-]
+        real(kind=8) :: specific_biovolume           !< Specific biovolume per substratum area [m^3/m^2]
+        real(kind=8) :: porosity_initial             !< Initial (clean) medium porosity n_0 [-]
+        real(kind=8) :: porosity_biofilm             !< Biofilm-affected medium porosity n_b [-]
+        real(kind=8) :: pH_min                       !< Minimum interior pH [-]
+        real(kind=8) :: pH_max                       !< Maximum interior pH [-]
+        real(kind=8) :: Eh_aerobic                   !< Redox potential in aerobic zone [mV vs SHE]
+        real(kind=8) :: Eh_anaerobic                 !< Redox potential in anaerobic core [mV vs SHE]
     contains
+        procedure :: initialise_solid_chemistry                    !< Compute the number of solids and allocate every state array from the associated reactive and mineral zones
     !> Setter procedures - Assign values to solid chemistry properties
         procedure :: set_concentrations=>set_conc_solids           !< Set solid species concentrations [mol/L_bulk]
         procedure :: set_indices_solids                            !< Set index mapping for solid species ordering
@@ -48,12 +82,14 @@ module solid_chemistry_m
         procedure :: set_act_surf_compl                            !< Set activities of surface complexes
         procedure :: set_target                                    !< Associate with spatial target object
         procedure :: set_time                                    !< Associate with spatial target object
+        procedure :: set_is_interface                              !< Set the interface flag for the solid chemistry object
     !> Memory allocation procedures - Allocate arrays for solid chemistry data
-        procedure :: allocate_vol_fracts_mins                     !< Allocate volumetric fractions array
+        procedure :: allocate_min_pore_vol_ratios                     !< Allocate volumetric fractions array
         procedure :: allocate_vol_fracts_microorgs                !< Allocate volumetric fractions array
         procedure :: allocate_react_surfaces                       !< Allocate reactive surfaces array
         procedure :: allocate_conc_solids                          !< Allocate solid concentrations array
-        procedure :: allocate_reaction_rates_solid_chem            !< Allocate reaction rates array for solid reactions
+        procedure :: allocate_rxn_rates_and_amounts_solid_chem            !< Allocate reaction rates array for solid reactions
+        procedure :: deallocate_rxn_rates_and_amounts_solid_chem          !< Release the reaction rate/amount arrays (re-layout for new zones)
         procedure :: allocate_activities                           !< Allocate activities array for solid species
         procedure :: allocate_log_act_coeffs_solid_chem            !< Allocate log activity coefficients array
         procedure :: allocate_equivalents                          !< Allocate equivalents array for charge balance
@@ -67,6 +103,10 @@ module solid_chemistry_m
         procedure :: compute_conc_surf_ideal_Picard                !< Compute surface complexation using Picard iteration
         procedure :: compute_conc_surf_ideal_bin                   !< Compute surface complexation assuming ideal behavior for binary cation exchange systems
         procedure :: compute_num_solids_solid_chem                 !< Count total number of solid species
+    !> Biofilm procedures - Compute biofilm properties from local state + biofilm parameters
+        procedure :: compute_permeability_reduction                !< Kozeny-Carman bioclogging permeability ratio [-]
+        procedure :: compute_detachment_rate                       !< Biofilm detachment rate [m/s]
+        procedure :: compute_thiele_modulus                        !< Biofilm Thiele modulus phi^2 [-]
     !> Getter procedures - Retrieve solid chemistry properties
         procedure :: get_tar_id                                     !< Get target ID for solid chemistry object
     !> Update procedures - Modify solid chemistry state during simulations
@@ -83,7 +123,7 @@ module solid_chemistry_m
     !! Mathematical Context: Newton-Raphson method for nonlinear surface complexation equilibrium
     !! Solves: Σ(Xᵢ) = CEC where Xᵢ are adsorbed cation concentrations
     interface
-        subroutine compute_conc_surf_ideal_Newton(this,conc_cats,act_ads_cats_ig,niter,CV_flag)
+        subroutine compute_conc_surf_ideal_Newton(this,conc_cats,act_ads_cats_ig,niter,CV_flag,logK)
             import solid_chemistry_c                                        !< Import solid chemistry class
             implicit none                                                   !< No implicit variable declarations
             class(solid_chemistry_c) :: this                               !< Solid chemistry object (polymorphic)
@@ -92,6 +132,7 @@ module solid_chemistry_m
             real(kind=8), intent(in) :: act_ads_cats_ig(:)                 !< Initial guess for adsorbed cation activities (pre-allocated)
             integer(kind=4), intent(out) :: niter                          !< Number of iterations performed
             logical, intent(out) :: CV_flag                                !< Convergence flag: TRUE if converges, FALSE otherwise
+            real(kind=8), intent(in) :: logK(:)                            !< Per-water log10 equilibrium constants of the EXCHANGE reactions only (size = num_exch_cats), slice of aqueous_chemistry_c%logK
         end subroutine
         
         !> Interface for surface complexation Picard iteration solver
@@ -111,13 +152,13 @@ module solid_chemistry_m
         !> Interface for direct surface complexation calculation (ideal case)
         !! Mathematical Context: Direct solution assuming ideal behavior (no activity corrections)
         !! Used when surface complexation is weak or as initial approximation
-        subroutine compute_conc_surf_ideal_bin(this,conc_cats)
+        subroutine compute_conc_surf_ideal_bin(this,conc_cats,logK)
             import solid_chemistry_c                                        !< Import solid chemistry class
             implicit none                                                   !< No implicit variable declarations
             class(solid_chemistry_c) :: this                               !< Solid chemistry object (polymorphic)
             real(kind=8), intent(in) :: conc_cats(:)                       !< Cation concentrations in solution (temporary - "chapuza")
                                                                             !! Dimension: number of cation exchange half reactions
-            !real(kind=8), intent(in) :: act_ads_cats_ig(:)                !< Commented initial guess parameter
+            real(kind=8), intent(in) :: logK(:)                            !< Per-water log10 equilibrium constants of the EXCHANGE reactions only (size = num_exch_cats), slice of aqueous_chemistry_c%logK
             !integer(kind=4), intent(out) :: niter                         !< Commented iteration counter
             !logical, intent(out) :: CV_flag                               !< Commented convergence flag
         end subroutine
@@ -130,6 +171,7 @@ module solid_chemistry_m
             class(solid_chemistry_c) :: this
             !real(kind=8), intent(in) :: re_mean(:) !> equilibrium reaction rates
             real(kind=8), intent(in) :: Delta_t !> time step
+            !real(kind=8), intent(in) :: lambda_r !> reaction mixing ratio
         end subroutine
         
        
@@ -175,18 +217,21 @@ module solid_chemistry_m
         !! Physical Context: Volume fractions are dimensionless (0 ≤ φ ≤ 1) representing mineral volume / bulk volume
         !! Conservation: Σφᵢ + φ_pore = 1 where φ_pore is porosity
         !! Order: Kinetic minerals first, then equilibrium minerals
-        subroutine set_vol_fracts(this,vol_fracts_mins)
+        subroutine set_vol_fracts(this,min_pore_vol_ratios)
             class(solid_chemistry_c) :: this                               !< Solid chemistry object (polymorphic)
-            real(kind=8), intent(in) :: vol_fracts_mins(:)                 !< Volumetric fractions array (dimensionless)
-            if (this%mineral_zone%num_minerals<size(vol_fracts_mins)) error stop "Dimension error in set_vol_fracts"
+            real(kind=8), intent(in) :: min_pore_vol_ratios(:)                 !< Volumetric fractions array (dimensionless)
+            if (this%mineral_zone%num_minerals<size(min_pore_vol_ratios)) error stop "Dimension error in set_vol_fracts"
                                                                             !< Validate array size against number of minerals
-            this%vol_fracts_mins=vol_fracts_mins
+            this%min_pore_vol_ratios=min_pore_vol_ratios
         end subroutine
         
-        subroutine allocate_vol_fracts_mins(this)
+        subroutine allocate_min_pore_vol_ratios(this)
             class(solid_chemistry_c) :: this
-            allocate(this%vol_fracts_mins(this%mineral_zone%num_minerals))
-            this%vol_fracts_mins=0d0
+            if (allocated(this%min_pore_vol_ratios)) then
+                deallocate(this%min_pore_vol_ratios)
+            end if
+            allocate(this%min_pore_vol_ratios(this%mineral_zone%num_minerals))
+            this%min_pore_vol_ratios=0d0
         end subroutine
         
         subroutine allocate_vol_fracts_microorgs(this)
@@ -204,6 +249,9 @@ module solid_chemistry_m
         
         subroutine allocate_react_surfaces(this)
             class(solid_chemistry_c) :: this
+            if (allocated(this%react_surfaces)) then
+                deallocate(this%react_surfaces)
+            end if
             allocate(this%react_surfaces(this%mineral_zone%num_minerals))
             this%react_surfaces=0d0
         end subroutine
@@ -212,6 +260,12 @@ module solid_chemistry_m
             class(solid_chemistry_c) :: this
             if (allocated(this%concentrations)) then
                 deallocate(this%concentrations)
+            end if
+            if (allocated(this%conc_old)) then
+                deallocate(this%conc_old)
+            end if
+            if (allocated(this%conc_old_old)) then
+                deallocate(this%conc_old_old)
             end if
             !if (associated(this%mineral_zone)) then
             !    allocate(this%concentrations(this%reactive_zone%num_solids+this%mineral_zone%num_minerals_kin))
@@ -246,6 +300,9 @@ module solid_chemistry_m
             class(solid_chemistry_c) :: this                               !< Solid chemistry object (polymorphic)
             if (allocated(this%log_act_coeffs)) then                       !< Check if already allocated
                 deallocate(this%log_act_coeffs)                            !< Deallocate existing array
+            end if
+            if (allocated(this%log_Jacobian_act_coeffs)) then              !< Same for the Jacobian (allocated together below)
+                deallocate(this%log_Jacobian_act_coeffs)
             end if
             !if (associated(this%mineral_zone)) then                       !< Commented mineral zone allocation
             !    allocate(this%log_act_coeffs(this%reactive_zone%num_solids+this%mineral_zone%num_minerals_kin))
@@ -541,20 +598,21 @@ end subroutine
 
 !> Computes concentration of minerals after a given time step
 !! We assume minerals have constant activity
-subroutine compute_conc_minerals_iter(this,Delta_t)
+subroutine compute_conc_minerals_iter(this,Delta_t,lambda_r)
 !> Arguments
     class(solid_chemistry_c) :: this !> solid chemistry object
     real(kind=8), intent(in) :: Delta_t !> time step
+    real(kind=8), intent(in) :: lambda_r !> reaction mixing ratio; scales the eq amount to the aqueous contribution lambda_r*Re
 !> Variables
     integer(kind=4) :: i !> counter minerals
     real(kind=8), parameter :: eps=1d-16 !> chapuza
 !> Process
     do i=1,this%reactive_zone%num_minerals
-        if (abs(this%vol_fracts_mins(this%mineral_zone%num_minerals_kin+i))<eps) then
+        if (abs(this%min_pore_vol_ratios(this%mineral_zone%num_minerals_kin+i))<eps) then
             continue
         else
             this%concentrations(this%mineral_zone%num_minerals_kin+i)=this%concentrations(this%mineral_zone%num_minerals_kin+i)+&
-                Delta_t*this%re_mean(i)!/this%vol_fracts_mins(this%mineral_zone%num_minerals_kin+i)
+                lambda_r*Delta_t*this%rxn_rate_eq(i)!/this%min_pore_vol_ratios(this%mineral_zone%num_minerals_kin+i)
             if (this%concentrations(this%mineral_zone%num_minerals_kin+i)<0d0) then
                 this%concentrations(this%mineral_zone%num_minerals_kin+i)=0d0
             end if
@@ -570,9 +628,9 @@ subroutine compute_conc_minerals_iter(this,Delta_t)
     ! print *, "DEBUG: rk_mean              = ", this%rk_mean
     ! print *, "DEBUG: Delta_t              = ", Delta_t
     do i=1,this%mineral_zone%num_minerals_kin
-        ! print *, "DEBUG: kin mineral i=", i, " vol_fract=", this%vol_fracts_mins(i), &
+        ! print *, "DEBUG: kin mineral i=", i, " vol_fract=", this%min_pore_vol_ratios(i), &
         !     " ind_min_Sk=", this%mineral_zone%ind_min_Sk(i), " conc_before=", this%concentrations(i)
-        if (abs(this%vol_fracts_mins(i))<eps) then
+        if (abs(this%min_pore_vol_ratios(i))<eps) then
             !print *, "DEBUG: skipping i=", i, " (vol_fract < eps)"
             continue                                                            !< Skip to next iteration (no concentration update)
         else                                                                !< If mineral dissolution/precipitation is occurring
@@ -588,8 +646,8 @@ subroutine compute_conc_minerals_iter(this,Delta_t)
             this%concentrations(i)=this%concentrations(i)+Delta_t*dot_product(this%mineral_zone%chem_syst%Sk(&
             this%mineral_zone%chem_syst%num_lin_kin_reacts+this%mineral_zone%chem_syst%num_redox_kin_reacts+1:&
             this%mineral_zone%chem_syst%num_kin_reacts,&
-                this%mineral_zone%ind_min_Sk(i)),this%rk_mean(1:this%mineral_zone%num_minerals_kin))!/&
-            !this%vol_fracts_mins(i)
+                this%mineral_zone%ind_min_Sk(i)),this%rxn_rate_kin_avg(1:this%mineral_zone%num_minerals_kin))!/&
+            !this%min_pore_vol_ratios(i)
                                                                             !< dc/dt = (S^T × r) where S=stoichiometry, r=rates
             ! print *, "DEBUG: conc_after=", this%concentrations(i)
             if (this%concentrations(i)<0d0) then
@@ -675,30 +733,19 @@ end if
 if (associated(solid_chemistry%tar)) then
     this%tar=>solid_chemistry%tar
 else
-    !error stop "Target not associated with solid chemistry"
-    print *, "Warning: Target not associated with solid chemistry"
+    !> Source has no target yet (e.g. default solid chemistry copied before
+    !> targets are linked via set_target). Nullify here; the spatial target
+    !> is associated later in chemistry_m::set_target_solids_mesh.
+    this%tar=>null()
 end if
 this%num_solids=solid_chemistry%num_solids
-! this%concentrations=solid_chemistry%concentrations
-! this%activities=solid_chemistry%activities
-! this%log_act_coeffs=solid_chemistry%log_act_coeffs
-! this%name=solid_chemistry%name
-! if (allocated(solid_chemistry%Re)) then
-!     this%Re=solid_chemistry%Re
-!     this%re_mean=solid_chemistry%re_mean
-! end if
-! if (allocated(solid_chemistry%Rk)) then
-!     this%Rk=solid_chemistry%Rk
-!     this%Rk_est=solid_chemistry%Rk_est
-!     this%rk_new=solid_chemistry%rk_new
-!     this%rk_old=solid_chemistry%rk_old
-!     this%rk_mean=solid_chemistry%rk_mean
-! end if
+this%time=solid_chemistry%time
+this%is_interface=solid_chemistry%is_interface
 if (allocated(solid_chemistry%vol_fracts_microorgs)) then
     this%vol_fracts_microorgs=solid_chemistry%vol_fracts_microorgs
 end if
-if (allocated(solid_chemistry%vol_fracts_mins)) then
-    this%vol_fracts_mins=solid_chemistry%vol_fracts_mins
+if (allocated(solid_chemistry%min_pore_vol_ratios)) then
+    this%min_pore_vol_ratios=solid_chemistry%min_pore_vol_ratios
 end if
 if (allocated(solid_chemistry%react_surfaces)) then
     this%react_surfaces=solid_chemistry%react_surfaces
@@ -715,45 +762,109 @@ subroutine set_target(this,target_obj)
     this%tar=>target_obj
 end subroutine
 
-subroutine allocate_reaction_rates_solid_chem(this)
+subroutine allocate_rxn_rates_and_amounts_solid_chem(this)
     class(solid_chemistry_c) :: this !> solid chemistry object
-    if (.not. allocated(this%re_mean)) then
+    integer(kind=4) :: n_eq !> number of solid equilibrium reactions (minerals + exchange)
+    if (.not. allocated(this%rxn_rate_eq)) then
         if (.not. associated(this%reactive_zone)) then
             error stop "Reactive zone not associated with solid chemistry"
         else
-            allocate(this%re_mean(this%reactive_zone%num_minerals+&
-                this%reactive_zone%cat_exch_zone%num_exch_cats))
-            allocate(this%Re(this%reactive_zone%num_minerals+&
-                this%reactive_zone%cat_exch_zone%num_exch_cats))
-            this%re_mean=0d0 !> by default
-            this%Re=0d0 !> by default
+            n_eq=this%reactive_zone%num_minerals+this%reactive_zone%cat_exch_zone%num_exch_cats
+            !> full eq-rate history: aqueous_chemistry_c%allocate_rxn_rates_and_amounts skips this block
+            !> once rxn_rate_eq is allocated, so the *_old arrays must be allocated here too
+            allocate(this%rxn_rate_eq(n_eq))
+            allocate(this%rxn_amnt_eq(n_eq))
+            allocate(this%cum_rxn_amnt_eq(n_eq))
+            allocate(this%rxn_rate_eq_old(n_eq))
+            allocate(this%rxn_rate_eq_old_old(n_eq))
+            allocate(this%rxn_rate_eq_old_old_old(n_eq))
+            this%rxn_rate_eq=0d0 !> by default
+            this%rxn_amnt_eq=0d0 !> by default
+            this%cum_rxn_amnt_eq=0d0 !> by default
+            this%rxn_rate_eq_old=0d0 !> by default
+            this%rxn_rate_eq_old_old=0d0 !> by default
+            this%rxn_rate_eq_old_old_old=0d0 !> by default
         end if
     end if
-    !allocate(this%solid_chemistry%re_mean(this%solid_chemistry%reactive_zone%num_minerals+&
-    !this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats))
-    !this%solid_chemistry%re_mean=0d0 !> by default
-    if (.not. allocated(this%Rk)) then
+    if (.not. allocated(this%rxn_amnt_kin)) then
         if (.not. associated(this%mineral_zone)) then
             error stop "Mineral zone not associated with solid chemistry"
         else
-            allocate(this%Rk(this%mineral_zone%num_minerals_kin))
-            allocate(this%Rk_accum(this%mineral_zone%num_minerals_kin))
-            allocate(this%rk_new(this%mineral_zone%num_minerals_kin))
-            allocate(this%rk_old(this%mineral_zone%num_minerals_kin))
+            allocate(this%rxn_amnt_kin(this%mineral_zone%num_minerals_kin))
+            allocate(this%cum_rxn_amnt_kin(this%mineral_zone%num_minerals_kin))
+            allocate(this%rxn_rate_kin(this%mineral_zone%num_minerals_kin))
+            allocate(this%rxn_rate_kin_old(this%mineral_zone%num_minerals_kin))
             allocate(this%rk_old_old(this%mineral_zone%num_minerals_kin))
             allocate(this%rk_old_old_old(this%mineral_zone%num_minerals_kin))
-            allocate(this%rk_mean(this%mineral_zone%num_minerals_kin))
-            allocate(this%Rk_est(this%mineral_zone%num_minerals_kin))
-            this%Rk=0d0 !> by default
-            this%Rk_accum=0d0 !> by default
-            this%rk_new=0d0 !> by default
-            this%Rk_est=0d0 !> by default
-            this%rk_old=0d0 !> by default
+            allocate(this%rxn_rate_kin_avg(this%mineral_zone%num_minerals_kin))
+            this%rxn_amnt_kin=0d0 !> by default
+            this%cum_rxn_amnt_kin=0d0 !> by default
+            this%rxn_rate_kin=0d0 !> by default
+            this%rxn_rate_kin_old=0d0 !> by default
             this%rk_old_old=0d0 !> by default
             this%rk_old_old_old=0d0 !> by default
-            this%rk_mean=0d0 !> by default
+            this%rxn_rate_kin_avg=0d0 !> by default
         end if
     end if
+end subroutine
+
+!> \brief Deallocates the equilibrium and kinetic reaction rate and amount arrays (the ones
+!>        allocate_rxn_rates_and_amounts_solid_chem creates), so that a following call to it lays
+!>        them out again for the CURRENT reactive and mineral zones (it skips arrays already allocated).
+subroutine deallocate_rxn_rates_and_amounts_solid_chem(this)
+    class(solid_chemistry_c) :: this !> solid chemistry object
+    if (allocated(this%rxn_rate_eq)) deallocate(this%rxn_rate_eq)
+    if (allocated(this%rxn_amnt_eq)) deallocate(this%rxn_amnt_eq)
+    if (allocated(this%cum_rxn_amnt_eq)) deallocate(this%cum_rxn_amnt_eq)
+    if (allocated(this%rxn_rate_eq_old)) deallocate(this%rxn_rate_eq_old)
+    if (allocated(this%rxn_rate_eq_old_old)) deallocate(this%rxn_rate_eq_old_old)
+    if (allocated(this%rxn_rate_eq_old_old_old)) deallocate(this%rxn_rate_eq_old_old_old)
+    if (allocated(this%rxn_amnt_kin)) deallocate(this%rxn_amnt_kin)
+    if (allocated(this%cum_rxn_amnt_kin)) deallocate(this%cum_rxn_amnt_kin)
+    if (allocated(this%rxn_rate_kin)) deallocate(this%rxn_rate_kin)
+    if (allocated(this%rxn_rate_kin_old)) deallocate(this%rxn_rate_kin_old)
+    if (allocated(this%rk_old_old)) deallocate(this%rk_old_old)
+    if (allocated(this%rk_old_old_old)) deallocate(this%rk_old_old_old)
+    if (allocated(this%rxn_rate_kin_avg)) deallocate(this%rxn_rate_kin_avg)
+end subroutine
+
+!> \brief (Re)initialises a solid chemistry object from its associated reactive zone and mineral
+!>        zone: computes the number of solids and allocates every state array from scratch.
+!> \details Allocates the solid-species arrays (concentrations and their two previous-step copies,
+!>          activities, log activity coefficients and their Jacobian), the exchanger equivalents, the
+!>          mineral volume ratios and reactive surfaces, and the equilibrium and kinetic reaction
+!>          rate and amount arrays. Solid layout: the minerals (equilibrium ones of the reactive zone,
+!>          then kinetic ones of the mineral zone) lead, the surface complexes trail. Minerals are
+!>          pure phases (c = a = 1, log gamma = 0); everything else starts at zero, CEC included (the
+!>          exchanger state cannot be derived from the zones alone: set it afterwards if needed).
+!>          Idempotent: already allocated arrays are released first, so the object can be re-pointed
+!>          to other zones and re-initialised any number of times (e.g. the persistent scratch solid
+!>          chemistry of a zone water, re-initialised at every within-zone mix); previous state is lost.
+!> \pre reactive_zone and mineral_zone associated (set_reactive_zone, set_mineral_zone)
+subroutine initialise_solid_chemistry(this)
+    class(solid_chemistry_c) :: this !> solid chemistry object
+    integer(kind=4) :: n_min !> number of minerals: equilibrium (reactive zone) + kinetic (mineral zone)
+    if (.not. associated(this%reactive_zone)) error stop "initialise_solid_chemistry: reactive zone not associated"
+    if (.not. associated(this%mineral_zone)) error stop "initialise_solid_chemistry: mineral zone not associated"
+    call this%compute_num_solids_solid_chem()
+    !> the array allocators below release an already allocated array themselves; the reaction
+    !> rate/amount allocator keeps existing arrays, so they are released here to follow the zones
+    call this%deallocate_rxn_rates_and_amounts_solid_chem()
+    call this%allocate_conc_solids()
+    call this%allocate_activities()
+    call this%allocate_log_act_coeffs_solid_chem()
+    call this%allocate_equivalents()
+    call this%allocate_min_pore_vol_ratios()
+    call this%allocate_react_surfaces()
+    call this%allocate_rxn_rates_and_amounts_solid_chem()
+    n_min=this%reactive_zone%num_minerals+this%mineral_zone%num_minerals_kin
+    this%concentrations=0d0
+    this%concentrations(1:n_min)=1d0
+    this%conc_old=this%concentrations
+    this%conc_old_old=this%concentrations
+    this%activities(1:n_min)=1d0
+    this%equivalents=0d0
+    this%CEC=0d0
 end subroutine
 
 function get_tar_id(this) result(tar_id)
@@ -774,6 +885,100 @@ subroutine set_time(this, time_val)
     end if
     this%time = time_val
 end subroutine
+
+!=========================================================================
+! BIOFILM: KOZENY-CARMAN PERMEABILITY REDUCTION (bioclogging)
+!=========================================================================
+!> \brief Compute relative permeability reduction due to bioclogging
+!> \details Generalized Kozeny-Carman: k_b/k_0 = (n_b / n_0)^m, where
+!> n_b = max(porosity_biofilm, biofilm%porosity_min) (local state / parameter),
+!> n_0 = porosity_initial (local state) and m = biofilm%KC_exponent (parameter).
+!> Requires the biofilm parameter object to be associated.
+!> \param[in] this Solid chemistry object (carries the biofilm local state)
+!> \return k_ratio Permeability ratio k_b/k_0 [-]
+!> Ref: Hommel et al. (2018) Transport in Porous Media; Thullner et al. (2002) WRR
+pure real(kind=8) function compute_permeability_reduction(this) result(k_ratio)
+    class(solid_chemistry_c), intent(in) :: this                            !< Solid chemistry object
+    real(kind=8) :: n_b                                                     !< Effective biofilm porosity
+
+    n_b = max(this%porosity_biofilm, this%biofilm%porosity_min)
+
+    if (this%porosity_initial > 0d0) then
+        k_ratio = (n_b / this%porosity_initial) ** this%biofilm%KC_exponent
+    else
+        k_ratio = 1d0
+    end if
+end function
+
+!=========================================================================
+! BIOFILM: DETACHMENT RATE
+!=========================================================================
+!> \brief Compute total biofilm detachment rate [m/s]
+!> \details Combines continuous erosion and sloughing:
+!>   r_det = k_det * Lf + k_sl * max(0, Lf - Lf_max) + k_det_shear * tau^gamma * Lf
+!> Thickness Lf = this%thickness (local state); the coefficients k_det, thickness_max,
+!> k_sloughing, k_det_shear and det_shear_exponent are biofilm parameters.
+!> \param[in] this Solid chemistry object (carries the biofilm local state)
+!> \param[in] tau Wall shear stress [Pa] (optional; for shear-dependent term)
+!> \return r_det Total detachment rate [m/s]
+!> Ref: Wanner & Gujer (1986) Biotechnol. Bioeng. 28:314; Abbas et al. (2012) MBE 9:215
+pure real(kind=8) function compute_detachment_rate(this, tau) result(r_det)
+    class(solid_chemistry_c), intent(in) :: this                            !< Solid chemistry object
+    real(kind=8), intent(in), optional :: tau                               !< Wall shear stress [Pa]
+
+    ! Continuous erosion: r = k_det * Lf
+    r_det = this%biofilm%k_det * this%thickness
+
+    ! Sloughing: r = k_sl * max(0, Lf - Lf_max)
+    if (this%thickness > this%biofilm%thickness_max .and. this%biofilm%k_sloughing > 0d0) then
+        r_det = r_det + this%biofilm%k_sloughing * (this%thickness - this%biofilm%thickness_max)
+    end if
+
+    ! Shear-dependent: r = delta * tau^gamma * Lf
+    if (present(tau) .and. this%biofilm%k_det_shear > 0d0) then
+        r_det = r_det + this%biofilm%k_det_shear * (tau ** this%biofilm%det_shear_exponent) * this%thickness
+    end if
+end function
+
+!=========================================================================
+! BIOFILM: THIELE MODULUS
+!=========================================================================
+!> \brief Compute the biofilm Thiele modulus (phi^2)
+!> \details phi^2 = mu_max * X * Lf^2 / (D_eff * S_bulk * Y), with Lf = this%thickness
+!> (local state). Low phi^2 => reaction-limited (compact); high phi^2 => diffusion-limited.
+!> \param[in] this Solid chemistry object (carries the biofilm local state)
+!> \param[in] mu_max Maximum specific growth rate [1/s]
+!> \param[in] X Biomass density [M/L^3]
+!> \param[in] D_eff Effective diffusion coefficient [m^2/s]
+!> \param[in] S_bulk Bulk substrate concentration [M/L^3]
+!> \param[in] Y Yield coefficient [-]
+!> \return phi2 Thiele modulus phi^2 [-]
+!> Ref: Picioreanu et al. (1998) Biotechnol. Bioeng. 57:718
+pure real(kind=8) function compute_thiele_modulus(this, mu_max, X, D_eff, S_bulk, Y) result(phi2)
+    class(solid_chemistry_c), intent(in) :: this                            !< Solid chemistry object
+    real(kind=8), intent(in) :: mu_max                                      !< Max specific growth rate [1/s]
+    real(kind=8), intent(in) :: X                                           !< Biomass density [M/L^3]
+    real(kind=8), intent(in) :: D_eff                                       !< Effective diffusion [m^2/s]
+    real(kind=8), intent(in) :: S_bulk                                      !< Bulk substrate concentration [M/L^3]
+    real(kind=8), intent(in) :: Y                                           !< Yield coefficient [-]
+
+    if (D_eff > 0d0 .and. S_bulk > 0d0 .and. Y > 0d0) then
+        phi2 = mu_max * X * this%thickness**2 / (D_eff * S_bulk * Y)
+    else
+        phi2 = 0d0
+    end if
+end function
+
+!=========================================================================
+! SET IS INTERFACE
+!=========================================================================
+!> \brief Set the interface flag for the solid chemistry object
+!> \param[inout] this Solid chemistry object
+subroutine set_is_interface(this,flag)
+    class(solid_chemistry_c), intent(inout) :: this
+    logical, intent(in) :: flag
+    this%is_interface = flag
+end subroutine set_is_interface
 
 
 

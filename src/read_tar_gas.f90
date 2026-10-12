@@ -22,7 +22,7 @@
     integer(kind=4) :: aux_igzone, aux_igzn
     character(len=256) :: label,str,interval
     character(len=:), allocatable :: interval_trim,first_str,last_str
-    logical :: flag_comp,flag_surf,flag_aq_phase,flag, flag_Se
+    logical :: flag_comp,flag_surf,flag_aq_phase,flag, flag_Se, file_exists
     integer(kind=4), allocatable :: swap(:),aux_swap(:)
     type(gas_chemistry_c), target :: gas_species_chem !> default gas chemistry object
     type(reactive_zone_c), target :: react_zone   !> default reactive zone object
@@ -68,6 +68,10 @@
     ! ind_dom=0 !> counter domain waters
 
     unit=55 !> arbitrary unit number
+    !> No <root>_tar_gas.dat is provided when no target (domain) water equilibrates with a gas
+    !> (only the external inflow water does): there are no target gases, so return with none.
+    inquire(file=root//'_tar_gas.dat', exist=file_exists)
+    if (.not. file_exists) return
     open(unit, file=root//'_tar_gas.dat', status='old', action='read') !> we open the file with target waters associated with their gases and/or gases
     do
         read(unit,*) label
@@ -98,7 +102,7 @@
                             call this%target_gases(i)%reactive_zone%set_stoich_mat_react_zone() !> chapuza
                             call this%target_gases(i)%reactive_zone%set_ind_gases_stoich_mat() !> chapuza
                             call this%target_gases(i)%reactive_zone%set_ind_mins_stoich_mat() !> chapuza
-                            call this%target_gases(i)%allocate_reaction_rates_gas_species_chem() !> we allocate reaction rates in gas chemistry object
+                            call this%target_gases(i)%allocate_rxn_rates_and_amounts_gas_chem() !> we allocate reaction rates in gas chemistry object
                         end do
                     end if
                     if (last==num_tar_gas) then
@@ -247,7 +251,7 @@
                 !            call this%waters(tar_wat_ind)%gas_chemistry%reactive_zone%compute_U_SkT_prod()
                 !        end if
                 !    !end if
-                !    call this%waters(tar_wat_ind)%allocate_reaction_rates()
+                !    call this%waters(tar_wat_ind)%allocate_rxn_rates_and_amounts()
                 !    call this%waters(tar_wat_ind)%set_indices_rk()
                 !    aux_igzone=igzone
                 !    aux_igzn=igzn
@@ -359,7 +363,7 @@
     !             !    else
     !             !        call this%target_gases%reactive_zone%compute_U_SkT_prod()
     !             !    end if
-    !             !    call this%waters(tar_wat_ind)%allocate_reaction_rates()
+    !             !    call this%waters(tar_wat_ind)%allocate_rxn_rates_and_amounts()
     !             !    call this%waters(tar_wat_ind)%set_indices_rk()
     !             !    aux_igzone=igzone
     !             !    aux_igzn=igzn

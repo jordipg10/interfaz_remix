@@ -94,6 +94,7 @@ module array_ops_m
             do i=1,size(array)
                 if (array(i)==int) then
                     ind=i
+                    return
                 end if
             end do
         end function

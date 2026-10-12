@@ -27,7 +27,7 @@ private
         procedure :: set_pos
         procedure :: set_aq_chem
         procedure :: copy_tar_wat
-        procedure :: update_old_attributes
+        procedure :: update_attributes
     end type target_water_c
 
     contains
@@ -71,17 +71,17 @@ private
     this%id = id
     end subroutine set_id
 
-    subroutine update_old_attributes(this)
+    subroutine update_attributes(this)
     class(target_water_c), intent(inout) :: this
-    ! if (allocated(this%pos)) then
-    !     if (.not. allocated(this%pos_old)) then
-    !         allocate(this%pos_old(size(this%pos)))
-    !     end if
+    if (allocated(this%pos)) then
+        if (.not. allocated(this%pos_old)) then
+            allocate(this%pos_old(size(this%pos)))
+        end if
         this%pos_old = this%pos
-    ! else
-    !     error stop "Error in update_old_attributes: pos is not allocated."
-    ! end if
-    call this%aq_chem%update_old_attributes()
-    end subroutine update_old_attributes
+    else
+        error stop "Error in update_attributes: pos is not allocated."
+    end if
+    call this%aq_chem%update_attributes()
+    end subroutine update_attributes
 
 end module target_water_m

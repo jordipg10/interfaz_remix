@@ -369,7 +369,7 @@ subroutine read_Monod_DB(this,path,unit)
                         !> reads: n_sp, name_1, coeff_1, ..., name_n, coeff_n, rate_cst, log10(K_eq)
                     
                     !> Set equilibrium constant (convert from log K)
-                    call this%eq_reacts(react_ind)%set_eq_cst(10**logK)
+                    call this%eq_reacts(react_ind)%set_eq_cst_ref(10**logK)
                         !> K_eq = 10^(log K)
                 else !> reaction not found in either kinetic or equilibrium list
                     continue !> skip this reaction, continue to next

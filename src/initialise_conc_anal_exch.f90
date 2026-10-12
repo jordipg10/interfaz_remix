@@ -35,9 +35,11 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
     
 !> Pre-process
     CV_flag=.false.
-    if (size(icon)/=this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species) error stop
+    if (size(icon)/=this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species) &
+        error stop "size(icon) /= num_aq_prim_species in initialise_conc_anal_exch"
     
-    if (sum(n_icon)/=this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species) error stop
+    if (sum(n_icon)/=this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species) &
+        error stop "sum(n_icon) /= num_aq_prim_species in initialise_conc_anal_exch"
     
     allocate(c2_old(this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions),&
     c2_new(this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions))
@@ -68,7 +70,7 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
         else if (icon(i)==4) then
             counters(4)=counters(4)+1
             indices_icon%cols(4)%col_1(counters(4))=i
-            tol_res(i)=this%solid_chemistry%reactive_zone%CV_params%log_rel_tol !> logarithmic absolute tolerance
+            tol_res(i)=1d1**this%solid_chemistry%reactive_zone%CV_params%log_rel_tol !> phase constraint: the residual is logarithmic (sum Se log10 a + log10 ctot - logK), so its tolerance is 10**log_rel_tol (relative error ~ ln(10)*tol on the constrained activity), NOT log_rel_tol itself (a negative number whose magnitude made the test vacuous)
         else
             error stop "icon option not implemented"
         end if
@@ -92,8 +94,14 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
     
     c2_old=1d-16 !> chapuza
     if (indices_icon%cols(4)%dim>0) then
+        !> Seed only the phase (icon=4) eq reactions with their constraint target ctot.
+        !> These are the leading heterogeneous eq reactions (minerals/gases, ordered
+        !> before the cation-exchange secondaries); exchange secondaries keep the default
+        !> guess. Writing the whole heterogeneous block would be non-conforming whenever
+        !> surface complexes are present (n_icon(4) < heterogeneous count).
         c2_old(this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species+1:&
-        this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions)=ctot(indices_icon%cols(4)%col_1)
+        this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species+indices_icon%cols(4)%dim)=&
+        ctot(indices_icon%cols(4)%col_1)
     end if
     
     call this%set_conc_sec_aq_species(c2_old(1:this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species)) !> initial guess c2aq
@@ -112,7 +120,7 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
     !> We update number of iterations
         niter=niter+1
         if (niter>this%solid_chemistry%reactive_zone%CV_params%niter_max) then
-            print *, '[DEBUG initialise_conc_anal_exch] Newton failed after', niter-1, 'iters'
+            print *, 'initialise_conc_anal_exch: Newton failed after', niter-1, 'iters'
             print *, '  ||res||_inf =', inf_norm_vec_real(res)
             print *, '  c1 =', c1
             error stop "Too many Newton iterations in initialisation"
@@ -120,6 +128,7 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
         !call this%compute_ionic_strength()
         !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs)
         call this%compute_c2_from_c1_Picard(c1,c2_old,c2_new,niter_Picard,CV_flag)
+        if (.not. CV_flag) error stop "initialise_conc_anal_exch: Picard speciation did not converge (activity coefficient fixed point diverged)"
         !call this%compute_ionic_strength() !> we compute ionic activity
         !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs) !> we compute log activity coefficients aqueous species
         !call this%compute_activities()
@@ -131,8 +140,16 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
     !> Chapuza
         !c2(1:this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species)=this%concentrations(this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species+1:this%aq_phase%num_species)
     !> We compute residue and Jacobian analytically
-        !> First we compute d_log_gamma_d_I
-        d_log_gamma_d_I=this%compute_d_log_gamma_d_I_aq_chem()
+        !> First we compute d_log_gamma_d_I. This is the ideal exchange initialiser (activities are
+        !> taken ideal: log_act_coeffs=0 above), so the ionic-strength derivative of the activity
+        !> coefficients is identically zero. Build it as a zero vector sized num_species (the size
+        !> compute_dc2_dc1 indexes out_prod = d_log_gamma_d_I (x) z2 over, num_prim..num_species),
+        !> rather than calling compute_d_log_gamma_d_I_aq_chem, which returns only
+        !> num_aq_var_act_species entries (too small once the exchanger adds the free site and
+        !> surface complexes, and it overflows internally when h2o is a constant-activity primary).
+        if (allocated(d_log_gamma_d_I)) deallocate(d_log_gamma_d_I)
+        allocate(d_log_gamma_d_I(this%solid_chemistry%reactive_zone%speciation_alg%num_species))
+        d_log_gamma_d_I=0d0
         !> Outer product d_log_gamma_d_I and z^2
         out_prod=outer_prod_vec(d_log_gamma_d_I,this%solid_chemistry%reactive_zone%chem_syst%z2)
         !out_prod_aq(1:this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species)=out_prod(1:this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species) !> chapuza
@@ -146,25 +163,42 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
         conc_comp=this%compute_conc_comp_cst_act([c1,c2_new])
         call this%compute_res_Jac_res_anal_exch([c1,c2_new],indices_icon,n_icon,indices_constrains,ctot,dc2_dc1,&
             log_Jacobian_act_coeffs,conc_comp(this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species),res,Jac_res)
-    !> We check convergence
-        if (inf_norm_vec_real(res)<inf_norm_vec_real(tol_res)) then !> CV reached
+    !> We check convergence: every constraint residual within its own tolerance (concentration residuals
+    !> against abs_tol, logarithmic phase residuals against 10**log_rel_tol)
+        if (all(abs(res)<=tol_res)) then !> CV reached
             CV_flag=.true.
             exit
         end if
     !> We solve linear system aqueous primary concentartions
         call LU_lin_syst(Jac_res,-res,this%solid_chemistry%reactive_zone%CV_params%zero,Delta_c1)
-        !> c1^(i+1)=c1^i+Delta_c1^i
-        if (inf_norm_vec_real(Delta_c1/c1)<this%solid_chemistry%reactive_zone%CV_params%rel_tol) then
-            print *, inf_norm_vec_real(Delta_c1/c1)
-            error stop "Newton method not accurate enough in initialisation"
+        !> Converged when the relative Newton update is negligible (denominator guarded
+        !> against zero). A negligible step is convergence, not an error.
+        if (inf_norm_vec_real(Delta_c1/max(abs(c1),this%solid_chemistry%reactive_zone%CV_params%zero))<&
+            this%solid_chemistry%reactive_zone%CV_params%rel_tol) then
+            call this%update_conc_prim_species(c1,Delta_c1)
+            CV_flag=.true.
+            exit
         end if
     !> We update primary concentrations
         call this%update_conc_prim_species(c1,Delta_c1)
     end do
-    this%solid_chemistry%concentrations(1)=c1(this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)
-    this%solid_chemistry%concentrations(2:this%solid_chemistry%reactive_zone%num_solids)=&
-    c2_new(this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species+1:&
-    this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions)
+    !> Store solid concentrations in canonical layout: minerals first (1..off), then
+    !> surface complexes (off+1 = free site, off+2.. = adsorbed cations), with
+    !> off = num_solids - num_surf_compl. c2_new orders heterogeneous eq reactions as
+    !> [minerals, exchange secondaries] to match this layout.
+    block
+        integer(kind=4) :: off_sol, nsa_sol
+        off_sol = this%solid_chemistry%reactive_zone%num_solids - &
+                  this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl
+        nsa_sol = this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species
+        if (off_sol>0) then
+            this%solid_chemistry%concentrations(1:off_sol)=c2_new(nsa_sol+1:nsa_sol+off_sol)
+        end if
+        this%solid_chemistry%concentrations(off_sol+1)=&
+            c1(this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)
+        this%solid_chemistry%concentrations(off_sol+2:this%solid_chemistry%reactive_zone%num_solids)=&
+            c2_new(nsa_sol+off_sol+1:this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions)
+    end block
     call this%compute_pH()
     call this%compute_salinity()
     call this%compute_alkalinity()

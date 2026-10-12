@@ -20,7 +20,7 @@ subroutine mixing_iter_species(this,c1_old,c_hat, &
 !> Process    
     !> We set concentrations after mixing
         call this%set_concentrations(c_hat)
-        conc_nc=THIS%get_conc_nc()
+        conc_nc=THIS%get_conc_var_act()
         conc_comp=conc_nc
     !> We change units
         call this%compute_molalities()

@@ -27,9 +27,10 @@ subroutine inv_matrix(A,tol,inv)
     real(kind=8), intent(out) :: inv(:,:) !> inverse matrix of A (must be allocated)
     
     integer(kind=4) :: n,j,i
-    real(kind=8) :: det
+    real(kind=8) :: det, resid_tol
     real(kind=8), allocatable :: id(:,:), prod_A_invA(:,:), id_col(:), inv_col(:)
     logical :: error
+    real(kind=8), parameter :: resid_safety = 1d2 !> safety factor over machine precision for the inverse check
     
     if (size(A,1)/=size(A,2)) then
         error stop "Matrix must be square (inv_matrix)"
@@ -57,8 +58,15 @@ subroutine inv_matrix(A,tol,inv)
                 inv(1:n,j)=inv_col
             end do
             prod_A_invA=matmul(A,inv)
+            !> Verify A*inv ~ I. The threshold is floored at machine precision (scaled by the system
+            !> size and the magnitudes of A and inv): the residual of a correctly computed inverse
+            !> cannot be smaller than roundoff. The supplied tol is only a "numerical zero" for
+            !> singularity detection and may lie far below machine epsilon, so it must not be allowed
+            !> to tighten this check (otherwise correct inverses are rejected).
+            resid_tol = max(tol, resid_safety*real(n,8)*epsilon(1d0)) * &
+                max(1d0, maxval(abs(A))*maxval(abs(inv)))
             do i=1,n
-                if (inf_norm_vec_real(prod_A_invA(i,:)-id(i,:))>=tol) then
+                if (inf_norm_vec_real(prod_A_invA(i,:)-id(i,:))>=resid_tol) then
                     error stop "Error in inverse matrix"
                 end if
             end do
@@ -150,10 +158,11 @@ end subroutine
         
         
         real(kind=8), allocatable :: L(:,:), U(:,:), y(:), pb(:)
-        real(kind=8) :: det
+        real(kind=8) :: det, resid_tol
         integer(kind=4) :: n, i
         integer(kind=4), allocatable :: p(:)
         logical :: error
+        real(kind=8), parameter :: resid_safety = 1d2 !> safety factor over machine precision for the backward-error check
         
         if (present(sing_flag)) sing_flag = .false.
         
@@ -190,7 +199,14 @@ end subroutine
             end do
             call forward_substitution(L,pb,y)
             call backward_substitution(U,y,x)
-            if (inf_norm_vec_real(matmul(A,x)-b) .ge. tol*max(1d0, inf_norm_vec_real(b), maxval(abs(A))*inf_norm_vec_real(x))) then
+            !> Backward-error check on the computed solution. The threshold is floored at machine
+            !> precision (scaled by the system size and the magnitudes of A, x and b): the residual of
+            !> a correctly solved system cannot be smaller than roundoff. The supplied tol is only a
+            !> "numerical zero" for singularity detection and may lie far below machine epsilon, so it
+            !> must not be allowed to tighten this check (otherwise exact solutions are rejected).
+            resid_tol = max(tol, resid_safety*real(n,8)*epsilon(1d0)) * &
+                max(1d0, inf_norm_vec_real(b), maxval(abs(A))*inf_norm_vec_real(x))
+            if (inf_norm_vec_real(matmul(A,x)-b) .ge. resid_tol) then
                 if (present(sing_flag)) then
                     sing_flag = .true.
                     deallocate(L,U,y,pb,p)
@@ -198,6 +214,7 @@ end subroutine
                 end if
                 print *, "DEBUG LU_lin_syst: ||Ax-b||_inf = ", inf_norm_vec_real(matmul(A,x)-b)
                 print *, "DEBUG LU_lin_syst: tol          = ", tol
+                print *, "DEBUG LU_lin_syst: resid_tol    = ", resid_tol
                 print *, "DEBUG LU_lin_syst: n            = ", n
                 print *, "DEBUG LU_lin_syst: det          = ", det
                 print *, "DEBUG LU_lin_syst: ||A||_max    = ", maxval(abs(A))

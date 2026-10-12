@@ -72,6 +72,7 @@ module mineral_zone_m
         !procedure :: update_mineral_zone                             !< [COMMENTED] Update zone configuration
         !procedure :: compare_min_zones                               !< [COMMENTED] Compare two mineral zones
         procedure :: is_mineral_in_min_zone                           !< Check if mineral belongs to zone
+        procedure :: copy_mineral_zone                                !< Copy from another mineral zone
     end type
 !**************************************************************************************************
     !> \brief Interface for updating mineral zone configuration
@@ -425,6 +426,48 @@ module mineral_zone_m
             class(mineral_zone_c) :: this                                     !< Mineral zone object
             integer(kind=4), intent(in) :: id                                 !< Zone ID
             this%id=id                                                        !< Assign ID to member variable
+        end subroutine
+
+        !> \brief Copy mineral zone from another mineral zone
+        !> \details
+        !>   Deep-copies all scalar counts and allocatable index arrays, and
+        !>   associates the chemical system pointer (shallow copy). Mirrors
+        !>   copy_react_zone: the pointer is shared while allocatable arrays are
+        !>   duplicated, so the source may safely be a temporary that goes out of
+        !>   scope afterwards.
+        !>
+        !>   Stops execution if the source chemical system pointer is not associated.
+        !> \param[in,out] this Mineral zone object (target)
+        !> \param[in] mineral_zone Mineral zone to copy from (source)
+        subroutine copy_mineral_zone(this,mineral_zone)
+            implicit none                                                     !< Disable implicit variable typing
+            class(mineral_zone_c) :: this                                     !< Mineral zone object (target)
+            class(mineral_zone_c), intent(in) :: mineral_zone                 !< Mineral zone to copy from (source)
+
+            !< Check and associate chemical system pointer (shallow copy)
+            if (associated(mineral_zone%chem_syst)) then
+                this%chem_syst=>mineral_zone%chem_syst                        !< Associate pointer (shallow copy)
+            else
+                error stop "Chemical system not associated with mineral zone"
+            end if
+
+            !< Copy scalar counts
+            this%id=mineral_zone%id                                           !< Copy zone identifier
+            this%num_minerals=mineral_zone%num_minerals                       !< Copy total mineral count
+            this%num_minerals_eq=mineral_zone%num_minerals_eq                 !< Copy equilibrium mineral count
+            this%num_minerals_kin=mineral_zone%num_minerals_kin               !< Copy kinetic mineral count
+            this%num_minerals_kin_cst_act=mineral_zone%num_minerals_kin_cst_act  !< Copy kinetic cst act count
+            this%num_minerals_kin_var_act=mineral_zone%num_minerals_kin_var_act  !< Copy kinetic var act count
+            this%num_minerals_eq_cst_act=mineral_zone%num_minerals_eq_cst_act !< Copy equilibrium cst act count
+            this%num_minerals_eq_var_act=mineral_zone%num_minerals_eq_var_act !< Copy equilibrium var act count
+
+            !< Deep-copy allocatable index arrays if allocated
+            if (allocated(mineral_zone%ind_min_chem_syst)) then
+                this%ind_min_chem_syst=mineral_zone%ind_min_chem_syst        !< Deep copy array
+            end if
+            if (allocated(mineral_zone%ind_min_Sk)) then
+                this%ind_min_Sk=mineral_zone%ind_min_Sk                      !< Deep copy array
+            end if
         end subroutine
 !> \brief End of mineral_zone_m module
 end module

@@ -1,4 +1,4 @@
-!> \file CV_params_m.f90
+!> \file params_iter_methods_m.f90
 !> \brief Defines convergence parameters for iterative numerical methods.
 !> \details This module provides a public type for storing numerical tolerances and control parameters used in iterative algorithms
 !>          (e.g., Newton-Raphson, Picard iteration) for chemical speciation and reactive transport simulations.
@@ -19,9 +19,9 @@
 !> - Newton-Raphson for chemical equilibrium (speciation)
 !> - Picard iteration for reactive transport coupling
 !> - Time step adaptation for stiff kinetic reactions
-module CV_params_m
+module params_iter_methods_m
     implicit none !< Enforce explicit variable declarations for type safety
-    !> \struct CV_params_s
+    !> \struct params_iter_methods_s
     !> \brief Structure for convergence parameters in iterative solvers.
     !> \details Contains absolute, relative, and logarithmic tolerances for convergence checks, along with control parameters
     !>          for iterative algorithms. Used in Newton-Raphson methods for chemical speciation and reactive transport.
@@ -43,25 +43,25 @@ module CV_params_m
     !> - Smaller tolerances → more accurate but slower convergence
     !> - Logarithmic tolerance important for species spanning many orders of magnitude
     !> - Control factor prevents oscillations in Newton iteration (damping)
-    type, public :: CV_params_s !< Public structure holding all convergence parameters for iterative methods
+    type, public :: params_iter_methods_s !< Public structure holding all convergence parameters for iterative methods
         !> \var abs_tol Arithmetic absolute tolerance for Newton residuals
         !> Convergence criterion: ||f(x)|| < abs_tol where f is residual (mass balance error)
         !> Default: 1×10⁻¹⁴ [M/L³] - very strict for accurate chemical equilibrium
         !> Physical meaning: maximum acceptable mass balance error in aqueous speciation
-        real(kind=8) :: abs_tol=1d-14 !< [M/L³] absolute tolerance for Newton residuals (mass balance errors)
+        real(kind=8) :: abs_tol=1.0d-14 !< [M/L³] absolute tolerance for Newton residuals (mass balance errors)
         real(kind=8) :: log_abs_tol=-14 !< [M/L³] absolute tolerance for Picard residuals (mass balance errors)
         !> \var log_rel_tol Logarithmic relative tolerance for Newton residuals
         !> Convergence criterion: |log₁₀(Δc)/log₁₀(c)| < log_rel_tol for concentrations
         !> Default: 1×10⁻⁹ [-] - ensures logarithmic concentration changes negligible
         !> Physical meaning: acceptable change in orders of magnitude for concentrations
         !> Important for trace species where absolute changes are tiny but relative changes significant
-        real(kind=8) :: log_rel_tol=-14 !< [-] logarithmic relative tolerance for concentration changes
+        real(kind=8) :: log_rel_tol=-9 !< [-] logarithmic relative tolerance for concentration changes
         
         !> \var rel_tol Relative tolerance for convergence
         !> Convergence criterion: ||Δx||/||x|| < rel_tol where Δx is Newton update
         !> Default: 1×10⁻¹⁶ [-] - extremely strict relative convergence
         !> Physical meaning: fractional change in solution vector between iterations
-        real(kind=8) :: rel_tol=1d-14 !< [-] relative tolerance for solution updates (dimensionless ratio)
+        real(kind=8) :: rel_tol=1.0d-9 !< [-] relative tolerance for solution updates (dimensionless ratio)
         
         !> \var eps Epsilon for incremental coefficients
         !> Used in finite difference approximations: df/dx ≈ [f(x+ε) - f(x)]/ε
@@ -87,10 +87,10 @@ module CV_params_m
         
         !> \var niter_max Maximum number of iterations allowed
         !> Safety limit to prevent infinite loops in non-converging systems
-        !> Default: 50 [#] - sufficient for most chemical systems
+        !> Default: 40 [#] - sufficient for most chemical systems
         !> Physical meaning: maximum attempts before declaring convergence failure
         !> Triggers error or time step reduction if exceeded
-        integer(kind=4) :: niter_max=50 !< [#] maximum iterations before convergence failure
+        integer(kind=4) :: niter_max=40 !< [#] maximum iterations before convergence failure
         
         !> \var k_div_max Maximum number of time step divisions allowed
         !> Limits time step refinement when convergence fails or stability violated
@@ -107,20 +107,28 @@ module CV_params_m
         real(kind=8) :: est_prm=0.0 !< [-] estimation parameter for downstream kinetic reactions (0 = no extrapolation)
     contains
         !> \brief Set estimation parameter for downstream kinetic reactions
-        procedure :: read_CV_params
-    end type CV_params_s
+        procedure :: read_params_iter_methods
+    end type params_iter_methods_s
 
     contains
-        !> \brief Reads convergence parameters from input file unit
-        subroutine read_CV_params(this, path, root)
-            class(CV_params_s) :: this
+        !> \brief Reads convergence parameters from "<path><root>_CV_params.dat"
+        !> \details The file is optional: if it does not exist the subroutine returns without
+        !>          modifying the object, so the default initialisers of params_iter_methods_s apply.
+        subroutine read_params_iter_methods(this, path, root)
+            class(params_iter_methods_s) :: this
             character(len=*), intent(in) :: path !< Path to input files
             character(len=*), intent(in) :: root !< Root name for input files
             !integer(kind=4), intent(in) :: unit !< Input file unit number
             integer(kind=4) :: unit !< Input file unit number
             integer(kind=4) :: ierr !< I/O error flag
             character(len=256) :: line !< Full path to input file
+            logical :: file_exists !< TRUE if the convergence parameters file exists
 
+            inquire(file=trim(path)//trim(root)//'_CV_params.dat',exist=file_exists)
+            if (.not. file_exists) then
+                write(*,*) 'File '//trim(path)//trim(root)//'_CV_params.dat not found: using default convergence parameters.'
+                return
+            end if
             unit = 111 !< Arbitrary unit number for reading CV parameters
             open(unit,file=trim(path)//trim(root)//'_CV_params.dat',status='old',action='read',iostat=ierr)
             if (ierr /= 0) then
@@ -157,5 +165,5 @@ module CV_params_m
             end do
             close(unit)
             ! read(unit,*) this%est_prm
-        end subroutine read_CV_params
-end module CV_params_m
+        end subroutine read_params_iter_methods
+end module params_iter_methods_m

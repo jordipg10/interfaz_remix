@@ -44,6 +44,7 @@ subroutine compute_Jacobian_rk_anal(this,drk_dc)
     integer(kind=4), allocatable :: indices(:) !> Indices of aqueous species participating in reaction (not used in current implementation) [-]
     real(kind=8), allocatable :: act_cat(:) !> Activities of catalyser species (not used in current implementation) [-]
     real(kind=8), allocatable :: drk_dc_loc(:) !> Local gradient vector for current kinetic reaction: ∂rₖ,ᵢ/∂c [T⁻¹]
+    real(kind=8), allocatable :: react_surfaces(:) !> Reactive surfaces of the mineral zone on the molality basis [m² mineral/kg H₂O] (compute_react_surfaces_per_kg_water)
     real(kind=8) :: saturation !> Saturation index for mineral kinetic reactions: Ω = Q/K_eq [-]
 
     drk_dc=0d0 !> Initialize Jacobian matrix to zero (default for species not participating in reactions)
@@ -55,6 +56,7 @@ subroutine compute_Jacobian_rk_anal(this,drk_dc)
     end do !> End loop over linear kinetic reactions
     !num_kin=num_kin+this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts !> Commented: Alternative way to increment counter after loop
 !> Mineral kinetic reactions: dissolution/precipitation reactions with TST-based rate laws
+    call this%compute_react_surfaces_per_kg_water(react_surfaces) !> Convert reactive surfaces from m2/L water to m2/kg H2O (molality basis)
     do i=1,this%solid_chemistry%mineral_zone%num_minerals_kin !> Loop over all kinetic minerals in mineral zone
         num_kin=num_kin+1 !> Increment total kinetic reaction counter
         !indices=this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(i)%indices_aq_phase !> Commented: Extract indices of aqueous species in reaction
@@ -64,13 +66,12 @@ subroutine compute_Jacobian_rk_anal(this,drk_dc)
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%compute_drk_dc_mineral(this%concentrations(& !> Pass concentrations of aqueous species participating in reaction
             this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(& !> Extract species indices for this mineral reaction
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase)),& !> Map to aqueous phase indices
-            this%activities(this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(& !> Pass activities of aqueous species participating in reaction
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase)),& !> Map to aqueous phase indices for activities
             this%log_act_coeffs(this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(& !> Pass log₁₀(activity coefficients) of aqueous species
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase)),& !> Map to aqueous phase indices for activity coefficients
             this%activities(this%indices_aq_species(& !> Pass activities of catalyser species (H⁺, OH⁻, etc.)
-            this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(i)%params%cat_indices)),saturation,& !> Include saturation index for TST rate law
-            this%solid_chemistry%react_surfaces(i),this%solid_chemistry%temp,drk_dc_loc) !> Pass reactive surface area and temperature, receive gradient in drk_dc_loc
+            this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(&
+            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%cat_indices)),saturation,& !> Include saturation index for TST rate law
+            react_surfaces(i),this%solid_chemistry%temp,drk_dc_loc) !> Pass reactive surface area and temperature, receive gradient in drk_dc_loc
         drk_dc(num_kin,this%indices_rk%cols(num_kin)%col_1)=drk_dc_loc !> Store local gradient in full Jacobian at appropriate columns (temporary workaround for sparse storage)
         deallocate(drk_dc_loc) !> Deallocate local gradient vector before next iteration
     end do !> End loop over mineral kinetic reactions
@@ -81,7 +82,7 @@ subroutine compute_Jacobian_rk_anal(this,drk_dc)
         allocate(drk_dc_loc(this%indices_rk%cols(num_kin)%dim)) !> Allocate local gradient vector for this redox reaction
         call this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%compute_drk_dc_Monod(this%concentrations(& !> Call Monod kinetics gradient computation
             this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%indices_aq_phase)),& !> Pass concentrations of species in Monod rate law (inhibitors, acceptor, donor)
-            this%rk_new(num_kin-this%solid_chemistry%mineral_zone%num_minerals_kin),drk_dc_loc) !> Pass current reaction rate (offset by number of mineral reactions) and receive gradient
+            this%rxn_rate_kin(num_kin-this%solid_chemistry%mineral_zone%num_minerals_kin),drk_dc_loc) !> Pass current reaction rate (offset by number of mineral reactions) and receive gradient
         drk_dc(num_kin,this%indices_rk%cols(num_kin)%col_1)=drk_dc_loc !> Store local gradient in full Jacobian at appropriate columns (temporary workaround for sparse storage)
         deallocate(drk_dc_loc) !> Deallocate local gradient vector before next iteration
     end do !> End loop over redox kinetic reactions

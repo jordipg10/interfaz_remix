@@ -1,6 +1,7 @@
 !> Lectura quimica CHEPROO
-subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,unit_loc_chem_file,num_tar)
+subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,unit_loc_chem_file)
     use chemistry_m, only: chemistry_c
+    use solid_chemistry_m, only: solid_chemistry_c
     implicit none
     class(chemistry_c) :: this
     character(len=*), intent(in) :: root
@@ -8,7 +9,6 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
     character(len=*), intent(in) :: path_DB
     integer(kind=4), intent(in) :: unit_chem_syst_file
     integer(kind=4), intent(in) :: unit_loc_chem_file
-    integer(kind=4), intent(in) :: num_tar !> expected number of domain (target) waters from the mesh
     
     integer(kind=4) :: i,ngrz,nmrz,nsrz,ndrz
     integer(kind=4), allocatable :: ind_wat_type(:),num_aq_prim_array(:),num_cstr_array(:)
@@ -53,76 +53,23 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
     call this%min_zone_dummy%set_chem_syst_min_zone(this%chem_syst) !> we set the chemical system for the dummy mineral zone
 !> Local chemistry
     open(unit_loc_chem_file,file=path_pb//root//'_quim_loc.dat',status='old',action='read')
-    do
-        read(unit_loc_chem_file,*) label
-        if (label=='end') then
-            rewind(unit_loc_chem_file)
-            exit
-        !else if (label=='INITIAL AND BOUNDARY WATER TYPES') then
-            !call this%read_init_bd_rech_wat_types_CHEPROO(unit_loc_chem_file,ind_wat_type, public,num_aq_prim_array,num_cstr_array)
-        !else if (label=='INITIAL MINERAL ZONES') then
-        !    call this%read_init_min_zones_CHEPROO(unit_loc_chem_file,init_min_zones,rz_mins)
-        else if (label=='INITIAL SURFACE ADSORPTION ZONES') then
-            call this%read_init_cat_exch_zones_CHEPROO(unit_loc_chem_file,ndrz)
-            !print *, init_cat_exch_zones(1)%reactive_zone%num_non_flow_species
-        else if (label=='INITIAL AND BOUNDARY GAS ZONES') then
-            call this%read_gas_zones_CHEPROO(unit_loc_chem_file,ngrz)
-        else
-            continue
-        end if
-    end do
-!> Chapuza
-    !print*, size(init_gas_zones)
-    !print *, allocated(init_gas_zones)
-    !if (allocated(init_gas_zones)) then
-    !    do i=1,size(init_gas_zones) 
-    !        call init_gas_zones(i)%set_reactive_zone(this%reactive_zones(i))
-    !    end do
-    !else if (size(init_gas_zones)>0) then !> Chapuza
-    !    allocate(init_gas_zones(0))
-    !    deallocate(init_gas_zones)
-    !    !call init_gas_zones(1)%set_reactive_zone(this%reactive_zones(1))
-    !end if
-    !print *, size(init_cat_exch_zones)
-    !print *, allocated(init_cat_exch_zones)
-    ! if (allocated(init_cat_exch_zones)) then
-    !     !print *, init_cat_exch_zones(1)%reactive_zone%num_non_flow_species
-    !     do i=1,size(init_cat_exch_zones)
-    !         call init_cat_exch_zones(i)%set_reactive_zone(this%reactive_zones(i))
-    !     end do
-    ! else if (size(init_cat_exch_zones)>0) then !> Chapuza
-    !     allocate(init_cat_exch_zones(0))
-    !     deallocate(init_cat_exch_zones)
-    !     !call init_cat_exch_zones(1)%set_reactive_zone(this%reactive_zones(size(init_gas_zones)+1))
-    ! end if
+!> Read the whole _quim_loc.dat file in a single pass, in the order the sections
+!> appear in the file: water types first, then mineral zones, then surface
+!> adsorption zones, then gas zones. Water types no longer depend on the gas or
+!> solid zones (they build their own reactive zone from the icon=4 constraints),
+!> so the previous two-pass (rewind) scheme is no longer needed.
     do
         read(unit_loc_chem_file,*) label
         if (label=='end') then
             exit
         else if (label=='INITIAL AND BOUNDARY WATER TYPES') then
-            if (this%num_gas_zones > 0) then
-                call this%read_init_bd_wat_types_CHEPROO(unit_loc_chem_file,&
-                    this%gas_zones(1)) !> chapuza
-            else
-                call this%read_init_bd_wat_types_CHEPROO(unit_loc_chem_file)
-            end if
+            call this%read_init_bd_wat_types_CHEPROO(unit_loc_chem_file)
         else if (label=='INITIAL MINERAL ZONES') then
-            ! if (size(init_cat_exch_zones)==1) then
-            !     call this%read_init_min_zones_CHEPROO(unit_loc_chem_file,nmrz,init_cat_exch_zones(1))
-            ! else
-                call this%read_init_min_zones_CHEPROO(unit_loc_chem_file,nmrz)
-            !end if
-            !> Chapuza
-            !if (allocated(init_gas_zones)) then
-            !    do i=1,size(init_gas_zones)
-            !        call init_gas_zones(i)%set_reactive_zone(this%reactive_zones(i))
-            !    end do
-            !end if
-            !if (allocated(init_cat_exch_zones)) then
-            !    do i=1,size(init_cat_exch_zones)
-            !        call init_cat_exch_zones(i)%set_reactive_zone(this%reactive_zones(size(init_gas_zones)+i))
-            !    end do
-            !end if
+            call this%read_init_min_zones_CHEPROO(unit_loc_chem_file,nmrz)
+        else if (label=='INITIAL SURFACE ADSORPTION ZONES') then
+            call this%read_init_cat_exch_zones_CHEPROO(unit_loc_chem_file,ndrz)
+        else if (label=='INITIAL AND BOUNDARY GAS ZONES') then
+            call this%read_gas_zones_CHEPROO(unit_loc_chem_file,ngrz)
         else
             continue
         end if
@@ -167,6 +114,34 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
        do i=1,this%num_init_cat_exch_zones
            call this%materials(i)%copy_solid_chemistry(this%init_cat_exch_zones(i))
        end do
+    else if (ndrz>0 .and. nmrz>0) then
+        !> Solid zones are ordered [mineral-only zones (1..nmrz), combined mineral+exchange
+        !> zones (nmrz+1..nmrz+ndrz)], matching the reactive-zone ordering built in
+        !> read_init_cat_exch_zones_CHEPROO. Preserve the mineral-only materials and APPEND the
+        !> combined solid chemistries (this%init_cat_exch_zones, built merged there), so
+        !> <root>_tar_sol.dat can select the calcite-only zone (index<=nmrz) or the combined
+        !> calcite+exchange zone (index>nmrz). The combined chemistries' mineral_zone pointers
+        !> target the persistent this%mineral_zones array (not this%materials), so the realloc
+        !> is safe; read_tar_sol repoints each target solid's reactive_zone to the live zone.
+        block
+            type(solid_chemistry_c), allocatable :: aux_materials(:)
+            integer(kind=4) :: im, nmat0
+            nmat0 = this%num_materials
+            allocate(aux_materials(nmat0))
+            do im=1,nmat0
+                call aux_materials(im)%copy_solid_chemistry(this%materials(im))
+            end do
+            deallocate(this%materials)
+            call this%set_num_materials(nmat0 + this%num_init_cat_exch_zones)
+            call this%allocate_materials()
+            do im=1,nmat0
+                call this%materials(im)%copy_solid_chemistry(aux_materials(im))
+            end do
+            do im=1,this%num_init_cat_exch_zones
+                call this%materials(nmat0+im)%copy_solid_chemistry(this%init_cat_exch_zones(im))
+            end do
+            deallocate(aux_materials)
+        end block
     end if
     ! if (allocated(init_cat_exch_zones) .and. (.not. allocated(init_min_zones))) then
     !    allocate(init_sol_zones(size(init_cat_exch_zones)))
@@ -220,8 +195,7 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
     !        call init_gas_zones(i)%set_reactive_zone(reactive_zones(i))
     !    end do
     !end if
-!> We set reactive zones attribute
-    !call this%set_reactive_zones(reactive_zones)
+
 !> Target solids
     if (nsrz>0) then
         call this%read_tar_sol(path_pb//root,nsrz,ngrz)
@@ -245,15 +219,13 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
         end do
     end if
 !> Target gases
-    block
-        logical :: tar_gas_file_exists
-        inquire(file=path_pb//root//'_tar_gas.dat', exist=tar_gas_file_exists)
-        if (tar_gas_file_exists) then
-            call this%read_tar_gas(path_pb//root,ngrz)
-        end if
-    end block
+    if (ngrz>0) then
+        call this%read_tar_gas(path_pb//root,ngrz)
+    end if
 !> Target waters
     call this%read_waters_init(path_pb//root,nsrz,ngrz)
-    ! print *, this%waters(this%tar_wat_indices(1))%solid_chemistry%rk_new
-    ! print *, this%target_solids(1)%rk_new
+!> The zone waters and zone solids (one per target water and reactive zone) are allocated and linked by
+!> set_zone_waters, called from set_target_waters (RT_m): num_target_waters is only final there (with
+!> edge-centred targets and Dirichlet BCs the boundary waters are added to the target waters), and the
+!> solvers index zone_waters(idx,:) by the target water index.
 end subroutine

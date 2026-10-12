@@ -41,7 +41,7 @@ subroutine compute_c2_from_c1_ideal(this,c1,log_act_coeffs,c2)
     
     log_c2=matmul(this%solid_chemistry%reactive_zone%speciation_alg%Se_1_star,&
         log10(c1)+log_act_coeffs(1:n_p))+& !> Compute log₁₀(c₂) = Sₑ₁* · log₁₀(c₁) using stoichiometric coefficient matrix and logarithm of input primary concentrations
-        this%solid_chemistry%reactive_zone%speciation_alg%logK_tilde - & !> Add modified equilibrium constants log₁₀(K̃) to complete mass action law in logarithmic form
+        this%logK_tilde - & !> Add per-water transformed equilibrium constants log₁₀(K̃) to complete mass action law in logarithmic form
         log_act_coeffs(n_p+1:n_sp) !> Subtract log₁₀(γ₂) for secondary species from log₁₀(c₂)
     c2=10**log_c2 !> Convert from logarithmic form to linear concentrations: c₂ = 10^(log₁₀(c₂))
     call this%set_conc_sec_species(c2) !> Store all secondary species concentrations in aqueous chemistry object (both aqueous and other phases)

@@ -15,7 +15,7 @@ subroutine compute_c2nc_from_c1_aq_ideal(this,c2nc)
     !call this%compute_molalities() !> we change units to use the mass action law (the salinity is already computed)
 
     log_c2nc=matmul(this%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star,log10(this%concentrations(&
-        this%ind_var_act_species(1:n_p_aq))))+this%solid_chemistry%reactive_zone%speciation_alg%logK_star
+        this%ind_var_act_species(1:n_p_aq))))+this%logK_star
     c2nc=10**log_c2nc
 
     call this%set_conc_sec_var_act_species(c2nc) !> we update secondary variable activity species concentrations

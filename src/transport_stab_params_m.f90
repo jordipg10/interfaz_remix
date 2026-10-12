@@ -166,35 +166,33 @@ module transport_stab_params_m
                 !     end if
                 !else                                            !< Case: heterogeneous properties
                     Courant_max=props_obj%flux_cent(1)*time_step/(props_obj%porosity(1)*mesh%Delta_x)  !< Initialize with first cell
-                    beta_max=props_obj%disp_cent(1)*time_step/(props_obj%porosity(1)*mesh%Delta_x**2)  !< Initialize Peclet with first cell value: Pe = Δx/α_L
+                    beta_max=props_obj%disp_cent(1)*time_step/(props_obj%porosity(1)*mesh%Delta_x**2)  !< Initialize dispersion number with first cell
+                    Peclet_max=this%compute_cell_Peclet_1D(props_obj%flux_cent(1),mesh%Delta_x,props_obj%disp_cent(1))  !< Initialize cell Peclet with first cell: Pe = |q|Δx/D
                     do i=2,mesh%Num_targets-mesh%targets_flag   !< Loop over all cells
                         Courant=props_obj%flux_cent(i)*time_step/(props_obj%porosity(i)*mesh%Delta_x)  !< Compute local Courant
-                        beta=props_obj%disp_cent(i)*time_step/(props_obj%porosity(i)*mesh%Delta_x**2)  !< Compute local Peclet: Pe = Δx/α_L
+                        beta=props_obj%disp_cent(i)*time_step/(props_obj%porosity(i)*mesh%Delta_x**2)  !< Compute local dispersion number
+                        Peclet=this%compute_cell_Peclet_1D(props_obj%flux_cent(i),mesh%Delta_x,props_obj%disp_cent(i))  !< Compute local cell Peclet: Pe = |q|Δx/D
                         if (Courant>Courant_max) then           !< Check if current exceeds maximum
                             Courant_max=Courant                 !< Update maximum
                         end if
                         if (beta>beta_max) then                 !< Check if current exceeds maximum
                             beta_max=beta                       !< Update maximum
                         end if
+                        if (Peclet>Peclet_max) then             !< Check if current exceeds maximum
+                            Peclet_max=Peclet                   !< Update maximum
+                        end if
                     end do
                     this%Courant=Courant_max                    !< Store maximum Courant number
-                    this%beta=beta_max                     !< Store maximum Peclet number
+                    this%beta=beta_max                     !< Store maximum dispersion number
+                    this%cell_Peclet=Peclet_max                 !< Store maximum cell Peclet number: Pe = |q|Δx/D
                     if (this%Courant>1d0) then                  !< Check Courant condition
                         write(*,'(A,ES10.3,A)') ' WARNING: Courant number Co = ', this%Courant, ' > 1.0'
                         write(*,'(A)') '   Reduce Delta_t or refine mesh (decrease Delta_x)'
                     end if
                     if (this%beta>0.5d0+1d-10) then               !< Check dispersion condition (with tolerance)
                         write(*,'(A,ES10.3,A)') ' WARNING: Dispersion number beta = ', this%beta, ' > 0.5'
-                        write(*,'(A)') '   Reduce Delta_t or refine mesh (decrease Delta_x)'
+                        write(*,'(A)') '   Reduce Delta_t or coarsen mesh (increase Delta_x)'
                     end if
-                    this%cell_Peclet=mesh%Delta_x/props_obj%long_dispersivity  !< Initialize with first cell: Pe = Δx/α_L
-                    ! do i=2,mesh%Num_targets-mesh%targets_flag   !< Loop over all cells
-                    !     Peclet=mesh%Delta_x/props_obj%long_dispersivity  !< Compute local Peclet
-                    !     if (Peclet>Peclet_max) then             !< Check if current exceeds maximum
-                    !         Peclet_max=Peclet                   !< Update maximum
-                    !     end if
-                    ! end do
-                    ! this%Peclet=Peclet_max                      !< Store maximum Peclet number
                     if (this%cell_Peclet>2d0) then                   !< Check Peclet condition
                         write(*,'(A,ES10.3,A)') ' WARNING: Cell Peclet number Pe = ', this%cell_Peclet, ' > 2.0'
                         write(*,'(A)') '   Refine mesh (decrease Delta_x) or increase dispersivity'
@@ -203,29 +201,28 @@ module transport_stab_params_m
             type is (mesh_1D_Euler_heterog_c)                       !< Case: transport properties
                 Courant_max=props_obj%flux_cent(1)*time_step/(props_obj%porosity(1)*mesh%Delta_x(1))  !< Initialize with first cell
                 beta_max=props_obj%disp_cent(1)*time_step/(props_obj%porosity(1)*mesh%Delta_x(1)**2)  !< Initialize with first cell
+                Peclet_max=this%compute_cell_Peclet_1D(props_obj%flux_cent(1),mesh%Delta_x(1),props_obj%disp_cent(1))  !< Initialize cell Peclet with first cell: Pe = |q|Δx/D
                 do i=2,mesh%Num_targets-mesh%targets_flag   !< Loop over all cells
                     Courant=props_obj%flux_cent(i)*time_step/(props_obj%porosity(i)*mesh%Delta_x(i))  !< Compute local Courant
-                    beta=props_obj%disp_cent(i)*time_step/(props_obj%porosity(i)*mesh%Delta_x(i)**2)  !< Compute local Peclet: Pe = Δx/α_L
+                    beta=props_obj%disp_cent(i)*time_step/(props_obj%porosity(i)*mesh%Delta_x(i)**2)  !< Compute local dispersion number
+                    Peclet=this%compute_cell_Peclet_1D(props_obj%flux_cent(i),mesh%Delta_x(i),props_obj%disp_cent(i))  !< Compute local cell Peclet: Pe = |q|Δx/D
                     if (Courant>Courant_max) then           !< Check if current exceeds maximum
                         Courant_max=Courant                 !< Update maximum
                     end if
                     if (beta>beta_max) then                 !< Check if current exceeds maximum
                         beta_max=beta                       !< Update maximum
                     end if
+                    if (Peclet>Peclet_max) then             !< Check if current exceeds maximum
+                        Peclet_max=Peclet                   !< Update maximum
+                    end if
                 end do
-                this%beta=beta_max                     !< Store maximum beta number
+                this%beta=beta_max                     !< Store maximum dispersion number
                 this%Courant=Courant_max                    !< Store maximum Courant number
+                this%cell_Peclet=Peclet_max                 !< Store maximum cell Peclet number: Pe = |q|Δx/D
                 if (this%Courant>1d0) then                  !< Check Courant condition
                     write(*,'(A,ES10.3,A)') ' WARNING: Courant number Co = ', this%Courant, ' > 1.0'
                     write(*,'(A)') '   Reduce Delta_t or refine mesh (decrease Delta_x)'
                 end if
-                this%cell_Peclet=maxval(mesh%Delta_x)/props_obj%long_dispersivity  !< Initialize with first cell: Pe = Δx/α_L
-                ! do i=2,mesh%Num_targets-mesh%targets_flag   !< Loop over all cells
-                !     Peclet=mesh%Delta_x(i)/props_obj%long_dispersivity  !< Compute local Peclet
-                !     if (Peclet>Peclet_max) then             !< Check if current exceeds maximum
-                !         Peclet_max=Peclet                   !< Update maximum 
-                !     end if
-                ! end do
                 if (this%cell_Peclet>2d0) then                   !< Check Peclet condition
                     write(*,'(A,ES10.3,A)') ' WARNING: Cell Peclet number Pe = ', this%cell_Peclet, ' > 2.0'
                     write(*,'(A)') '   Refine mesh (decrease Delta_x) or increase dispersivity'
@@ -274,9 +271,11 @@ module transport_stab_params_m
                 end if
                 if (this%beta>0.5d0+1d-10) then               !< Check dispersion condition (with tolerance)
                     write(*,'(A,ES10.3,A)') ' WARNING: Dispersion number beta = ', this%beta, ' > 0.5'
-                    write(*,'(A)') '   Reduce Delta_t or refine mesh'
+                    write(*,'(A)') '   Reduce Delta_t or coarsen mesh (increase Delta_x/Delta_y)'
                 end if
-                this%cell_Peclet = this%compute_cell_Peclet_2D(mesh%Delta_x,mesh%Delta_y,props_obj%long_dispersivity)
+                this%cell_Peclet = this%compute_cell_Peclet_2D(&
+                    sqrt(props_obj%flux_cent(1)**2+props_obj%flux_cent_y(1)**2),&
+                    mesh%Delta_x,mesh%Delta_y,props_obj%disp_cent(1))  !< Pe = |q|·sqrt(Δx·Δy)/D (first cell)
                 if (this%cell_Peclet>2d0) then                   !< Check Peclet condition
                     write(*,'(A,ES10.3,A)') ' WARNING: Cell Peclet number Pe = ', this%cell_Peclet, ' > 2.0'
                     write(*,'(A)') '   Refine mesh or increase dispersivity'
@@ -313,13 +312,15 @@ module transport_stab_params_m
                 end if
                 if (this%beta>0.5d0+1d-10) then               !< Check dispersion condition (with tolerance)
                     write(*,'(A,ES10.3,A)') ' WARNING: Dispersion number beta = ', this%beta, ' > 0.5'
-                    write(*,'(A)') '   Reduce Delta_t or refine mesh'
+                    write(*,'(A)') '   Reduce Delta_t or coarsen mesh (increase Delta_x/Delta_y)'
                 end if
                 this%cell_Peclet=this%compute_cell_Peclet_2D(&
-                    mesh%Delta_x(1),mesh%Delta_y(1),props_obj%long_dispersivity)  !< Initialize with first cell: Pe = Δx/α_L
+                    sqrt(props_obj%flux_cent(1)**2+props_obj%flux_cent_y(1)**2),&
+                    mesh%Delta_x(1),mesh%Delta_y(1),props_obj%disp_cent(1))  !< Initialize with first cell: Pe = |q|·sqrt(Δx·Δy)/D
                 do i=2,mesh%Num_targets-mesh%targets_flag   !< Loop over all cells
                     Peclet=this%compute_cell_Peclet_2D(&
-                        mesh%Delta_x(i),mesh%Delta_y(i),props_obj%long_dispersivity)
+                        sqrt(props_obj%flux_cent(i)**2+props_obj%flux_cent_y(i)**2),&
+                        mesh%Delta_x(i),mesh%Delta_y(i),props_obj%disp_cent(i))
                     if (Peclet>this%cell_Peclet) then             !< Check if current exceeds maximum
                         this%cell_Peclet=Peclet                   !< Update maximum 
                     end if
@@ -331,23 +332,38 @@ module transport_stab_params_m
             end select
         end subroutine
 
-        subroutine compute_cell_Peclet_1D(this,Delta_x,alpha_L)
+        function compute_cell_Peclet_1D(this,q,Delta_x,D) result(cell_Peclet)
             implicit none
-            class(stab_params_tpt_1D_c) :: this                    !< Stability parameters object (modified)
+            class(stab_params_tpt_1D_c) :: this                    !< Stability parameters object
+            real(kind=8), intent(in) :: q                         !< Darcy flux q [L/T]
             real(kind=8), intent(in) :: Delta_x                   !< Grid spacing Δx [L]
-            real(kind=8), intent(in) :: alpha_L                    !< Longitudinal dispers            
-            this%cell_Peclet=Delta_x/alpha_L  !< Peclet number: Pe = Δx/α_L
-        end subroutine
+            real(kind=8), intent(in) :: D                         !< Hydrodynamic dispersion D = α_L|q| + φ·D_m (mechanical + molecular) [L²/T]
+            real(kind=8) :: cell_Peclet                           !< Cell Peclet number Pe = |q|Δx/D [-]
+            !> Pe = |q|·Δx/D. Because D includes molecular diffusion (φ·D_m), Pe stays finite
+            !> when α_L = 0 (e.g. pure diffusion with q = 0 gives Pe = 0). Guard D = 0 (no
+            !> dispersion at all) to avoid a divide-by-zero / Infinity.
+            if (D>0d0) then
+                cell_Peclet=abs(q)*Delta_x/D  !< Peclet number: Pe = |q|Δx/D
+            else
+                cell_Peclet=0d0  !< no dispersion coefficient -> Pe defined as 0 (avoid divide-by-zero)
+            end if
+        end function
 
-        function compute_cell_Peclet_2D(this,Delta_x,Delta_y,alpha_L) result(cell_Peclet)
+        function compute_cell_Peclet_2D(this,q,Delta_x,Delta_y,D) result(cell_Peclet)
             implicit none
-            class(stab_params_tpt_2D_c) :: this                    !< Stability parameters object (modified)
+            class(stab_params_tpt_2D_c) :: this                    !< Stability parameters object
+            real(kind=8), intent(in) :: q                         !< Flux magnitude |q| = sqrt(qx²+qy²) [L/T]
             real(kind=8), intent(in) :: Delta_x                   !< Grid spacing Δx [L]
             real(kind=8), intent(in) :: Delta_y                   !< Grid spacing Δy [L]
-            !real(kind=8), intent(in) :: flux(:,:)                    !< Flux in x and y-direction at centers [L/T]    
-            real(kind=8), intent(in) :: alpha_L                    !< Longitudinal dispersivity [L]            
-            real(kind=8) :: cell_Peclet
-            cell_Peclet=sqrt(Delta_x*Delta_y)/alpha_L  !< Peclet number: Pe = sqrt(Δx·Δy)/α_L
+            real(kind=8), intent(in) :: D                         !< Hydrodynamic dispersion D = α_L|q| + φ·D_m (mechanical + molecular) [L²/T]
+            real(kind=8) :: cell_Peclet                           !< Cell Peclet number Pe = |q|·sqrt(Δx·Δy)/D [-]
+            !> Pe = |q|·sqrt(Δx·Δy)/D (D = mechanical + molecular diffusion). Guard D = 0 to
+            !> avoid a divide-by-zero / Infinity (Pe defined as 0 for the dispersion-free case).
+            if (D>0d0) then
+                cell_Peclet=q*sqrt(Delta_x*Delta_y)/D  !< Peclet number: Pe = |q|·sqrt(Δx·Δy)/D
+            else
+                cell_Peclet=0d0  !< no dispersion coefficient -> Pe defined as 0 (avoid divide-by-zero)
+            end if
         end function
             ! real(kind=8) :: Peclet,Peclet_max                     !< Local and maximum Peclet numbers        
             ! Peclet_max=sqrt(flux(1,1)**2+flux(1,2)**2)*sqrt(Delta_x(1)*Delta_y(1))/&

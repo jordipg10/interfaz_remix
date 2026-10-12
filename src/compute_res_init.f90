@@ -4,6 +4,7 @@ subroutine compute_res_init(this,indices_icon,n_icon,indices_constrains,ctot,res
     use vectors_m, only: inf_norm_vec_real
     use metodos_sist_lin_m, only: LU_lin_syst
     use arrays_m, only: int_array_c
+    use array_ops_m, only: get_ind_int !> map a chemical-system eq. reaction index to its per-water logK position
     implicit none
     !> Arguments
     class(aqueous_chemistry_c) :: this
@@ -36,7 +37,7 @@ subroutine compute_res_init(this,indices_icon,n_icon,indices_constrains,ctot,res
         res(indices_icon%cols(4)%col_1(i))=dot_product(this%solid_chemistry%reactive_zone%chem_syst%Se(&
         indices_constrains(ind_cstr),1:this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species),&
         log10(this%activities(1:this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)))+&
-        log10(ctot(indices_icon%cols(4)%col_1(i)))-log10(this%solid_chemistry%reactive_zone%chem_syst%eq_reacts(&
-        indices_constrains(ind_cstr))%eq_cst)
+        log10(ctot(indices_icon%cols(4)%col_1(i)))-&
+        this%logK(get_ind_int(indices_constrains(ind_cstr),this%solid_chemistry%reactive_zone%ind_eq_reacts))
     end do
 end subroutine

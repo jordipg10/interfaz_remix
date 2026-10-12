@@ -464,6 +464,5 @@ subroutine read_chem_system_PFLOTRAN(this,path,unit)
     !call this%set_species()
     call this%set_stoich_mat()
     
-    eq_csts=this%get_eq_csts()
-    call this%speciation_alg%compute_arrays(this%Se,eq_csts,tol,flag_Se,cols)
+    call this%speciation_alg%compute_arrays(this%Se,tol,flag_Se,cols)
 end subroutine

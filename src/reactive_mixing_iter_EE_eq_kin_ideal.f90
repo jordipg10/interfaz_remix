@@ -5,16 +5,12 @@ subroutine reactive_mixing_iter_EE_eq_kin_ideal(this,c1_old,c_hat,mix_ratio_r,De
 !> Arguments
     class(aqueous_chemistry_c) :: this !> aqueous chemistry object
     real(kind=8), intent(in) :: c1_old(:) !> primary species concentrations before previous time step
-    !real(kind=8), intent(in) :: c2v_ig(:)
-    !real(kind=8), intent(in) :: c_tilde(:) !> variable activity species concentrations after mixing
-    !real(kind=8), intent(in) :: R_tilde(:) !> reaction contributions after mixing
     real(kind=8), intent(in) :: c_hat(:) !> mixing contribution to variable activity species concentrations
     real(kind=8), intent(in) :: mix_ratio_r !> mixing ratio for reaction contributions
     real(kind=8), intent(in) :: Delta_t !> time step
     real(kind=8), intent(in) :: theta !> time weighting factor
     real(kind=8), intent(inout) :: conc_nc(:) !> variable activity species concentrations after time step
     real(kind=8), intent(inout) :: conc_comp(:) !> component concentrations after time step
-    !real(kind=8), intent(in) :: Delta_t !> time step
 !> Variables
     real(kind=8), allocatable :: u_tilde(:)
     real(kind=8), allocatable :: conc_comp_react(:)
@@ -47,13 +43,12 @@ subroutine reactive_mixing_iter_EE_eq_kin_ideal(this,c1_old,c_hat,mix_ratio_r,De
 !> We initialise primary concentrations for Newton speciation
     call initialise_iterative_method(c1_old,c1,mu,c1_ig)
     !call this%set_conc_aq_prim_species(conc_nc(1:this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species)) !> we set initial guess aqueous primary species concentrations
-    !call this%compute_log_act_coeffs_aq_chem()
     !log_gamma_var_act=this%get_log_gamma_var_act()
     do
         !k=0
         !k_div=0
         !Delta_t_bis=Delta_t
-        call this%compute_rk_new(rk_new) !> we compute new values of kinetic reaction rates
+        call this%compute_rxn_rate_kin(rk_new) !> we compute new values of kinetic reaction rates
         !call this%compute_react_term_EE_eq_kin(Delta_t_aux,rk_tilde,conc_comp_react) !> chemical part
         !conc_comp_react=Delta_t*rk_tilde,theta) !> chemical part
         conc_comp_react=Delta_t*mix_ratio_r*matmul(this%solid_chemistry%reactive_zone%U_SkT_prod,&

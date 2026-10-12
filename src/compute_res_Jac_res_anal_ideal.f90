@@ -43,6 +43,7 @@ subroutine compute_res_Jac_res_anal_ideal(this,indices_icon,n_icon,indices_const
     use vectors_m, only: inf_norm_vec_real
     use metodos_sist_lin_m, only: LU_lin_syst
     use arrays_m, only: int_array_c
+    use array_ops_m, only: get_ind_int !> map a chemical-system eq. reaction index to its per-water logK position
     implicit none !> Enforce explicit variable declaration (no implicit typing)
     !> Input/output variables
     class(aqueous_chemistry_c) :: this !> Aqueous chemistry object containing species concentrations, activities, and chemical system
@@ -112,7 +113,7 @@ subroutine compute_res_Jac_res_anal_ideal(this,indices_icon,n_icon,indices_const
         res(indices_icon%cols(4)%col_1(i))=dot_product(this%solid_chemistry%reactive_zone%chem_syst%Se(& !> Residual: r = Σ(Sᵢⱼ·log₁₀(aⱼ)) + log₁₀(a_phase) - log₁₀(K) (mass action law) [-]
             indices_constrains(ind_cstr,2),1:this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species),& !> Stoichiometric coefficients for primary species in this reaction
             log10(this%activities(this%ind_prim_species)))+log10(ctot(indices_icon%cols(4)%col_1(i)))-& !> Add log₁₀ of phase activity (saturation index contribution)
-            log10(this%solid_chemistry%reactive_zone%chem_syst%eq_reacts(indices_constrains(ind_cstr,2))%eq_cst) !> Subtract log₁₀ of equilibrium constant K
+            this%logK(get_ind_int(indices_constrains(ind_cstr,2),this%solid_chemistry%reactive_zone%ind_eq_reacts)) !> Subtract this water's per-water T-dependent log₁₀(K) of the constraint reaction
         !print *, dot_product(this%solid_chemistry%reactive_zone%chem_syst%Se(& !> Debugging output: display first term of residual (stoichiometric contribution)
         !    indices_constrains(ind_cstr,2),1:this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species),& !> Primary species stoichiometry
         !    log10(this%activities(this%ind_prim_species))) !> Primary species log activities

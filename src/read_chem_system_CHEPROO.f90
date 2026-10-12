@@ -717,13 +717,18 @@ subroutine read_chem_system_CHEPROO(this,path_DB,unit)
     aux_Species=this%species
     call this%rearrange_species()
     call this%compute_z2()
+    !> Remap the species indices of every equilibrium reaction to the NEW species
+    !> ordering BEFORE rearrange_eq_reacts, which classifies each reaction by reading
+    !> this%species(species_ind(last))%cst_act_flag. Doing the remap first keeps the
+    !> constant-activity mineral in its own section instead of colliding with the
+    !> cation-exchange section (see change_spec_alg_chem_syst for details).
+        do i=1,this%speciation_alg%num_eq_reactions
+            call this%eq_reacts(i)%rearrange_species_indices(aux_Species,this%species)
+        end do
     !if (this%speciation_alg%flag_comp .eqv. .true.) then
         call this%rearrange_eq_reacts()
     !end if
         
-        do i=1,this%speciation_alg%num_eq_reactions
-            call this%eq_reacts(i)%rearrange_species_indices(aux_Species,this%species)
-        end do
         do i=1,this%num_minerals_kin
             call this%min_kin_reacts(i)%rearrange_species_indices(aux_Species,this%species)
         end do

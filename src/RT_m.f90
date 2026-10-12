@@ -36,10 +36,21 @@
 !>   - Column experiments
 !>   - Weathering profiles
 !>   - Biogeochemical gradients
+!>
+!>   Spatial dimensions:
+!>   - 1D (RT_1D_transient_c) and 2D (RT_2D_transient_c) structured grids.
+!>   - The 2D consistent WMA solver determines upstream cells column by column
+!>     (column-major), so the mixing is solved in physical flow order.
+!>
+!>   Output:
+!>   - Per-cell results are written to a compact binary mesh file (write_mesh_bin)
+!>     plus a text metadata sidecar; the chemistry text file is tagged with the
+!>     transport approach, WMA variant and time-step count.
+!>   - The Lagrangian stationary-flux solvers emit a per-phase CPU-time profile.
 !>   
 !> \author Jordi Petchamé-Guerrero
 !> \date October 2025
-module RT_m                                                                  !< One-dimensional reactive transport module with Lagrangian and Eulerian methods
+module RT_m                                                                  !< One- and two-dimensional reactive transport module with Lagrangian and Eulerian methods
     use chemistry_m, only: chemistry_c
     use PDE_transient_m, only: PDE_transient_c
     use aqueous_chemistry_m, only: aqueous_chemistry_c                         !< Import complete chemistry management system
@@ -80,20 +91,20 @@ module RT_m                                                                  !< 
         procedure :: set_chemistry                                    !< Initialize and configure chemistry system
         !procedure :: solve_RT_ideal_lump_Lagr_stat_flux           !< Solve RT using Lagrangian method with steady flux (lumped chemistry)
         procedure :: write_RT                                     !< Write reactive transport results to output files
+        procedure :: write_mesh_bin                               !< Write mesh concentrations & reaction rates to a binary file (for plotting)
         procedure :: compute_eq_react_rates_stat                     !< Introduce new particles at injection points or boundaries
         procedure :: set_target_solids_time                        !< Read time discretization parameters from input files
     end type !< End base reactive transport class
 
     type, public, abstract, extends(RT_c) :: RT_transient_c                             !< Stationary (steady-state) reactive transport subclass
         real(kind=8) :: Delta_t_crit                                          !< Critical time step for numerical stability (CFL condition)
-        integer(kind=4) :: int_method_chem_reacts                             !< Time integration method for chemical reactions: 1=explicit, 2=implicit                                                                   !< Additional procedures specific to stationary problems
         !procedure :: set_transport_stat                              !< Configure transport for steady-state conditions
     contains                                                                   !< Additional procedures specific to transient problems
-        procedure :: set_int_method_chem_reacts                              !< Set chemical reaction integration method (explicit vs implicit)
         procedure :: set_transport_trans                              !< Set chemical reaction integration method (explicit vs implicit)
         procedure :: compute_Delta_t_crit_RT                         !< Compute critical time step for numerical stability
         procedure :: check_Delta_t_RT                        !< Move Lagrangian particles under steady flux conditions
         procedure(solve_RT_trans_ideal_iface), deferred :: solve_RT_ideal_lump_Lagr_stat_flux   !< Deferred: solve RT 1D Lagrangian transient flux
+        procedure(solve_RT_trans_ideal_iface), deferred :: solve_RT_lump_Lagr_stat_flux   !< Deferred: solve RT 1D lumped Eulerian stationary flux
         procedure(solve_RT_trans_ideal_iface), deferred :: solve_RT_ideal_lump_Lagr_trans_flux   !< Deferred: solve RT 1D Lagrangian transient flux
         procedure(solve_RT_trans_ideal_iface), deferred :: solve_RT_ideal_lump_Euler_trans_flux  !< Deferred: solve RT 1D Eulerian transient flux
         procedure(solve_RT_trans_ideal_iface), deferred :: solve_RT_ideal_cons_Lagr_stat_flux    !< Deferred: solve RT 1D consistent Lagrangian stationary flux
@@ -153,6 +164,7 @@ module RT_m                                                                  !< 
         procedure :: move_particles_stat_flux => move_particles_stat_flux_1D    !< Move Lagrangian particles under steady flux conditions
         procedure :: introduce_particle                             !< Introduce new particle at injection points or boundaries
         procedure :: solve_RT_ideal_lump_Lagr_stat_flux => solve_RT_ideal_lump_Lagr_stat_flux_1D           !< Override: solve RT 1D Lagrangian stationary flux
+        procedure :: solve_RT_lump_Lagr_stat_flux=>solve_RT_1D_lump_Lagr_stat_flux           !< Override: solve RT 1D Lagrangian stationary flux
         procedure :: solve_RT_ideal_lump_Lagr_trans_flux=>solve_RT_ideal_lump_Lagr_trans_flux_1D          !< Override: solve RT 1D Lagrangian transient flux
         procedure :: solve_RT_ideal_lump_Euler_trans_flux=>solve_RT_ideal_lump_Euler_trans_flux_1D         !< Override: solve RT 1D Eulerian transient flux
         procedure :: solve_RT_ideal_cons_Lagr_stat_flux=>solve_RT_ideal_cons_Lagr_stat_flux_1D           !< Override: solve RT 1D consistent Lagrangian stationary flux
@@ -194,6 +206,7 @@ module RT_m                                                                  !< 
         procedure :: introduce_particles => introduce_particles_2D  !< Introduce new particle at injection points or boundaries
         procedure :: remap_mix_indices => remap_mix_indices_2D        !< Remap transport-local water indices to global chemistry water indices
         procedure :: solve_RT_ideal_lump_Lagr_stat_flux => solve_RT_ideal_lump_Lagr_stat_flux_2D         !< Get transport object for transient conditions
+        procedure :: solve_RT_lump_Lagr_stat_flux => solve_RT_lump_Lagr_stat_flux_2D   !< 2D stub
         procedure :: solve_RT_ideal_lump_Lagr_trans_flux => solve_RT_ideal_lump_Lagr_trans_flux_2D   !< 2D stub
         procedure :: solve_RT_ideal_lump_Euler_trans_flux => solve_RT_ideal_lump_Euler_trans_flux_2D !< 2D stub
         procedure :: solve_RT_ideal_cons_Lagr_stat_flux => solve_RT_ideal_cons_Lagr_stat_flux_2D     !< 2D stub
@@ -252,7 +265,30 @@ module RT_m                                                                  !< 
             character(len=*), intent(in) :: root !> root name for output file
         end subroutine
 
+        !> \brief Solve RT using ideal lumped Lagrangian method with steady flux
+        !> \param[in,out] this RT_c object
+        !> \param[in]     root Root name for output files
+        !> \details
+        !>   Lagrangian particle tracking under steady-state flux conditions.
+        !>   Particles move at constant velocity determined by flow field.
+        !>   Ideal solution and lumped chemistry assumed.
+        subroutine solve_RT_1D_lump_Lagr_stat_flux(this,dir,root)
+            import RT_1D_transient_c
+            implicit none
+            class(RT_1D_transient_c) :: this
+            character(len=*), intent(in) :: dir !> directory for output file
+            character(len=*), intent(in) :: root !> root name for output file
+        end subroutine
+
         subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
+            import RT_2D_transient_c
+            implicit none
+            class(RT_2D_transient_c) :: this
+            character(len=*), intent(in) :: dir !> directory for output file
+            character(len=*), intent(in) :: root !> root name for output file
+        end subroutine
+
+        subroutine solve_RT_ideal_cons_Lagr_stat_flux_2D(this,dir,root)
             import RT_2D_transient_c
             implicit none
             class(RT_2D_transient_c) :: this
@@ -306,6 +342,22 @@ module RT_m                                                                  !< 
             character(len=*), intent(in) :: dir !> directory for output files
             character(len=*), intent(in) :: root !> root name for output files
             character(len=*), intent(in), optional :: path_py !> path for python scripts
+        end subroutine
+        
+        !> \brief Write mesh concentrations and reaction rates to a compact binary file.
+        !> \param[in] this RT_c object
+        !> \param[in] dir  directory for output files
+        !> \param[in] root root name for output files
+        !> \details Writes a pure float64 stream binary ({root}{tpt}{wma}_mesh.bin) plus a small
+        !>   text metadata sidecar ({root}{tpt}{wma}_mesh_meta.txt) describing the dimensions,
+        !>   species/mineral names and block layout, so the mesh data for large grids can be read
+        !>   back (e.g. with numpy) for plotting instead of bloating the formatted *.out files.
+        subroutine write_mesh_bin(this,dir,root)
+            import RT_c
+            implicit none
+            class(RT_c), intent(in) :: this
+            character(len=*), intent(in) :: dir !> directory for output files
+            character(len=*), intent(in) :: root !> root name for output files
         end subroutine
         
         !> \brief Generate Python visualization scripts
@@ -443,7 +495,7 @@ module RT_m                                                                  !< 
             !> Explicit method requires stability check
             select type (this)
             class is (RT_1D_transient_c)
-                if (this%transport%time_discr%int_method.eq.1) then !> Check only for explicit methods
+                if (this%transport%time_discr%int_method_tpt.eq.1) then !> Check only for explicit methods
                     call this%compute_Delta_t_crit_RT()              !> Compute critical time step
                     if (abs(this%Delta_t_crit)<eps) then
                         continue !> Near-zero critical timestep, skip check
@@ -460,34 +512,6 @@ module RT_m                                                                  !< 
             end select
         end subroutine
         
-        !> \brief Set integration method for chemical reactions based on theta_r
-        !> \param[in,out] this  RT_transient_c object
-        !> \details
-        !>   Reads theta_r from the transport time discretization and sets:
-        !>   - theta_r == 0: Explicit Euler (int_method_chem_reacts = 1)
-        !>   - theta_r /= 0: Implicit Euler (int_method_chem_reacts = 2)
-        subroutine set_int_method_chem_reacts(this)
-            implicit none
-            class(RT_transient_c) :: this
-            
-            real(kind=8) :: theta_r
-            
-            select type (this)
-            class is (RT_1D_transient_c)
-                theta_r=this%transport%time_discr%theta_r
-            class is (RT_2D_transient_c)
-                theta_r=this%transport%time_discr%theta_r
-            class default
-                error stop "set_int_method_chem_reacts: unsupported RT type"
-            end select
-            
-            if (theta_r==0d0) then
-                this%int_method_chem_reacts=1 !> Explicit Euler
-            else
-                this%int_method_chem_reacts=2 !> Implicit Euler
-            end if
-        end subroutine
-
         !> \brief Move Lagrangian particles under steady flux in 1D reactive transport
         !> 
         !> \details
@@ -529,7 +553,7 @@ module RT_m                                                                  !< 
         !> **Solid Chemistry Coupling:**
         !> - Each particle is associated with a target solid via `tar%id`
         !> - When particle moves to new position, it inherits solid chemistry from that target
-        !> - Accumulated reaction rates (`Rk_accum`) are transferred with the solid
+        !> - Accumulated reaction rates (`cum_rxn_amnt_kin`) are transferred with the solid
         !> - Kinetic reaction indices are recalculated after position update
         !> 
         !> **Assumptions and Restrictions:**
@@ -596,7 +620,8 @@ module RT_m                                                                  !< 
             type(target_water_c), allocatable :: disp_particles(:) !> displaced particles
             integer(kind=4), allocatable :: old_tar_wat_indices(:) !> old particles indices
             integer(kind=4), allocatable :: old_bd_indices(:) !> old particles indices
-            type(aqueous_chemistry_c) :: aq_chem_exit !> aqueous chemistry of the particle that left the domain
+            type(aqueous_chemistry_c), target :: aq_chem_exit !> aqueous chemistry of the particle that left the domain (storage behind exit_part%aq_chem, which is a pointer)
+            type(target_water_c) :: exit_part !> particle that left the domain (id + aqueous chemistry)
             
             num_exit=0 !> initialise number of particles that left the domain
             
@@ -632,8 +657,12 @@ module RT_m                                                                  !< 
             !         " moved to target ", target_id
             ! print *, "Particle ", this%target_waters(this%chemistry%num_target_waters)%id, & 
             !     " left the domain "
+            !> exiting particle (last cell, before the shift): its id and a copy of its aqueous chemistry.
+            !> exit_part%aq_chem is a pointer (null by default): it must point to actual storage before use
+            exit_part%id=this%target_waters(this%chemistry%num_target_waters)%id
             call aq_chem_exit%copy_aq_chem(this%target_waters(&
                 this%chemistry%num_target_waters)%aq_chem) !> water that left the domain
+            exit_part%aq_chem=>aq_chem_exit
             ! call this%chemistry%waters(old_tar_wat_indices(this%chemistry%num_target_waters))%set_solid_chemistry(&
             !     this%chemistry%target_solids(target_id)) !> we set the solid chemistry of the new outflow boundary water
             ! call this%chemistry%waters(old_tar_wat_indices(this%chemistry%num_target_waters))%set_indices_rk() !> we set the indices of the kinetic reactions to the new outflow boundary water
@@ -645,16 +674,22 @@ module RT_m                                                                  !< 
                 call this%target_waters(&
                     this%chemistry%num_target_waters-i+1)%set_id(&
                     this%target_waters(this%chemistry%num_target_waters-i)%id) !> set particle id
+                !> the parcel's OLD solid chemistry is the one of the cell it comes from: its previous-step
+                !> concentrations were equilibrated with THAT reactive zone (used by the per-zone mixing)
+                
+                !> the parcel brings its own indices_aq_species; rebuild the index arrays in the CELL's zone column order
+                call this%target_waters(this%chemistry%num_target_waters-i+1)%aq_chem%set_attributes_dep_rz()
+                call this%target_waters(this%chemistry%num_target_waters-i+1)%aq_chem%set_attributes_dep_mz()
                 !> compute new position of the particle
                 ! new_coords=this%target_waters(old_num_tar_wat-i+1)%pos_old
                 ! target_id=old_particles(old_num_tar_wat-i+1)%aq_chem%solid_chemistry_old%tar%id
                 ! if (target_id>=0 .and. target_id<=this%chemistry%num_target_solids) then
-                !     !print *, "Rk accumulated in target ", target_id, ":", this%chemistry%target_solids(target_id)%Rk_accum
+                !     !print *, "Rk accumulated in target ", target_id, ":", this%chemistry%target_solids(target_id)%cum_rxn_amnt_kin
                     ! call this%target_waters(&
                     !     old_num_tar_wat-i+1)%aq_chem%set_solid_chemistry(&
                     !     this%target_waters(old_num_tar_wat-i+1)%solid_chemistry_old)
                 !     !print *, "Rk accumulated in target ", target_id, ":", this%chemistry%waters(&
-                !     !    old_tar_wat_indices(this%chemistry%num_target_waters-i))%solid_chemistry%Rk_accum
+                !     !    old_tar_wat_indices(this%chemistry%num_target_waters-i))%solid_chemistry%cum_rxn_amnt_kin
                 ! else
                 !     error stop "Particle moved to a non-existing target"
                 !     !call this%transport%spatial_discr%check_exit(new_coords,exit_flag)
@@ -685,11 +720,19 @@ module RT_m                                                                  !< 
                 !     this%chemistry%num_target_waters-i+1)%id, & 
                 !     " moved to target ", this%target_waters(this%chemistry%num_target_waters-i+1)%aq_chem%solid_chemistry%tar%id
             end do
-            if (this%transport%BCs%labels(2) .eq. 2) then !> Neumann outflow BC
-                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%copy_aq_chem(&
-                    aq_chem_exit) !> Copy outflow particle
-            !else if (this%transport%BCs%labels(2) .eq. 1) then !> Dirichlet outflow BC: boundary waters remain fixed
-            end if 
+            if (this%transport%BCs%labels(2) .eq. 2) then !> flux outflow BC
+                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%copy_aq_chem_Lagr(&
+                    exit_part%aq_chem) !> Copy outflow particle
+                !> the exiting parcel comes from the last cell: that is its old reactive zone
+                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_attributes_dep_rz()
+                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_attributes_dep_mz()
+            else if (this%transport%BCs%labels(2) .eq. 1) then !> Dirichlet outflow BC: boundary waters remain unchanged
+                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_solid_chemistry_old(&
+                    exit_part%aq_chem%solid_chemistry) !> Set the old solid chemistry of the outflow boundary water
+            end if
+            !> the outflow boundary water takes the exiting particle's id (boundary waters have no
+            !> target_water_c wrapper: target_waters is indexed 1..num_target_waters, not by global index)
+            call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_id(exit_part%id) !> set exiting particle id
             !call disp_particles(1)%copy_aq_chem(this%chemistry%waters(old_bd_indices(1))) !> get displaced inflow boundary water
             ! do i=1,this%chemistry%num_target_waters-1
             !     call disp_particles(i)%copy_aq_chem(this%chemistry%waters(&
@@ -772,7 +815,7 @@ module RT_m                                                                  !< 
         !> **Solid Chemistry Coupling:**
         !> - Each particle is associated with a target solid via `tar%id`
         !> - When particle moves to new position, it inherits solid chemistry from that target
-        !> - Accumulated reaction rates (`Rk_accum`) are transferred with the solid
+        !> - Accumulated reaction rates (`cum_rxn_amnt_kin`) are transferred with the solid
         !> - Kinetic reaction indices are recalculated after position update
         !> 
         !> **Assumptions and Restrictions:**
@@ -867,6 +910,9 @@ module RT_m                                                                  !< 
                     idx_src = (r - 1) * Nx + c - 1
                     call this%target_waters(idx_dst)%aq_chem%copy_aq_chem_Lagr( &
                         this%target_waters(idx_src)%aq_chem)
+                    !> old solid chemistry = the source cell's (zone of the parcel's previous-step state)
+                    call this%target_waters(idx_dst)%aq_chem%set_attributes_dep_rz()
+                    call this%target_waters(idx_dst)%aq_chem%set_attributes_dep_mz()
                     call this%target_waters(idx_dst)%set_id( &
                         this%target_waters(idx_src)%id)
                     ! print *, "  Shift row", r, ": target_water(", idx_src, &
@@ -888,8 +934,17 @@ module RT_m                                                                  !< 
                     call this%chemistry%waters( &
                         this%chemistry%bd_waters_indices( &
                         this%chemistry%num_left_bd_waters + &
-                        this%chemistry%num_right_bd_waters - r + 1))%copy_aq_chem( &
+                        this%chemistry%num_right_bd_waters - r + 1))%copy_aq_chem_Lagr( &
                         aq_chem_exit(r))
+                    !> the exiting parcel comes from the last column: that is its old reactive zone
+                    call this%chemistry%waters( &
+                        this%chemistry%bd_waters_indices( &
+                        this%chemistry%num_left_bd_waters + &
+                        this%chemistry%num_right_bd_waters - r + 1))%set_attributes_dep_rz()
+                    call this%chemistry%waters( &
+                        this%chemistry%bd_waters_indices( &
+                        this%chemistry%num_left_bd_waters + &
+                        this%chemistry%num_right_bd_waters - r + 1))%set_attributes_dep_mz()
                 end do
             end if
 
@@ -964,16 +1019,19 @@ module RT_m                                                                  !< 
                 call this%target_waters(&
                     this%chemistry%num_target_waters-i+1)%set_id(&
                     this%target_waters(this%chemistry%num_target_waters-i)%id) !> set particle id
+                !> old solid chemistry = the source cell's (zone of the parcel's previous-step state)
+                call this%target_waters(this%chemistry%num_target_waters-i+1)%aq_chem%set_attributes_dep_rz()
+                call this%target_waters(this%chemistry%num_target_waters-i+1)%aq_chem%set_attributes_dep_mz()
                 !> compute new position of the particle
                 ! new_coords=this%target_waters(old_num_tar_wat-i+1)%pos_old
                 ! target_id=old_particles(old_num_tar_wat-i+1)%aq_chem%solid_chemistry_old%tar%id
                 ! if (target_id>=0 .and. target_id<=this%chemistry%num_target_solids) then
-                !     !print *, "Rk accumulated in target ", target_id, ":", this%chemistry%target_solids(target_id)%Rk_accum
+                !     !print *, "Rk accumulated in target ", target_id, ":", this%chemistry%target_solids(target_id)%cum_rxn_amnt_kin
                     ! call this%target_waters(&
                     !     old_num_tar_wat-i+1)%aq_chem%set_solid_chemistry(&
                     !     this%target_waters(old_num_tar_wat-i+1)%solid_chemistry_old)
                 !     !print *, "Rk accumulated in target ", target_id, ":", this%chemistry%waters(&
-                !     !    old_tar_wat_indices(this%chemistry%num_target_waters-i))%solid_chemistry%Rk_accum
+                !     !    old_tar_wat_indices(this%chemistry%num_target_waters-i))%solid_chemistry%cum_rxn_amnt_kin
                 ! else
                 !     error stop "Particle moved to a non-existing target"
                 !     !call this%transport%spatial_discr%check_exit(new_coords,exit_flag)
@@ -1015,8 +1073,11 @@ module RT_m                                                                  !< 
             !> Chapuza para agua que sale del dominio
             
             if (this%transport%BCs%labels(2) > 1) then !> flux BC outflow
-                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%copy_aq_chem(&
+                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%copy_aq_chem_Lagr(&
                     aq_chem_exit) !> Copy exit water
+                !> the exiting parcel comes from the last cell: that is its old reactive zone
+                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_attributes_dep_rz()
+                call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_attributes_dep_mz()
                 this%chemistry%waters(this%chemistry%bd_waters_indices(2))%concentrations=&
                     this%chemistry%waters(this%chemistry%bd_waters_indices(2))%concentrations/2d0 + &
                     this%target_waters(this%chemistry%num_target_waters)%aq_chem%concentrations/2d0
@@ -1152,7 +1213,15 @@ module RT_m                                                                  !< 
             ! end do
             ! if (sum(this%chemistry%bd_waters_indices)>this%chemistry%CV_params%zero) then
             call this%target_waters(1)%aq_chem%copy_aq_chem_Lagr(&
-                this%chemistry%waters(this%chemistry%bd_waters_indices(1))) !> Copy inflow boundary particle
+                this%chemistry%waters(this%chemistry%bd_waters_indices(1))) !> Copy aqueous chemistry from the boundary water
+            call this%target_waters(1)%set_id(&
+                this%chemistry%waters(this%chemistry%bd_waters_indices(1))%id) !> copy ID from the boundary water
+            call this%target_waters(1)%aq_chem%set_attributes_dep_rz()
+            call this%target_waters(1)%aq_chem%set_attributes_dep_mz()
+            !> old solid chemistry = the boundary water's: the parcel's previous-step state was equilibrated with
+            !> the inflow water type's zone, not with a domain reactive zone (the mixer mixes it directly)
+            ! call this%target_waters(1)%aq_chem%set_solid_chemistry_old(&
+            !     this%chemistry%waters(this%chemistry%bd_waters_indices(1))%solid_chemistry)
             if (this%transport%spatial_discr%targets_flag.eq.1) then !> edge-centered spatial discretisation
             !    this%target_waters(1)%aq_chem%concentrations=&
             !        this%target_waters(1)%aq_chem%concentrations*2d0
@@ -1174,8 +1243,8 @@ module RT_m                                                                  !< 
             !     end if
             ! end if
             !> Copy old inflow BC particle
-            call this%target_waters(1)%set_id(&
-                this%chemistry%num_target_waters+k) !> Assign unique ID
+            call this%chemistry%waters(this%chemistry%bd_waters_indices(1))%set_id(&
+                this%chemistry%num_waters+k) !> set ID for the new boundary water
             ! call this%target_waters(1)%set_pos(&
             !     this%transport%spatial_discr%targets(1+this%transport%spatial_discr%targets_flag)%coord) !> Set position of new particle
             ! call this%target_waters(1)%aq_chem%set_solid_chemistry(&
@@ -1211,6 +1280,10 @@ module RT_m                                                                  !< 
             !deallocate(old_particles) !> deallocate old particles array
             !deallocate(old_tar_wat_indices) !> deallocate old domain indices array
             !deallocate(old_bd_indices) !> deallocate old boundary indices array
+            !> the inflow parcel brings its own indices_aq_species; rebuild the index arrays in the CELL's zone column order
+            ! call this%target_waters(1)%aq_chem%set_ind_species_react_zone()
+            ! call this%target_waters(1)%aq_chem%compute_logK_PHREEQC_aq_chem()
+            ! call this%target_waters(1)%aq_chem%compute_logK_star()
         end subroutine
         
         !> \brief Introduce new particles at inflow boundary
@@ -1258,6 +1331,9 @@ module RT_m                                                                  !< 
                 !> Copy chemistry from left boundary water into target_water at column 1
                 call this%target_waters(idx)%aq_chem%copy_aq_chem_Lagr( &
                     this%chemistry%waters(this%chemistry%bd_waters_indices(bd_idx)))
+                !> old solid chemistry = the boundary water's (previous-step state of the inflow water type's zone)
+                call this%target_waters(idx)%aq_chem%set_attributes_dep_rz()
+                call this%target_waters(idx)%aq_chem%set_attributes_dep_mz()
                 if (this%transport%spatial_discr%targets_flag .eq. 1) then !> edge-centered
                     this%target_waters(idx)%aq_chem%volume = &
                         this%target_waters(idx)%aq_chem%volume / 2d0
@@ -1496,6 +1572,10 @@ module RT_m                                                                  !< 
                         call this%target_waters_init(i)%set_pos(this%target_waters(i)%pos) !< Assign spatial coordinates from mesh target to domain target water i (initial state), ensuring consistent positioning
                         ! call this%target_waters_old(i)%set_pos(this%target_waters(i)%pos) !< Assign spatial coordinates from mesh target to domain target water i (initial state), ensuring consistent positioning
                     end do !< End loop over target waters
+                    !> Zone waters (within-zone sub-mixtures of the by-zones mixers) and their scratch solids: one per
+                    !> (target water, reactive zone). Sized here because num_target_waters is only final at this
+                    !> point (the boundary waters may have just been added above).
+                    call this%chemistry%set_zone_waters()
                     !deallocate(pos_inf) !< Deallocate inflow position array after use
                     !deallocate(pos_out) !< Deallocate outflow position array after use
                     !> Write initial aqueous concentrations to file (rows=targets, columns=species in natural order)
@@ -1514,13 +1594,14 @@ module RT_m                                                                  !< 
         
         !> \brief Remap transport-local water indices to global chemistry water indices
         !> \details
-        !>   During compute_mixing_ratios, mix_conc_indices and mix_react_indices store
+        !>   During compute_mixing_ratios, mix_conc_indices stores
         !>   transport-local indices following the convention:
         !>     [1=inflow_bd, 2..N+1=targets, N+2=outflow_bd]
         !>   But the actual indices into chemistry%waters(:) come from tar_wat_indices
         !>   and bd_waters_indices, which are read from the input file.
         !>   This subroutine remaps the transport-local indices to the actual global
-        !>   water indices after chemistry has been initialized.
+        !>   water indices after chemistry has been initialized (mixing_ratios_R shares
+        !>   the mix_conc_indices layout, so it needs no remapping of its own).
         subroutine remap_mix_indices_2D(this)
             use spatial_discr_2D_m, only: mesh_2D_Euler_homog_c
             implicit none
@@ -1596,41 +1677,8 @@ module RT_m                                                                  !< 
             !     write(*,'(A,I4,A,*(I6))') '  col(', i, ') = ', &
             !         this%transport%mix_conc_indices%cols(i)%col_1
             ! end do
-            
-            !> Remap mix_react_indices (typically only domain water indices)
-            write(*,*) ''
-            write(*,*) '--- mix_react_indices BEFORE remap ---'
-            ! do i = 1, this%transport%mix_react_indices%num_cols
-            !     write(*,'(A,I4,A,*(I6))') '  col(', i, ') = ', &
-            !         this%transport%mix_react_indices%cols(i)%col_1
-            ! end do
-            
-            do i = 1, this%transport%mix_react_indices%num_cols
-                row_i = (i - 1) / Nx + 1
-                do j = 1, this%transport%mix_react_indices%cols(i)%dim - 2
-                    v = this%transport%mix_react_indices%cols(i)%col_1(j)
-                    k = v - num_inf
-                    if (k >= 1 .and. k <= num_tar) then
-                        this%transport%mix_react_indices%cols(i)%col_1(j) = &
-                            this%chemistry%tar_wat_indices(k)
-                    else if (v == num_inf) then
-                        this%transport%mix_react_indices%cols(i)%col_1(j) = &
-                            this%chemistry%bd_waters_indices( &
-                            num_left_bd - row_i + 1)
-                    else if (v == num_tar + num_inf + num_out) then
-                        this%transport%mix_react_indices%cols(i)%col_1(j) = &
-                            this%chemistry%bd_waters_indices( &
-                            num_left_bd + num_right_bd - row_i + 1)
-                    end if
-                end do
-            end do
-            
-            write(*,*) ''
-            write(*,*) '--- mix_react_indices AFTER remap ---'
-            ! do i = 1, this%transport%mix_react_indices%num_cols
-            !     write(*,'(A,I4,A,*(I6))') '  col(', i, ') = ', &
-            !         this%transport%mix_react_indices%cols(i)%col_1
-            ! end do
+            !> mixing_ratios_R shares the layout of mix_conc_indices, so no separate reaction
+            !> index structure has to be remapped.
             
             write(*,*) ''
             write(*,*) '================================================================================'
@@ -1651,15 +1699,22 @@ module RT_m                                                                  !< 
             select type (this)
             class is (RT_2D_transient_c)
                 if (this%transport%Lagr_flag) then
-                    Delta_t=this%transport%time_discr%get_Delta_t() !< Update target water positions based on transport time discretization and time step size for Lagrangian method
-                    Nx=this%transport%spatial_discr%get_num_cells(1)
-                    Ny=this%transport%spatial_discr%get_num_cells(2)
-                    do i=1,Ny !< Loop over all target waters to update positions
-                        do j=1,Nx
-                            call this%chemistry%target_solids((i-1)*Nx+j)%set_time(Delta_t*(2*j-1)/2d0) !< Update target solid arrival time assuming isochronal mesh
-                            !print *, "Updated target solid ", (i-1)*Nx+j, " time to ", this%chemistry%target_solids((i-1)*Nx+j)%time
+                    !> The isochronal travel time from the injection (left) boundary computed here
+                    !> assumes a cell-centred scheme (targets_flag==0): the centre of column j lies at
+                    !> (2j-1)/2 cells downstream of the inlet, so its travel time is Delta_t*(2j-1)/2.
+                    !> Edge-centred schemes (targets_flag==1) place targets on cell interfaces and would
+                    !> require a different expression, so they are not handled here.
+                    if (this%transport%spatial_discr%targets_flag==0) then !< cell-centred scheme only
+                        Delta_t=this%transport%time_discr%get_Delta_t() !< Update target water positions based on transport time discretization and time step size for Lagrangian method
+                        Nx=this%transport%spatial_discr%get_num_cells(1)
+                        Ny=this%transport%spatial_discr%get_num_cells(2)
+                        do i=1,Ny !< Loop over all target waters to update positions
+                            do j=1,Nx
+                                call this%chemistry%target_solids((i-1)*Nx+j)%set_time(Delta_t*(2*j-1)/2d0) !< Update target solid arrival time assuming isochronal cell-centred mesh
+                                !print *, "Updated target solid ", (i-1)*Nx+j, " time to ", this%chemistry%target_solids((i-1)*Nx+j)%time
+                            end do
                         end do
-                    end do
+                    end if
                     !call this%transport%spatial_discr%update_target_positions(this%target_waters, Delta_t) !< Update target water positions based on transport spatial discretization and time step size
                 end if
             end select
@@ -1696,12 +1751,6 @@ module RT_m                                                                  !< 
             error stop "solve_RT_ideal_lump_Euler_trans_flux not applicable for 2D"
         end subroutine
 
-        subroutine solve_RT_ideal_cons_Lagr_stat_flux_2D(this, dir, root)
-            class(RT_2D_transient_c) :: this
-            character(len=*), intent(in) :: dir, root
-            error stop "solve_RT_ideal_cons_Lagr_stat_flux not applicable for 2D"
-        end subroutine
-
         subroutine solve_RT_ideal_cons_Euler_stat_flux_2D(this, dir, root)
             class(RT_2D_transient_c) :: this
             character(len=*), intent(in) :: dir, root
@@ -1712,6 +1761,12 @@ module RT_m                                                                  !< 
             class(RT_2D_transient_c) :: this
             character(len=*), intent(in) :: dir, root
             error stop "solve_RT_ideal_lump_Euler_stat_flux not applicable for 2D"
+        end subroutine
+
+        subroutine solve_RT_lump_Lagr_stat_flux_2D(this, dir, root)
+            class(RT_2D_transient_c) :: this
+            character(len=*), intent(in) :: dir, root
+            error stop "solve_RT_lump_Lagr_stat_flux not applicable for 2D"
         end subroutine
 
 end module RT_m

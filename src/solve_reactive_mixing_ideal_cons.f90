@@ -2,15 +2,17 @@
 !> @details Computes concentrations, activities, activity coefficients, reaction rates
 !> and volumetric fractions of minerals (if present) using operator splitting.
 subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mixing_ratios_R,&
-    mix_conc_indices,mix_react_indices,time_discr,theta_r)
-    use chemistry_m, only: chemistry_c
+    mix_conc_indices,time_discr,theta_r)
+    use chemistry_m, only: chemistry_c, write_out_step_vars, check_surf_compl_act_sum
     use aqueous_chemistry_m, only: aqueous_chemistry_c, &
         reactive_mixing_iter_EI_eq_anal_ideal, &
-        compute_r_tilde_impl_opt1, compute_c_mix_global, &
+        compute_c_mix_by_zones_cons, compute_c_mix_global_cons, &
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, &
-        compute_r_tilde_impl_opt2, compute_r_tilde_impl_opt3, &
-        compute_r_tilde_impl_opt4, reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2
-    use arrays_m, only: real_array_c, int_array_c, copy_real_array
+        reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, &
+        compute_c_hat_patankar, add_limited_increment, &
+        compute_r_tilde_impl_opt1_idx, compute_r_tilde_impl_opt2_idx, &
+        compute_r_tilde_impl_opt3_idx, compute_r_tilde_impl_opt4_idx
+    use arrays_m, only: real_array_c, int_array_c
     use time_discr_m, only: time_discr_c
     implicit none
 !> Arguments
@@ -18,9 +20,8 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
     character(len=*), intent(in) :: dir
     character(len=*), intent(in) :: root
     class(real_array_c), intent(in) :: mixing_ratios_conc
-    class(real_array_c), intent(in) :: mixing_ratios_R
+    class(real_array_c), intent(in) :: mixing_ratios_R !> mix_conc_indices layout (0 for conc-only waters)
     class(int_array_c), intent(in) :: mix_conc_indices
-    class(int_array_c), intent(in) :: mix_react_indices
     class(time_discr_c), intent(in) :: time_discr
     real(kind=8), intent(in) :: theta_r
 !> Loop counters and indices
@@ -30,9 +31,9 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
 !> Problem dimensions
     integer(kind=4) :: n_p, n_v, n_eq
     integer(kind=4) :: num_can_vec, num_non_can_vec
-    integer(kind=4) :: num_mix_loc
     integer(kind=4) :: unit
     integer(kind=4) :: iunit_cpu
+    character(len=:), allocatable :: cpu_root !< root + transport/WMA tags for the CPU profiling filename
     integer(kind=4) :: num_time_loc
     integer(kind=4) :: kk_snap      !< Counter for chemistry snapshot output time steps
     integer(kind=4) :: num_lump
@@ -42,19 +43,21 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
 !> Time variables
     real(kind=8) :: time, Delta_t
 !> Concentration and reaction rate arrays
-    real(kind=8), allocatable :: c_hat(:)
+    real(kind=8), allocatable :: c_hat(:) !< reacted mix: c_hat_old + Delta_t*r_tilde (limited)
     real(kind=8), allocatable :: r_tilde(:)
-    real(kind=8), allocatable :: c_mix(:)
+    real(kind=8), allocatable :: c_hat_old(:) !< p_mixer output: transported mix with the previous-step (1-theta) reaction term folded in
+    real(kind=8), allocatable :: c_mix(:) !< p_mixer output: purely conservative mix (aqueous var-act species, no reaction)
     real(kind=8), allocatable :: conc_nc(:)
     real(kind=8), allocatable :: mal_residual(:)
     real(kind=8) :: mal_max
     real(kind=8), allocatable :: conc_comp(:)
     real(kind=8), allocatable :: lambdas_R(:)
-    type(real_array_c) :: mixing_ratios_R_modif
-!> Global caches for compute_c_mix_global
-    real(kind=8), allocatable :: all_conc_old(:,:)
-    integer(kind=4), allocatable :: all_ind_aq_sp(:,:)
-    integer(kind=4) :: w, max_n_conc, max_n_idx
+!> Domain-integrated reactive-mixing mass balance (per variable-activity species)
+    integer(kind=4) :: iunit_mb !< mass-balance output file unit
+    integer(kind=4) :: idx_ref !< reference target-water index (species names/dimension)
+    integer(kind=4) :: n_v_ref !< reference number of variable-activity species
+    real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
+    real(kind=8), allocatable :: mb_lhs_c(:), mb_transp_c(:), mb_react_c(:) !< per-cell terms
 !> Pre-computed caches
     logical, allocatable :: has_minerals_flag(:)
     logical, allocatable :: has_gases_flag(:)
@@ -75,17 +78,23 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
     real(kind=8) :: cpu_output_total
     real(kind=8) :: cpu_snapshot_total
     real(kind=8) :: cpu_data_prep_total
-    real(kind=8) :: cpu_cache_total
     real(kind=8) :: cpu_getters_total
-    real(kind=8) :: cpu_Rk_accum_total
-    real(kind=8) :: cpu_modify_mix_total
+    real(kind=8) :: cpu_cum_rxn_amnt_kin_total
+    real(kind=8) :: cpu_c_hat_total
 !> Procedure pointers
-    procedure(reactive_mixing_iter_EI_kin_anal_ideal_opt2), pointer :: p_solver=>null()
-    procedure(compute_r_tilde_impl_opt1), pointer :: p_r_tilde=>null()
+    procedure(reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2), pointer :: p_solver=>null()
+    procedure(compute_r_tilde_impl_opt4_idx), pointer :: p_r_tilde=>null()
+    procedure(compute_c_mix_by_zones_cons), pointer :: p_mixer
 
 !> -----------------------------------------------------------------------
 !> Initialization
+    write(0,*) '[SOLVER] ideal_cons entered'; flush(0)
     call cpu_time(cpu_total_t0)
+    if (this%mix_by_zones_flag) then
+        p_mixer => compute_c_mix_by_zones_cons
+    else
+        p_mixer => compute_c_mix_global_cons
+    end if
     n_eq=0
     do i=1,this%num_target_waters
         !> Only count eq reactions from waters that also have kinetic reactions (true domain waters).
@@ -94,14 +103,12 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
             n_eq=n_eq+this%waters(this%tar_wat_indices(i))%solid_chemistry%mineral_zone%num_minerals_eq
         end if
     end do
-    call copy_real_array(mixing_ratios_R,mixing_ratios_R_modif)
 
     time=0d0
     kk=2
     ii=1
     kk_snap=2
     num_time_loc=time_discr%Num_time
-    this%chem_out_options%time_steps(this%chem_out_options%num_time_steps)=num_time_loc
     do i=2,this%chem_out_options%num_time_steps-1
         if (this%chem_out_options%time_steps(i) > num_time_loc) then
             print *, "Output time step index", this%chem_out_options%time_steps(i), &
@@ -110,15 +117,16 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
         end if
     end do
     unit=7
-    open(unit,file=dir//root//'.output',form="formatted",access="sequential",status="unknown")
-    idx = this%chem_out_options%ind_waters(1)
-    write(unit,"(A10)", advance='no') 'Water'
-    do j=1,this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species
-        if (this%chem_syst%species(this%waters(idx)%ind_var_act_species(j))%cst_act_flag .eqv. .false.) then
-            write(unit,"(A15)", advance='no') this%chem_syst%species(this%waters(idx)%ind_var_act_species(j))%name
+    block
+        character(len=:), allocatable :: rtag
+        if (this%lump_flag) then
+            rtag = '_Euler_lumped'
+        else
+            rtag = '_Euler_consistent'
         end if
-    end do
-    write(unit,*)
+        open(unit,file=dir//trim(root)//rtag//'_output.out',form="formatted",access="sequential",status="unknown")
+    end block
+    !> Output headers/blocks are written per step by write_out_step_vars (honours chem_out_options%vars)
 
 !> -----------------------------------------------------------------------
 !> Solver selection
@@ -146,15 +154,15 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
             end if
         end if
     end if
-    !> r_tilde computation method
+    !> New-step reaction-mixing term method (downstream estimation option), selected once
     if (this%r_down_opt==1) then
-        p_r_tilde=>compute_r_tilde_impl_opt1
+        p_r_tilde=>compute_r_tilde_impl_opt1_idx
     else if (this%r_down_opt==2) then
-        p_r_tilde=>compute_r_tilde_impl_opt2
+        p_r_tilde=>compute_r_tilde_impl_opt2_idx
     else if (this%r_down_opt==3) then
-        p_r_tilde=>compute_r_tilde_impl_opt3
+        p_r_tilde=>compute_r_tilde_impl_opt3_idx
     else if (this%r_down_opt==4) then
-        p_r_tilde=>compute_r_tilde_impl_opt4
+        p_r_tilde=>compute_r_tilde_impl_opt4_idx
     else
         error stop "r down option not implemented yet"
     end if
@@ -163,7 +171,7 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
 !> Pre-compute canonical/non-canonical vectors and lambdas
     call mixing_ratios_conc%get_can_vec(this%CV_params%abs_tol,num_can_vec,ind_can_vec,num_non_can_vec,ind_non_can_vec)
     if (this%r_down_opt==4) then
-        lambdas_R=mixing_ratios_R%compute_mix_ratios_R_opt4()
+        lambdas_R=mixing_ratios_R%compute_mix_ratios_R_opt4(mix_conc_indices)
     else
         allocate(lambdas_R(mixing_ratios_R%num_cols))
         do m=1,mixing_ratios_R%num_cols
@@ -203,21 +211,19 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
 !> Pre-allocate reusable buffer
     allocate(conc_comp(max_n_p))
 
-!> Pre-allocate global caches for compute_c_mix_global
-    max_n_conc = 0
-    max_n_idx = 0
-    do w = 1, this%num_waters
-        j = size(this%waters(w)%conc_old)
-        if (j > max_n_conc) max_n_conc = j
-        j = this%waters(w)%aq_phase%num_species
-        if (j > max_n_idx) max_n_idx = j
-    end do
-    allocate(all_conc_old(max_n_conc, this%num_waters))
-    allocate(all_ind_aq_sp(max_n_idx, this%num_waters))
-    do w = 1, this%num_waters
-        all_ind_aq_sp(1:size(this%waters(w)%indices_aq_species), w) = &
-            this%waters(w)%indices_aq_species
-    end do
+!> Domain-integrated mass balance: reference cell (homogeneous reactive zone) + output file
+    idx_ref = this%tar_wat_indices(ind_non_can_vec(1))
+    n_v_ref = n_v_cache(1)
+    allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
+    !> Tagged root shared by mass-balance and CPU-profile filenames (Eulerian reactive-mixing path).
+    if (this%lump_flag) then
+        cpu_root = root//'_Euler_lumped'
+    else
+        cpu_root = root//'_Euler_consistent'
+    end if
+    open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
+    write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
+    write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
 
 !> -----------------------------------------------------------------------
 !> Initialize profiling accumulators
@@ -231,38 +237,41 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
     cpu_output_total = 0d0
     cpu_snapshot_total = 0d0
     cpu_data_prep_total = 0d0
-    cpu_cache_total = 0d0
     cpu_getters_total = 0d0
-    cpu_Rk_accum_total = 0d0
-    cpu_modify_mix_total = 0d0
+    cpu_cum_rxn_amnt_kin_total = 0d0
+    cpu_c_hat_total = 0d0
 
 !> Open CPU profiling output file
-    open(newunit=iunit_cpu, file=dir//root//'_cpu_profile.out', status='replace', action='write')
+    if (this%lump_flag) then
+        cpu_root = root//'_Euler_lumped'
+    else
+        cpu_root = root//'_Euler_consistent'
+    end if
+    open(newunit=iunit_cpu, file=dir//cpu_root//'_cpu_profile.out', status='replace', action='write')
 
 !> -----------------------------------------------------------------------
+!> Write initial state (t=0) before the first time step, honouring chem_out_options%vars
+    if (this%chem_out_options%time_steps(1)==0) then
+        call write_out_step_vars(this, unit, 0d0)
+    end if
+
 !> Main time loop
     do k=1,num_time_loc
         Delta_t=time_discr%get_Delta_t(k)
         time=time+Delta_t
 
-        if (k==this%chem_out_options%time_steps(kk)) then
-           write(unit,"(2x,'t = ',*(ES15.5))") time
-        end if
+
+        !> Reset the domain-integrated mass-balance accumulators for this time step
+        mb_lhs = 0d0
+        mb_transp = 0d0
+        mb_react = 0d0
         !> Update old attributes
         call cpu_time(cpu_prof_t0)
         do i=1,this%num_target_waters
-            call this%waters(this%tar_wat_indices(i))%update_old_attributes()
+            call this%waters(this%tar_wat_indices(i))%update_attributes() !< Shift all old attributes
         end do
         call cpu_time(cpu_prof_t1)
         cpu_update_old_total = cpu_update_old_total + (cpu_prof_t1 - cpu_prof_t0)
-        !> Refresh global conc_old cache
-        call cpu_time(cpu_prof_t0)
-        do w = 1, this%num_waters
-            all_conc_old(1:size(this%waters(w)%conc_old), w) = &
-                this%waters(w)%conc_old
-        end do
-        call cpu_time(cpu_prof_t1)
-        cpu_cache_total = cpu_cache_total + (cpu_prof_t1 - cpu_prof_t0)
         !> Target waters loop
         do i=1,num_non_can_vec
             idx = this%tar_wat_indices(ind_non_can_vec(i))
@@ -277,51 +286,45 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
             end if
             allocate(c_hat(n_v))
             allocate(r_tilde(n_v))
-            num_mix_loc=mix_conc_indices%cols(ind_non_can_vec(i))%dim-3
             call cpu_time(cpu_prof_t1)
             cpu_data_prep_total = cpu_data_prep_total + (cpu_prof_t1 - cpu_prof_t0)
-            !> Conservative mixing
+            !> Conservative mixing: page-4 two-stage consistent mix -> c_hat_old (stage 2 within-zone
+            !> mixing + speciation, stage 3 cross-zone mixing in aqueous-phase space) and its purely
+            !> conservative part c_mix, also used by the domain mass-balance diagnostic.
             call cpu_time(cpu_prof_t0)
-            call compute_c_mix_global(this%waters(mix_conc_indices%cols(ind_non_can_vec(i))%col_1(1)),&
-                all_conc_old, all_ind_aq_sp, &
-                mix_conc_indices%cols(ind_non_can_vec(i))%col_1(2:mix_conc_indices%cols(ind_non_can_vec(i))%dim-2), num_mix_loc, &
-                mixing_ratios_conc%cols(ind_non_can_vec(i))%col_1, c_mix)
+            associate(mc => mix_conc_indices%cols(ind_non_can_vec(i)), &
+                      rc_col => mixing_ratios_conc%cols(ind_non_can_vec(i)), &
+                      rr_col => mixing_ratios_R%cols(ind_non_can_vec(i)))
+                call p_mixer(this%waters, this%zone_waters(ind_non_can_vec(i),:), &
+                    mc%col_1(1:mc%dim-2), rc_col%col_1(1:mc%dim-2), rr_col%col_1(1:mc%dim-2), &
+                    this%wat_indices_zones, this%ext_waters_indices, Delta_t, theta_r, c_hat_old, c_mix, .true.)
+            end associate
             call cpu_time(cpu_prof_t1)
             cpu_mix_total = cpu_mix_total + (cpu_prof_t1 - cpu_prof_t0)
-            !> Reaction rate computation
+            !> Reacted concentration c_hat = c_hat_old + Delta_t*r_tilde. r_tilde is the NEW-STEP (theta)
+            !> term only; the previous-step (1-theta) term is already folded into c_hat_old by p_mixer.
             call cpu_time(cpu_prof_t0)
-            call p_r_tilde(this%waters(&
-                mix_react_indices%cols(ind_non_can_vec(i))%col_1(&
-                2:mix_react_indices%cols(ind_non_can_vec(i))%dim-2)),&
-                this%waters(idx)%solid_chemistry%reactive_zone%ind_var_act_species,&
-                this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%comp_mat,&
-                mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(2:),&
-                mix_react_indices%cols(ind_non_can_vec(i))%col_1(&
-                mix_react_indices%cols(ind_non_can_vec(i))%dim-1),&
-                mix_react_indices%cols(ind_non_can_vec(i))%col_1(&
-                mix_react_indices%cols(ind_non_can_vec(i))%dim),&
-                theta_r,Delta_t,r_tilde)
+            associate(mc => mix_conc_indices%cols(ind_non_can_vec(i)), &
+                      rr_col => mixing_ratios_R%cols(ind_non_can_vec(i)))
+                call p_r_tilde(this%waters, mc%col_1(2:mc%dim-2), &
+                    this%waters(idx)%solid_chemistry%reactive_zone%ind_var_act_species, &
+                    rr_col%col_1(2:mc%dim-2), mc%col_1(mc%dim-1), mc%col_1(mc%dim), theta_r, r_tilde, &
+                    curr_water_idx=mc%col_1(1), lambda_self=rr_col%col_1(1), &
+                    wat_indices_zones=this%wat_indices_zones)
+                !> Positivity-preserving update (same uniform-omega limiter as the mixers)
+                call add_limited_increment(c_hat_old,Delta_t*r_tilde,c_hat)
+            end associate
+            call this%waters(idx)%set_conc_hat(c_hat) !> aqueous blocks of the Newton speciation input, for the conc_hat attribute
             call cpu_time(cpu_prof_t1)
             cpu_r_tilde_total = cpu_r_tilde_total + (cpu_prof_t1 - cpu_prof_t0)
-            !> Lumping of reaction mixing ratios for stability
+            !> Getters (get_conc_var_act)
             call cpu_time(cpu_prof_t0)
-            call this%waters(idx)%modify_mix_ratios_reacts(&
-                mixing_ratios_R%cols(ind_non_can_vec(i))%col_1,c_mix(1:n_v),&
-                Delta_t,r_tilde,&
-                mixing_ratios_R_modif%cols(ind_non_can_vec(i))%col_1,num_lump)
-            this%num_lump=this%num_lump+num_lump
-            c_hat=c_mix(1:n_v)+Delta_t*r_tilde
-            call cpu_time(cpu_prof_t1)
-            cpu_modify_mix_total = cpu_modify_mix_total + (cpu_prof_t1 - cpu_prof_t0)
-            !> Getters (get_conc_nc)
-            call cpu_time(cpu_prof_t0)
-            conc_nc=this%waters(idx)%get_conc_nc()
+            conc_nc=this%waters(idx)%get_conc_var_act()
             call cpu_time(cpu_prof_t1)
             cpu_getters_total = cpu_getters_total + (cpu_prof_t1 - cpu_prof_t0)
             !> Reactive mixing solver
             call cpu_time(cpu_prof_t0)
-            call p_solver(this%waters(idx),this%waters(idx)%get_c1_old_old(),c_hat,&
-                mixing_ratios_R_modif%cols(ind_non_can_vec(i))%col_1(1),&
+            call p_solver(this%waters(idx),this%waters(idx)%get_conc_old_old_prim_new_rz(),c_hat,&
                 lambdas_R(ind_non_can_vec(i)),Delta_t,theta_r,conc_nc,conc_comp(1:n_p))
             call cpu_time(cpu_prof_t1)
             cpu_solver_total = cpu_solver_total + (cpu_prof_t1 - cpu_prof_t0)
@@ -329,7 +332,7 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
             if (n_eq > 0) then
                 mal_residual = matmul(this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star, &
                     log10(conc_nc(1:n_p))) + &
-                    this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%logK_star - &
+                    this%waters(idx)%logK_star - &
                     log10(conc_nc(n_p+1:n_p+n_eq))
                 mal_max = maxval(abs(mal_residual))
                 if (mal_max > 1d-6) then
@@ -348,31 +351,42 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
             !> Derived quantities (pH, salinity, ionic strength)
             call cpu_time(cpu_prof_t0)
             call this%waters(idx)%compute_pH()
+            call this%waters(idx)%compute_saturation_mins() !< saturation indices of all minerals at the end-of-step state
             call this%waters(idx)%compute_salinity()
             call this%waters(idx)%compute_ionic_strength()
             call cpu_time(cpu_prof_t1)
             cpu_derived_total = cpu_derived_total + (cpu_prof_t1 - cpu_prof_t0)
             !> Equilibrium reaction amounts
             call cpu_time(cpu_prof_t0)
-            if (n_eq>0 .and. this%waters(idx)%indices_rk%num_cols>0) then
-                call this%waters(idx)%compute_Re_kin(c_hat(n_p+1:n_v),Delta_t,&
-                    lambdas_R(ind_non_can_vec(i)))
-            else if (n_eq>0) then
+            if (n_eq>0) then
                 call this%waters(idx)%compute_Re(c_hat(1:n_v),Delta_t,&
-                    lambdas_R(ind_non_can_vec(i)))
+                    lambdas_R(ind_non_can_vec(i)),theta_r)
             end if
             call cpu_time(cpu_prof_t1)
             cpu_eq_rates_total = cpu_eq_rates_total + (cpu_prof_t1 - cpu_prof_t0)
+            !> Domain-integrated mass-balance contribution of this cell.
+            !> Must use the SAME self reaction mixing ratio as compute_Re/p_solver (lambdas_R),
+            !> otherwise the reaction term is reconstructed with a mismatched lambda and the
+            !> secondary species (so4-2, co3-2) residual blows up at the reaction front.
+            call this%waters(idx)%get_react_mix_mass_bal_terms(c_hat_old(1:n_v), c_hat(1:n_v), &
+                lambdas_R(ind_non_can_vec(i)), Delta_t, theta_r, &
+                mb_lhs_c, mb_transp_c, mb_react_c)
+            if (size(mb_lhs_c) == n_v_ref) then
+                mb_lhs = mb_lhs + mb_lhs_c
+                mb_transp = mb_transp + mb_transp_c
+                mb_react = mb_react + mb_react_c
+            end if
+            deallocate(mb_lhs_c, mb_transp_c, mb_react_c)
             !> Solid/gas chemistry
             call cpu_time(cpu_prof_t0)
             if (has_minerals_flag(i)) then
                 call this%waters(idx)%solid_chemistry%compute_mass_bal_mins(Delta_t)
-                call this%waters(idx)%solid_chemistry%compute_conc_minerals_iter(Delta_t)
+                call this%waters(idx)%solid_chemistry%compute_conc_minerals_iter(Delta_t,lambdas_R(ind_non_can_vec(i)))
             end if
             if (has_gases_flag(i)) then
                 call this%waters(idx)%gas_chemistry%compute_conc_gases_iter(Delta_t,&
                     this%waters(idx)%volume,&
-                    [this%waters(idx)%re_mean,this%waters(idx)%rk_mean])
+                    [this%waters(idx)%rxn_rate_eq,this%waters(idx)%rxn_rate_kin_avg])
                 call this%waters(idx)%gas_chemistry%compute_vol_gas_species_conc()
                 call this%waters(idx)%gas_chemistry%compute_log_act_coeffs_gases()
             end if
@@ -380,37 +394,32 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
             cpu_solid_gas_total = cpu_solid_gas_total + (cpu_prof_t1 - cpu_prof_t0)
             !> Accumulate reaction amounts
             call cpu_time(cpu_prof_t0)
-            this%waters(idx)%Rk_accum=this%waters(idx)%Rk_accum+this%waters(idx)%Rk
-            this%waters(idx)%solid_chemistry%Rk_accum=&
-                this%waters(idx)%solid_chemistry%Rk_accum+this%waters(idx)%solid_chemistry%Rk
+            this%waters(idx)%cum_rxn_amnt_kin=this%waters(idx)%cum_rxn_amnt_kin+this%waters(idx)%rxn_amnt_kin
+            this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin=&
+                this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin+this%waters(idx)%solid_chemistry%rxn_amnt_kin
             call cpu_time(cpu_prof_t1)
-            cpu_Rk_accum_total = cpu_Rk_accum_total + (cpu_prof_t1 - cpu_prof_t0)
-            !> Output writing
-            call cpu_time(cpu_prof_t0)
-            if ((k==this%chem_out_options%time_steps(kk)) .and. (idx==this%chem_out_options%ind_waters(ii))) then
-                write(unit,"(I10)", advance='no') this%chem_out_options%ind_waters(ii)
-                do j=1,n_v
-                    if (this%chem_syst%species(this%waters(idx)%ind_var_act_species(j))%cst_act_flag .eqv. .false.) then
-                        write(unit,"(ES15.5)", advance='no') conc_nc(j)
-                    end if
-                end do
-                write(unit,*)
-                if (ii<this%chem_out_options%num_waters) then
-                    ii=ii+1
-                else if (kk<this%chem_out_options%num_time_steps) then
-                    kk=kk+1
-                    ii=1
-                else
-                    call cpu_time(cpu_prof_t1)
-                    cpu_output_total = cpu_output_total + (cpu_prof_t1 - cpu_prof_t0)
-                    deallocate(c_hat, r_tilde, c_mix, conc_nc)
-                    exit
-                end if
-            end if
-            call cpu_time(cpu_prof_t1)
-            cpu_output_total = cpu_output_total + (cpu_prof_t1 - cpu_prof_t0)
-            deallocate(c_hat, r_tilde, c_mix, conc_nc)
+            cpu_cum_rxn_amnt_kin_total = cpu_cum_rxn_amnt_kin_total + (cpu_prof_t1 - cpu_prof_t0)
+            deallocate(c_hat, r_tilde, c_hat_old, c_mix, conc_nc)
         end do
+        !> Verify the surface-complex site-balance invariants at every cell this time step
+        call check_surf_compl_act_sum(this, k, time)
+        !> Domain-integrated mass balance for this time step (per variable-activity species)
+        call this%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+        !> Output writing honouring chem_out_options%vars (conc / react_rate / vol_fract)
+        call cpu_time(cpu_prof_t0)
+        !> Sum equilibrium reaction rates at interfaces if mix_by_zones_flag is set
+        if (this%mix_by_zones_flag) then
+            do i=1,num_non_can_vec
+                call this%waters(this%tar_wat_indices(ind_non_can_vec(i)))%sum_eq_rxn_rates(this%zone_waters(&
+                    this%tar_wat_indices(ind_non_can_vec(i)),:))
+            end do
+        end if
+        if (k==this%chem_out_options%time_steps(kk)) then
+            call write_out_step_vars(this, unit, time)
+            if (kk<this%chem_out_options%num_time_steps) kk=kk+1
+        end if
+        call cpu_time(cpu_prof_t1)
+        cpu_output_total = cpu_output_total + (cpu_prof_t1 - cpu_prof_t0)
         !> Write chemistry snapshot at output time steps
         !> (Snapshots disabled — write_chemistry is called once at the end via write_RT)
     end do
@@ -435,10 +444,9 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
     write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Solid/gas chemistry:    ', cpu_solid_gas_total,  ' s  (', cpu_solid_gas_total/60d0, ' min)'
     write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Output writing:         ', cpu_output_total,     ' s  (', cpu_output_total/60d0, ' min)'
     write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Snapshot (write_chem):  ', cpu_snapshot_total,   ' s  (', cpu_snapshot_total/60d0, ' min)'
-    write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Cache refresh:          ', cpu_cache_total,      ' s  (', cpu_cache_total/60d0, ' min)'
     write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Getters (conc_nc):      ', cpu_getters_total,    ' s  (', cpu_getters_total/60d0, ' min)'
-    write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Modify mix + c_hat:     ', cpu_modify_mix_total, ' s  (', cpu_modify_mix_total/60d0, ' min)'
-    write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Rk accumulation:        ', cpu_Rk_accum_total,   ' s  (', cpu_Rk_accum_total/60d0, ' min)'
+    write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  c_hat limiter:          ', cpu_c_hat_total, ' s  (', cpu_c_hat_total/60d0, ' min)'
+    write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Rk accumulation:        ', cpu_cum_rxn_amnt_kin_total,   ' s  (', cpu_cum_rxn_amnt_kin_total/60d0, ' min)'
     write(iunit_cpu,*) '-------------------------------------------------------------------------------------'
     write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  TOTAL SUBROUTINE TIME:  ', cpu_total_elapsed,    ' s  (', cpu_total_elapsed/60d0, ' min)'
     write(iunit_cpu,*) '====================================================================================='
@@ -455,10 +463,9 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
         write(iunit_cpu,'(A,F8.2,A)') '    Solid/gas chemistry:     ', 100d0*cpu_solid_gas_total/cpu_total_elapsed,  ' %'
         write(iunit_cpu,'(A,F8.2,A)') '    Output writing:          ', 100d0*cpu_output_total/cpu_total_elapsed,     ' %'
         write(iunit_cpu,'(A,F8.2,A)') '    Snapshot (write_chem):   ', 100d0*cpu_snapshot_total/cpu_total_elapsed,   ' %'
-        write(iunit_cpu,'(A,F8.2,A)') '    Cache refresh:           ', 100d0*cpu_cache_total/cpu_total_elapsed,      ' %'
         write(iunit_cpu,'(A,F8.2,A)') '    Getters (conc_nc):       ', 100d0*cpu_getters_total/cpu_total_elapsed,    ' %'
-        write(iunit_cpu,'(A,F8.2,A)') '    Modify mix + c_hat:      ', 100d0*cpu_modify_mix_total/cpu_total_elapsed, ' %'
-        write(iunit_cpu,'(A,F8.2,A)') '    Rk accumulation:         ', 100d0*cpu_Rk_accum_total/cpu_total_elapsed,   ' %'
+        write(iunit_cpu,'(A,F8.2,A)') '    c_hat limiter:           ', 100d0*cpu_c_hat_total/cpu_total_elapsed, ' %'
+        write(iunit_cpu,'(A,F8.2,A)') '    Rk accumulation:         ', 100d0*cpu_cum_rxn_amnt_kin_total/cpu_total_elapsed,   ' %'
         write(iunit_cpu,*) '====================================================================================='
     end if
     write(iunit_cpu,*) ''
@@ -471,19 +478,18 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
         write(iunit_cpu,'(A,F12.6,A)') '  Avg r_tilde per step/water:              ', cpu_r_tilde_total / dble(num_time_loc * num_non_can_vec), ' s'
     end if
     write(iunit_cpu,*) ''
-    write(iunit_cpu,'(A,F12.6,A)') '  Avg cache refresh per time step:             ', cpu_cache_total / dble(num_time_loc), ' s'
     write(iunit_cpu,'(A,F12.6,A)') '  Avg getters per time step:                   ', cpu_getters_total / dble(num_time_loc), ' s'
-    write(iunit_cpu,'(A,F12.6,A)') '  Avg modify_mix per time step:                ', cpu_modify_mix_total / dble(num_time_loc), ' s'
-    write(iunit_cpu,'(A,F12.6,A)') '  Avg Rk accum per time step:                  ', cpu_Rk_accum_total / dble(num_time_loc), ' s'
+    write(iunit_cpu,'(A,F12.6,A)') '  Avg c_hat limiter per time step:             ', cpu_c_hat_total / dble(num_time_loc), ' s'
+    write(iunit_cpu,'(A,F12.6,A)') '  Avg Rk accum per time step:                  ', cpu_cum_rxn_amnt_kin_total / dble(num_time_loc), ' s'
     close(iunit_cpu)
-    print *, 'CPU profiling written to: ', dir//root//'_cpu_profile.out'
+    print *, 'CPU profiling written to: ', dir//cpu_root//'_cpu_profile.out'
 
 !> Close output file and clean up
     close(unit)
+    close(iunit_mb)
+    deallocate(mb_lhs, mb_transp, mb_react)
     deallocate(conc_comp)
     deallocate(lambdas_R)
-    deallocate(all_conc_old, all_ind_aq_sp)
     deallocate(n_p_cache, n_v_cache, n_eq_cache)
     deallocate(has_minerals_flag, has_gases_flag)
-    write(*,*) "Number of lumpings: ", this%num_lump
 end subroutine solve_reactive_mixing_ideal_cons

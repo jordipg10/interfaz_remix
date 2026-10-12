@@ -3,19 +3,19 @@
 !> Handles updating old attributes, conservative mixing, reactive mixing solver,
 !> derived quantities, solid/gas chemistry, output writing, and chemistry snapshots
 !> for a single time step k.
-subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
+subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time, &
     num_tar_wat, ind_tar_wat, &
     n_p_cache, n_v_cache, n_eq_cache, &
     has_minerals_flag, has_gases_flag, &
     mix_conc_indices, mixing_ratios_conc, &
+    mixing_ratios_R, &
     lumped_lambdas, &
-    all_conc_old, all_ind_aq_sp, &
-    conc_comp, &
-    p_solver)
-    use chemistry_m, only: chemistry_c
+    conc_comp, iunit_mb, &
+    p_solver, p_mixer)
+    use chemistry_m, only: chemistry_c, reset_wat_indices_zones
     use aqueous_chemistry_m, only: aqueous_chemistry_c, &
         reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, &
-        compute_c_mix_global
+        compute_c_mix_by_zones_lump
     use arrays_m, only: real_array_c, int_array_c
     implicit none
 
@@ -24,6 +24,7 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
     integer(kind=4), intent(in) :: k                        !< Current time step index
     real(kind=8), intent(in) :: Delta_t                     !< Time step size
     real(kind=8), intent(in) :: theta_r                     !< Time-weighting parameter
+    real(kind=8), intent(in) :: time                        !< Current simulation time (mass-balance header)
     integer(kind=4), intent(in) :: num_tar_wat              !< Number of target waters
     integer(kind=4), intent(in) :: ind_tar_wat(:)           !< Indices of target waters
     integer(kind=4), intent(in) :: n_p_cache(:)             !< Cached num_prim_species per target water
@@ -33,34 +34,35 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
     logical, intent(in) :: has_gases_flag(:)                !< Whether each target water has gases
     class(int_array_c), intent(in) :: mix_conc_indices      !< Mixing concentration indices
     class(real_array_c), intent(in) :: mixing_ratios_conc   !< Mixing ratios for concentrations
+    class(real_array_c), intent(in) :: mixing_ratios_R      !< Reaction mixing ratios (mix_conc_indices layout)
     real(kind=8), intent(in) :: lumped_lambdas(:)           !< Pre-computed lumped lambdas
-    real(kind=8), intent(inout) :: all_conc_old(:,:)        !< Global cache of old concentrations (refreshed here after update_old_attributes)
-    integer(kind=4), intent(in) :: all_ind_aq_sp(:,:)       !< Global cache of aq species indices
     real(kind=8), intent(inout) :: conc_comp(:)             !< Work buffer for component concentrations
+    integer(kind=4), intent(in) :: iunit_mb                 !< Mass-balance output file unit (already open)
     procedure(reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2) :: p_solver  !< Reactive mixing solver
+    procedure(compute_c_mix_by_zones_lump), pointer, intent(in) :: p_mixer
 
 !> Local variables
     integer(kind=4) :: i, j
     integer(kind=4) :: idx
     integer(kind=4) :: n_p, n_v, n_eq
-    integer(kind=4) :: num_mix_loc
     real(kind=8), allocatable :: c_mix(:)
+    real(kind=8), allocatable :: c_hat(:)
     real(kind=8), allocatable :: conc_nc(:)
     real(kind=8), allocatable :: mal_residual(:)
     real(kind=8) :: mal_max
+    real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:)   !< domain-summed mass-balance terms
+    real(kind=8), allocatable :: mb_lhs_c(:), mb_transp_c(:), mb_react_c(:) !< per-cell mass-balance terms
+    integer(kind=4) :: n_v_ref, idx_ref                                !< reference cell dimension/index
 
     !> Update old attributes (copies new conc from previous step into conc_old)
-    do i = 1, this%num_target_waters
-        call this%waters(this%tar_wat_indices(i))%update_old_attributes()
+    do i = 1, this%num_waters
+        call this%waters(i)%update_attributes() !< Shift all old attributes
     end do
-    !> Refresh global conc_old cache AFTER updates so it reflects the previous step's new state
-    block
-        integer(kind=4) :: ww
-        do ww = 1, size(this%waters)
-            all_conc_old(1:size(this%waters(ww)%conc_old), ww) = &
-                this%waters(ww)%conc_old
-        end do
-    end block
+    !> Domain-integrated mass-balance accumulators (reference cell = first target water)
+    n_v_ref = n_v_cache(1)
+    idx_ref = this%tar_wat_indices(ind_tar_wat(1))
+    allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
+    mb_lhs = 0d0; mb_transp = 0d0; mb_react = 0d0
     !> Target waters loop
     do i = 1, num_tar_wat
         idx = this%tar_wat_indices(ind_tar_wat(i))
@@ -71,18 +73,21 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
         if (mix_conc_indices%cols(ind_tar_wat(i))%col_1(1) /= idx) then
             error stop "Target waters not in the right order"
         end if
-        num_mix_loc = mix_conc_indices%cols(ind_tar_wat(i))%dim - 3
-        !> Conservative mixing
-        call compute_c_mix_global(this%waters(mix_conc_indices%cols(ind_tar_wat(i))%col_1(1)), &
-            all_conc_old, all_ind_aq_sp, &
-            mix_conc_indices%cols(ind_tar_wat(i))%col_1(2:mix_conc_indices%cols(ind_tar_wat(i))%dim-2), num_mix_loc, &
-            mixing_ratios_conc%cols(ind_tar_wat(i))%col_1, c_mix)
-        !> Getters (get_conc_nc)
-        conc_nc = this%waters(idx)%get_conc_nc()
+        !> Conservative mixing using the selected mixing procedure
+        associate(mc => mix_conc_indices%cols(ind_tar_wat(i)), &
+                  rc_col => mixing_ratios_conc%cols(ind_tar_wat(i)))
+            call p_mixer(this%waters, this%zone_waters(ind_tar_wat(i),:), &
+                mc%col_1(1:mc%dim-2), rc_col%col_1(1:mc%dim-2), &
+                lumped_lambdas(ind_tar_wat(i)), &
+                this%wat_indices_zones, this%ext_waters_indices, Delta_t, theta_r, c_hat, c_mix, .true.)
+        end associate
+        !> Getters (get_conc_var_act)
+        conc_nc = this%waters(idx)%get_conc_var_act()
         !> Reactive mixing solver
-        call p_solver(this%waters(idx), this%waters(idx)%get_c1_old_old(), c_mix(1:n_v), &
+        call this%waters(idx)%set_conc_hat(c_hat) !> aqueous blocks of the Newton speciation input, for the conc_hat attribute
+        call p_solver(this%waters(idx), this%waters(idx)%get_conc_old_old_prim_new_rz(), c_hat, &
             lumped_lambdas(ind_tar_wat(i)), &
-            Delta_t, theta_r, conc_nc, conc_comp(1:n_p))
+            Delta_t, theta_r, conc_nc, conc_comp)
         !> Mass action law check for equilibrium reactions (ideal solution)
         if (n_eq > 0) then
             block
@@ -90,7 +95,7 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
                 log_gamma_mal = this%waters(idx)%compute_log_act_coeffs_var_act_ideal()
                 mal_residual = matmul(this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star, &
                     log10(conc_nc(1:n_p)) + log_gamma_mal(1:n_p)) + &
-                    this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%logK_star - &
+                    this%waters(idx)%logK_star - &
                     log10(conc_nc(n_p+1:n_p+n_eq)) - log_gamma_mal(n_p+1:n_p+n_eq)
                 deallocate(log_gamma_mal)
             end block
@@ -101,7 +106,7 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
                 print *, "  n_p=", n_p, " n_eq=", n_eq, " n_v=", n_v
                 print *, "  c1 (primary)=", conc_nc(1:n_p)
                 print *, "  c2 (secondary)=", conc_nc(n_p+1:n_p+n_eq)
-                print *, "  logK_star=", this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%logK_star
+                print *, "  logK_star=", this%waters(idx)%logK_star
                 do j = 1, n_eq
                     print *, "  eq reaction", j, " residual=", mal_residual(j), &
                         " log10(c2)=", log10(conc_nc(n_p+j)), &
@@ -115,32 +120,51 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, &
         end if
         !> Derived quantities (pH, salinity, ionic strength)
         call this%waters(idx)%compute_pH()
+        call this%waters(idx)%compute_saturation_mins() !< saturation indices of all minerals at the end-of-step state
         call this%waters(idx)%compute_salinity()
         call this%waters(idx)%compute_ionic_strength()
         !> Equilibrium reaction amounts
-        if (n_eq > 0 .and. this%waters(idx)%indices_rk%num_cols > 0) then
-            call this%waters(idx)%compute_Re_kin(c_mix(n_p+1:n_v), Delta_t, &
-                lumped_lambdas(ind_tar_wat(i)))
-        else if (n_eq > 0) then
-            call this%waters(idx)%compute_Re(c_mix(1:n_v), Delta_t, &
-                lumped_lambdas(ind_tar_wat(i)))
+        if (n_eq > 0) then
+            call this%waters(idx)%compute_Re(c_hat(1:n_v), Delta_t, &
+                lumped_lambdas(ind_tar_wat(i)), theta_r)
         end if
+        !> Domain-integrated mass-balance contribution of this cell (lumped: c_hat = c_mix)
+        call this%waters(idx)%get_react_mix_mass_bal_terms(c_mix(1:n_v), c_hat(1:n_v), &
+            lumped_lambdas(ind_tar_wat(i)), Delta_t, theta_r, mb_lhs_c, mb_transp_c, mb_react_c)
+        if (size(mb_lhs_c) == n_v_ref) then
+            mb_lhs = mb_lhs + mb_lhs_c
+            mb_transp = mb_transp + mb_transp_c
+            mb_react = mb_react + mb_react_c
+        end if
+        deallocate(mb_lhs_c, mb_transp_c, mb_react_c)
         !> Solid/gas chemistry
         if (has_minerals_flag(i)) then
             call this%waters(idx)%solid_chemistry%compute_mass_bal_mins(Delta_t)
-            call this%waters(idx)%solid_chemistry%compute_conc_minerals_iter(Delta_t)
+            call this%waters(idx)%solid_chemistry%compute_conc_minerals_iter(Delta_t,lumped_lambdas(ind_tar_wat(i)))
         end if
         if (has_gases_flag(i)) then
             call this%waters(idx)%gas_chemistry%compute_conc_gases_iter(Delta_t, &
                 this%waters(ind_tar_wat(i))%volume, &
-                [this%waters(ind_tar_wat(i))%re_mean, this%waters(ind_tar_wat(i))%rk_mean])
+                [this%waters(ind_tar_wat(i))%rxn_rate_eq, this%waters(ind_tar_wat(i))%rxn_rate_kin_avg])
             call this%waters(idx)%gas_chemistry%compute_vol_gas_species_conc()
             call this%waters(idx)%gas_chemistry%compute_log_act_coeffs_gases()
         end if
         !> Accumulate reaction amounts
-        this%waters(idx)%Rk_accum = this%waters(idx)%Rk_accum + this%waters(idx)%Rk
-        this%waters(idx)%solid_chemistry%Rk_accum = &
-            this%waters(idx)%solid_chemistry%Rk_accum + this%waters(idx)%solid_chemistry%Rk
-        deallocate(c_mix, conc_nc)
+        this%waters(idx)%cum_rxn_amnt_kin = this%waters(idx)%cum_rxn_amnt_kin + this%waters(idx)%rxn_amnt_kin
+        this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin = &
+            this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin + this%waters(idx)%solid_chemistry%rxn_amnt_kin
+        deallocate(c_mix, c_hat, conc_nc)
     end do
+    !> Write this time step's domain-integrated mass balance
+    call this%write_react_mix_mass_bal_dom(idx_ref, iunit_mb, time, n_v_ref, mb_lhs, mb_transp, mb_react)
+    deallocate(mb_lhs, mb_transp, mb_react)
+    !> Sum equilibrium reaction rates at interfaces if mix_by_zones_flag is set
+    if (this%mix_by_zones_flag) then
+        do i=1,num_tar_wat
+            call this%waters(this%tar_wat_indices(ind_tar_wat(i)))%sum_eq_rxn_rates(this%zone_waters(&
+                this%tar_wat_indices(ind_tar_wat(i)),:))
+        end do
+    end if
+    !> Relink target waters to reactive zones if the zone set changed this step
+    call reset_wat_indices_zones(this)
 end subroutine solve_reactive_mixing_ideal_lump_iter

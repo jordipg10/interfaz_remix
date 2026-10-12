@@ -73,10 +73,15 @@ module kin_mineral_m
         !> - catalyzer parameters - exponents for H⁺, OH⁻, ligands
         !> - parallel reactions - multiple mechanisms (e.g., acid, neutral, base)
         type(kin_mineral_params_c) :: params !< Mineral kinetic parameters for rate computation
+        !> \var time_scaling Flag to enable explicit time scaling of the reaction rate
+        !> If .true., the reaction rate and its Jacobian are scaled by the last aqueous
+        !> species activity and time**(-m) (see compute_rk_Jac_rk_anal). Default .false.
+        logical :: time_scaling = .false. !< Apply time scaling to mineral reaction rate (default: off)
     contains
         !> Setter methods
         procedure :: set_mineral_params !< Assign mineral kinetic parameters
         procedure :: set_indices_aq_phase_min !< Map aqueous species indices to aqueous phase
+        procedure :: set_time_scaling !< Enable/disable explicit time scaling of the reaction rate
         
         !> Computation methods
         procedure :: compute_rk_mineral !< Calculate mineral reaction rate r [mol/L/T]
@@ -146,21 +151,19 @@ module kin_mineral_m
         !> - Stability analysis (eigenvalues of Jacobian)
         !>
         !> \param[in] this Kinetic mineral reaction object
-        !> \param[in] conc_sp Concentrations of aqueous species in reaction [M/L³]
-        !> \param[in] act_sp Activities of aqueous species in reaction [-]
-        !> \param[in] log_act_coeffs_sp Logarithmic activity coefficients log₁₀(γ) [-]
+        !> \param[in] conc_sp Concentrations of aqueous species in reaction, ordered as indices_aq_phase [M/L³]
+        !> \param[in] log_act_coeffs_sp Logarithmic activity coefficients log₁₀(γ) (unused: γ assumed constant) [-]
         !> \param[in] act_cat Activities of catalyzer species [-]
         !> \param[in] saturation Saturation index Ω = IAP/K_eq [-]
         !> \param[in] react_surf Reactive surface area [m²/L]
         !> \param[in] temp Temperature [K]
         !> \param[out] drk_dc Jacobian vector ∂r/∂c [1/T] (must be pre-allocated)
-        subroutine compute_drk_dc_mineral(this,conc_sp,act_sp,log_act_coeffs_sp,act_cat,saturation,react_surf,temp,drk_dc)
+        subroutine compute_drk_dc_mineral(this,conc_sp,log_act_coeffs_sp,act_cat,saturation,react_surf,temp,drk_dc)
             import kin_mineral_c !< Import mineral reaction type from parent scope
             implicit none !< Enforce explicit variable declarations
             class(kin_mineral_c), intent(in) :: this !< Kinetic mineral reaction object with parameters
-            real(kind=8), intent(in) :: conc_sp(:) !< [M/L³] concentrations of aqueous species in reaction
-            real(kind=8), intent(in) :: act_sp(:) !< [-] activities of aqueous species in reaction
-            real(kind=8), intent(in) :: log_act_coeffs_sp(:) !< [-] log₁₀(γ) activity coefficients of aqueous species
+            real(kind=8), intent(in) :: conc_sp(:) !< [M/L³] concentrations of aqueous species in reaction (ordered as indices_aq_phase)
+            real(kind=8), intent(in) :: log_act_coeffs_sp(:) !< [-] log₁₀(γ) activity coefficients of aqueous species (unused)
             real(kind=8), intent(in) :: act_cat(:) !< [-] activities of catalyzer species (H⁺, OH⁻, ligands)
             real(kind=8), intent(in) :: saturation !< [-] saturation index Ω = IAP/K_eq
             real(kind=8), intent(in) :: react_surf !< [m²/L] reactive surface area
@@ -193,6 +196,22 @@ contains
         !> Direct assignment of all mineral kinetic parameters
         !> Copies rate constant, activation energy, surface area, and catalyzer parameters
         this%params=mineral_params !< Assign complete parameter structure
+    end subroutine
+
+    !> \brief Sets the explicit time-scaling flag
+    !> \details Enables or disables explicit time scaling of the mineral reaction rate and its
+    !>          Jacobian. When enabled, the rate is scaled by the last aqueous species activity and
+    !>          time**(-m) in compute_rk_Jac_rk_anal. When disabled (default), the standard rate law
+    !>          is used unchanged.
+    !>
+    !> \param[inout] this Kinetic mineral reaction object
+    !> \param[in] time_scaling Flag value: .true. to apply time scaling, .false. to disable
+    subroutine set_time_scaling(this,time_scaling)
+        implicit none !< Enforce explicit variable declarations
+        class(kin_mineral_c) :: this !< Kinetic mineral reaction object to configure
+        logical, intent(in) :: time_scaling !< Time-scaling flag value to assign
+
+        this%time_scaling=time_scaling !< Assign time-scaling flag
     end subroutine
                        
     !> \brief Maps aqueous species indices from reaction to aqueous phase

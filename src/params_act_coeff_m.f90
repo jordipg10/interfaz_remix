@@ -32,22 +32,29 @@ module params_act_coeff_m
     !> @details This type stores all parameters required to compute activity coefficients
     !> using various models. The general form is:
     !> log₁₀(γᵢ) = -α·A·zᵢ²·√I / (1 + β·√I) + γ·I
+    !> where A and B are the Debye-Hückel parameters of the WATER (params_aq_sol_s, temperature
+    !> dependent), so β and γ are not stored as numbers: the species (shared by all the waters
+    !> through the aqueous phase) keeps their temperature-independent decomposition
+    !> β = β_cst + β_B·B(T) and γ = γ_cst + γ_A·A(T), evaluated for a given water by get_beta and
+    !> get_gamma with that water's A and B.
     !>
     !> @par Parameter Usage by Model:
     !> - **ion_size_param (a₀)**: Ion size parameter [Angstroms] used in extended Debye-Hückel
     !> - **a_TJ, b_TJ**: Truesdell-Jones fit parameters (species-specific)
     !> - **b_dot (ḃ)**: Temperature-dependent b-dot parameter (Helgeson model)
     !> - **alpha (α)**: Multiplier for Debye-Hückel term (typically 1)
-    !> - **beta (β)**: Controls short-range interactions (varies by model)
-    !> - **gamma (γ)**: Linear ionic strength term (varies by model)
+    !> - **beta_cst, beta_B**: β = beta_cst + beta_B·B(T) (short-range interactions, varies by model)
+    !> - **gamma_cst, gamma_A**: γ = gamma_cst + gamma_A·A(T) (linear ionic strength term, varies by model)
     type, public :: params_act_coeff_c !< Activity coefficient parameters for various models
         real(kind=8) :: ion_size_param !< Effective hydrated ion diameter a₀ [Angstroms] (Debye-Hückel extended)
         real(kind=8) :: a_TJ !< Ion-specific fit parameter a_{TJ} [Angstroms] (Truesdell-Jones model)
         real(kind=8) :: b_TJ !< Ion-specific fit parameter b_{TJ} [kg/mol] (Truesdell-Jones model)
         real(kind=8) :: b_dot !< Temperature-dependent b-dot term ḃ(T) [kg/mol] (Helgeson 1969)
         real(kind=8) :: alpha=0d0 !< Multiplier for Debye-Hückel A term (α) [-] (default: 0 for ideal)
-        real(kind=8) :: beta=0d0 !< Multiplier for short-range interaction term (β) [-] (default: 0)
-        real(kind=8) :: gamma=0d0 !< Linear ionic strength coefficient (γ) [kg/mol] (default: 0)
+        real(kind=8) :: beta_cst=0d0 !< Temperature-independent part of β [-] (1 for Davies; default: 0)
+        real(kind=8) :: beta_B=0d0 !< Multiplier of the water's Debye-Hückel B in β [Angstroms] (a₀ or a_TJ; default: 0)
+        real(kind=8) :: gamma_cst=0d0 !< Temperature-independent part of γ [kg/mol] (b_TJ or ḃ; default: 0)
+        real(kind=8) :: gamma_A=0d0 !< Multiplier of the water's Debye-Hückel A in γ [-] (0.3·z² for Davies; default: 0)
     contains
     !> @name Setter Methods
     !> @{
@@ -56,7 +63,9 @@ module params_act_coeff_m
     !> @name Computational Methods
     !> @{
         procedure :: compute_b_dot !< Compute temperature-dependent b-dot term (Helgeson 1969)
-        procedure :: compute_csts !< Compute α, β, γ coefficients for specified model
+        procedure :: compute_csts !< Compute α and the decomposition of β, γ for specified model
+        procedure :: get_beta !< β for a water: beta_cst + beta_B·B
+        procedure :: get_gamma !< γ for a water: gamma_cst + gamma_A·A
     !> @}
     end type
     
@@ -107,10 +116,13 @@ module params_act_coeff_m
             this%b_dot=15698.4/temp + 41.8808*log(temp) - 0.0367626*temp - 974168/(temp**2) - 268.902
         end subroutine
         
-        !> @brief Compute α, β, γ coefficients for specified activity coefficient model
-        !> @details Calculates the three parameters (alpha, beta, gamma) in the generalized form:
+        !> @brief Compute α and the decomposition of β, γ for the specified activity coefficient model
+        !> @details Sets the parameters of the generalized form
         !> log₁₀(γᵢ) = -α·A·zᵢ²·√I / (1 + β·√I) + γ·I
-        !> based on the selected model and species valence.
+        !> based on the selected model and species valence. A and B are the (temperature-dependent)
+        !> Debye-Hückel parameters of each water, so β and γ are stored decomposed as
+        !> β = beta_cst + beta_B·B and γ = gamma_cst + gamma_A·A, to be evaluated per water by
+        !> get_beta / get_gamma.
         !>
         !> @par Model Implementations:
         !> - **0 (Ideal)**: γ = 1 always → α=0, β=0, γ=0
@@ -122,43 +134,64 @@ module params_act_coeff_m
         !>
         !> @param[inout] this Activity coefficient parameters object
         !> @param[in] z Ion valence (charge number) zᵢ [-]
-        !> @param[in] params_aq_sol Aqueous solution parameters (Debye-Hückel A, B constants)
         !> @param[in] model Model selector: 0=ideal, 1=DH restricted, 2=DH extended, 3=Davies, 4=Truesdell-Jones, 5=b-dot
-        subroutine compute_csts(this,z,params_aq_sol,model) !< Compute α, β, γ for activity model
+        subroutine compute_csts(this,z,model) !< Compute α, β, γ for activity model
             implicit none !< Enforce explicit variable declarations
             class(params_act_coeff_c), intent(inout) :: this !< Activity coefficient parameters object [-]
             integer(kind=4), intent(in) :: z !< Ion valence (charge number) [-]
-            class(params_aq_sol_s), intent(in) :: params_aq_sol !< Aqueous solution parameters (A, B) [-]
             integer(kind=4), intent(in) :: model !< Model selector [0-5]
             
             !> Select model and compute corresponding α, β, γ parameters
+            this%beta_cst=0d0 !< Reset the decomposition: only the model's terms are set below
+            this%beta_B=0d0
+            this%gamma_cst=0d0
+            this%gamma_A=0d0
             select case (model)
             case(0) !< Model 0: Ideal solution (γ = 1, no ionic strength effects)
                 this%alpha=0d0 !< No Debye-Hückel term [-]
-                this%beta=0d0 !< No denominator correction [-]
-                this%gamma=0d0 !< No linear I term [kg/mol]
             case(1) !< Model 1: Debye-Hückel restricted (limiting law)
                 this%alpha=1d0 !< Full Debye-Hückel term [-]
-                this%beta=0d0 !< No denominator correction [-]
-                this%gamma=0d0 !< No linear I term [kg/mol]
             case(2) !< Model 2: Debye-Hückel extended (ion size correction)
                 this%alpha=1d0 !< Full Debye-Hückel term [-]
-                this%beta=this%ion_size_param*params_aq_sol%B !< Ion size × B parameter [(Å)·(kg/mol)^(1/2)]
-                this%gamma=0d0 !< No linear I term [kg/mol]
+                this%beta_B=this%ion_size_param !< β = a₀·B [(Å)·(kg/mol)^(1/2)]
             case(3) !< Model 3: Davies equation
                 this%alpha=1d0 !< Full Debye-Hückel term [-]
-                this%beta=1d0 !< Davies uses β = 1 [-]
-                this%gamma=0.3*params_aq_sol%A*(z**2) !< Davies correction: 0.3·A·z² [kg/mol]
+                this%beta_cst=1d0 !< Davies uses β = 1 [-]
+                this%gamma_A=3d-1*dble(z**2) !< Davies correction: γ = 0.3·A·z² [kg/mol]
             case(4) !< Model 4: Truesdell-Jones (ion-specific parameters)
                 this%alpha=1d0 !< Full Debye-Hückel term [-]
-                this%beta=params_aq_sol%B*this%a_TJ !< Species-specific β = B·aTJ [(kg/mol)^(1/2)]
-                this%gamma=this%b_TJ !< Species-specific γ = bTJ [kg/mol]
+                this%beta_B=this%a_TJ !< Species-specific β = B·aTJ [(kg/mol)^(1/2)]
+                this%gamma_cst=this%b_TJ !< Species-specific γ = bTJ [kg/mol]
             case(5) !< Model 5: b-dot (Helgeson) - temperature-dependent
                 this%alpha=1d0 !< Full Debye-Hückel term [-]
-                this%beta=params_aq_sol%B*this%a_TJ !< Species-specific β = B·aTJ [(kg/mol)^(1/2)]
-                this%gamma=this%b_dot !< Temperature-dependent γ = ḃ(T) [kg/mol]
+                this%beta_B=this%a_TJ !< Species-specific β = B·aTJ [(kg/mol)^(1/2)]
+                this%gamma_cst=this%b_dot !< Temperature-dependent γ = ḃ(T) [kg/mol]
             case default !< Invalid model number
                 error stop "Model not implemented yet" !< Terminate for unsupported model
             end select
         end subroutine
+
+        !> @brief β of the generalized activity coefficient model for a water
+        !> @param[in] this Activity coefficient parameters object
+        !> @param[in] params_aq_sol Debye-Hückel parameters of the water (A, B at its temperature)
+        !> @return beta β = beta_cst + beta_B·B [(kg/mol)^(1/2)]
+        pure function get_beta(this,params_aq_sol) result(beta)
+            implicit none !< Enforce explicit variable declarations
+            class(params_act_coeff_c), intent(in) :: this !< Activity coefficient parameters object [-]
+            class(params_aq_sol_s), intent(in) :: params_aq_sol !< Aqueous solution parameters (A, B) of the water [-]
+            real(kind=8) :: beta !< β [(kg/mol)^(1/2)]
+            beta=this%beta_cst+this%beta_B*params_aq_sol%B
+        end function
+
+        !> @brief γ of the generalized activity coefficient model for a water
+        !> @param[in] this Activity coefficient parameters object
+        !> @param[in] params_aq_sol Debye-Hückel parameters of the water (A, B at its temperature)
+        !> @return gamma γ = gamma_cst + gamma_A·A [kg/mol]
+        pure function get_gamma(this,params_aq_sol) result(gamma)
+            implicit none !< Enforce explicit variable declarations
+            class(params_act_coeff_c), intent(in) :: this !< Activity coefficient parameters object [-]
+            class(params_aq_sol_s), intent(in) :: params_aq_sol !< Aqueous solution parameters (A, B) of the water [-]
+            real(kind=8) :: gamma !< γ [kg/mol]
+            gamma=this%gamma_cst+this%gamma_A*params_aq_sol%A
+        end function
 end module

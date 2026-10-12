@@ -49,8 +49,8 @@
 !> \f$ c_j^{\mathrm{new}} = 10^{p_j + \alpha\,\Delta p_j} \f$.
 !>
 !> \param[in,out] this   Aqueous chemistry object at current time step
-!> \param[in]     c_hat  Variable activity species concentrations after mixing (n_p) [C]
-!> \param[in]     mix_ratio_r_old  Mixing ratio of old kinetic reaction amounts [-]
+!> \param[in]     c_hat  Variable activity species concentrations after mixing (n_p) [C]; already
+!>                       includes the previous-step (1-theta) kinetic contribution
 !> \param[in]     mix_ratio_r_new  Mixing ratio of new kinetic reaction amounts [-]
 !> \param[in]     Delta_t  Time step size [T]
 !> \param[in]     theta    Reaction time weighting factor [0,1] [-]
@@ -58,15 +58,14 @@
 !> \param[out]    niter    Number of Newton iterations performed [-]
 !> \param[out]    CV_flag  Convergence flag
 
-subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_new,Delta_t,theta,conc_nc,niter,CV_flag)
+subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,conc_nc,niter,CV_flag)
     use aqueous_chemistry_m, only: aqueous_chemistry_c  !< Import aqueous chemistry class
     use vectors_m, only: inf_norm_vec_real              !< Import infinity norm utility
     implicit none                                       !< Enforce explicit variable declarations
 !> Arguments
     class(aqueous_chemistry_c) :: this              !< Aqueous chemistry object at current time step [-]
-    real(kind=8), intent(in) :: c_hat(:)            !< Component concentrations after mixing (n_p) [C]
-    real(kind=8), intent(in) :: mix_ratio_r_old     !< Mixing ratio of old kinetic reaction amounts [-]
-    real(kind=8), intent(in) :: mix_ratio_r_new     !< Mixing ratio of new kinetic reaction amounts [-]
+    real(kind=8), intent(in) :: c_hat(:)            !< Component concentrations after mixing (n_p) [C]; already includes the previous-step (1-theta) kinetic contribution
+    real(kind=8), intent(in) :: mix_ratio_r     !< Mixing ratio of kinetic reaction amounts [-]
     real(kind=8), intent(in) :: Delta_t             !< Time step size [T]
     real(kind=8), intent(in) :: theta               !< Reaction time weighting factor [0,1] [-]
     real(kind=8), intent(inout) :: conc_nc(:)       !< Variable activity species concentrations (n_p); initial guess on entry, solution on exit [C]
@@ -119,7 +118,6 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
     integer(kind=4) :: n_p                          !< Number of primary species (= n_v for kinetic-only) [-]
     integer(kind=4) :: i                            !< Loop index [-]
     logical :: sing_flag                            !< Singularity flag for dgesv
-    integer(kind=4), save :: dbg_calls = 0          !< Persistent call counter for diagnostics
     integer(kind=4), allocatable :: ipiv_dgesv(:)   !< Pivot array for LAPACK dgesv (n_p)
     integer(kind=4) :: info_dgesv                   !< Return code from dgesv
     real(kind=8) :: c_norm                          !< ||c||_inf [C]
@@ -134,9 +132,7 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
     real(kind=8) :: eps_d                           !< Machine epsilon (cached)
     real(kind=8) :: sqrt_eps_d                      !< sqrt(eps) (cached)
     real(kind=8) :: dt_theta_mr_new                 !< Cached Dt*theta*lambda_r^new [-]
-    real(kind=8), allocatable :: SkT_old(:,:)       !< S_k^T at old time (n_p x n_kin) (U=I for kin-only)
     real(kind=8), allocatable :: SkT_new(:,:)       !< S_k^T at new time (n_p x n_kin) (U=I for kin-only)
-    real(kind=8), allocatable :: source_old(:)      !< Constant old kinetic source Dt*(1-theta)*mr_old*SkT_old*rk_old (cached, n_p)
     real(kind=8), allocatable :: SkT_new_rk_old(:)  !< Cached S_k^T * rk_old for predictor (n_p) [C]
 !> -----------------------------------------------------------------------
 !> Pre-processing: initialisation and allocation
@@ -154,13 +150,8 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
     sqrt_eps_d=sqrt(eps_d)
     n_kin=this%solid_chemistry%mineral_zone%num_minerals_kin+&
         this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
-    !> Cache S_k^T products (U=I for kinetic-only, so U*S_k^T = S_k^T)
-    SkT_old=this%solid_chemistry_old%reactive_zone%U_SkT_prod
+    !> Cache S_k^T product (U=I for kinetic-only, so U*S_k^T = S_k^T)
     SkT_new=this%solid_chemistry%reactive_zone%U_SkT_prod
-    !> First-call diagnostics
-    if (dbg_calls == 0) then
-        continue
-    end if
     !> Allocate persistent work arrays
     allocate(dfk_dc(n_p,n_p),&
         drk_dc(n_kin,this%solid_chemistry%reactive_zone%speciation_alg%num_species),&
@@ -176,12 +167,11 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
 !> -----------------------------------------------------------------------
 !> Process: retrieve old rates, precompute constants, and Newton loop
 !> -----------------------------------------------------------------------
-    !> Retrieve old kinetic reaction rates from the previous time step
-    rk_old=this%get_rk_old()
-    !> Precompute constant kinetic source term (does not change during Newton iterations)
-    !> source_old = Delta_t * (1-theta) * mix_ratio_r_old * SkT_old * rk_old  (U=I)
-    source_old = Delta_t*(1d0-theta)*mix_ratio_r_old*matmul(SkT_old, rk_old)
-    dt_theta_mr_new = Delta_t*theta*mix_ratio_r_new
+    !> Retrieve previous-step kinetic reaction rates in the current kinetic set (rows of SkT_new)
+    rk_old=this%get_rk_old_new_set()
+    !> The previous-step (1-theta) kinetic contribution is already folded into c_hat, so it is
+    !> NOT subtracted again in the residual; only the new-step (theta) term is formed here.
+    dt_theta_mr_new = Delta_t*theta*mix_ratio_r
     SkT_new_rk_old = matmul(SkT_new, rk_old)
     !> Save original initial guess for recovery via explicit-predictor fallback
     predictor_applied = .false.
@@ -199,9 +189,8 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
                 !> Forward-Euler predictor: approximate r_k^new ~ r_k^old
                 predictor_applied = .true.
                 allocate(c_pred(n_p))
-                c_pred = c_hat + predictor_damp * ( &
-                    source_old + &
-                    dt_theta_mr_new * SkT_new_rk_old )
+                c_pred = c_hat + predictor_damp * &
+                    dt_theta_mr_new * SkT_new_rk_old
                 !> For kinetic-only: direct assignment (no speciation solve needed since n_v = n_p)
                 do i = 1, n_p
                     conc_nc(i) = max(c_pred(i), tiny(1d0))
@@ -223,7 +212,10 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
                 conc_nc=conc_nc_best
                 call this%set_conc_prim_species(conc_nc(1:n_p))
                 call this%set_act_aq_species()
-                call this%compute_Rk(theta,Delta_t)
+                call this%compute_rxn_rate_kin(rk_new)
+                call this%compute_rxn_rate_kin_avg(theta)
+                call this%compute_rxn_amnt_kin(Delta_t)
+                call this%compute_contrib_rxn_amnt_kin(mix_ratio_r)
             else
                 print *, 'Newton did not converge after', niter_max, &
                     'iterations. Best ||fk|| =', best_fk_norm
@@ -240,11 +232,11 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
             call this%compute_rk_Jac_rk_anal(rk_new,drk_dc)
         end if
     !> Weighted average of kinetic reaction rates
-        rk_avg=theta*rk_new+(1d0-theta)*rk_old
-        call this%set_rk_mean(rk_avg)
-    !> Newton residual: f_k = c - c_hat - Dt*[(1-theta)*mr_old*SkT_old*rk_old + theta*mr_new*SkT_new*rk_new]  (U=I)
+        ! rk_avg=theta*rk_new+(1d0-theta)*rk_old
+        ! call this%set_rxn_rate_kin_avg(rk_avg)
+        !call this%compute_rxn_rate_kin_avg(theta)
+    !> Newton residual: f_k = c - c_hat - Dt*theta*mr_new*SkT_new*rk_new  (U=I; the (1-theta) old term is already in c_hat)
         fk=conc_nc-c_hat-&
-            source_old-&
             dt_theta_mr_new*matmul(SkT_new,rk_new)
     !> Convergence check (dual arithmetic OR logarithmic criteria)
         fk_norm = inf_norm_vec_real(fk)
@@ -263,7 +255,9 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
             (log10(fk_norm)-log10(max(c_norm,1d0)))< &
             log_rel_tol))) then
             CV_flag=.true.
-            call this%compute_Rk(theta,Delta_t)
+            call this%compute_rxn_rate_kin_avg(theta)
+            call this%compute_rxn_amnt_kin(Delta_t)
+            call this%compute_contrib_rxn_amnt_kin(mix_ratio_r)
             exit newton_loop
         else
         !> Jacobian assembly for kinetic-only (U=I, no dc2/dc1 chain rule)
@@ -324,7 +318,6 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
                     call this%compute_rk_Jac_rk_anal(rk_trial, drk_dc)
                     !> Evaluate trial residual (U=I)
                     fk_trial = conc_nc - c_hat - &
-                        source_old - &
                         dt_theta_mr_new*matmul(SkT_new, rk_trial)
                     fk_trial_norm = inf_norm_vec_real(fk_trial)
                     if (fk_trial_norm < fk_norm) then
@@ -358,9 +351,8 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
                         !> Stagnation detected: try explicit predictor before giving up
                         predictor_applied = .true.
                         allocate(c_pred(n_p))
-                        c_pred = c_hat + predictor_damp * ( &
-                            source_old + &
-                            dt_theta_mr_new * SkT_new_rk_old )
+                        c_pred = c_hat + predictor_damp * &
+                            dt_theta_mr_new * SkT_new_rk_old
                         do i = 1, n_p
                             conc_nc(i) = max(c_pred(i), tiny(1d0))
                         end do
@@ -381,7 +373,10 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
                         conc_nc=conc_nc_best
                         call this%set_conc_prim_species(conc_nc(1:n_p))
                         call this%set_act_aq_species()
-                        call this%compute_Rk(theta,Delta_t)
+                        call this%compute_rxn_rate_kin(rk_new)
+                        call this%compute_rxn_rate_kin_avg(theta)
+                        call this%compute_rxn_amnt_kin(Delta_t)
+                        call this%compute_contrib_rxn_amnt_kin(mix_ratio_r)
                     end if
                     exit newton_loop
                 end if
@@ -399,8 +394,7 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r_old,mix_ratio_r_
             predictor_damp = max(predictor_damp * predictor_shrink, predictor_damp_min)
         end if
     end if
-    dbg_calls = dbg_calls + 1
-    deallocate(fk,dfk_dc,drk_dc,rk_old,rk_new,rk_avg,conc_nc_best)
+    deallocate(fk,dfk_dc,drk_dc,rk_old,rk_new,conc_nc_best)
     deallocate(dfk_dp,dfk_dp_LM,Delta_p,log_c,rk_trial,fk_trial,ipiv_dgesv)
-    deallocate(SkT_old,SkT_new,source_old,SkT_new_rk_old)
+    deallocate(SkT_new,SkT_new_rk_old)
 end subroutine Newton_EI_kin_anal_ideal_opt2

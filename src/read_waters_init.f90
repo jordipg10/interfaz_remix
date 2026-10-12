@@ -12,9 +12,11 @@
 !>
 !>          File format expects labels and data in specific order:
 !>          - "WATERS" label followed by counts and associations
-!>          - Each line: water_index water_type solid_index gas_index flag
+!>          - Each line: water_index water_type solid_index gas_index
 !>          - Supports range notation (e.g., "1-10" for waters 1 through 10)
-!>          - Flag: 0=boundary, 1=domain, 2=recharge
+!>          - Waters are assumed ordered: target (domain) waters first, then boundary
+!>            waters, then recharge waters; the category of each water is inferred from
+!>            its index position (no explicit flag column is required)
 !>
 !>          The routine builds arrays of waters, target_solids, and target_gases,
 !>          linking them appropriately and computing necessary speciation algorithms.
@@ -26,8 +28,8 @@
 !>          4. Allocate target waters, boundary/recharge indices arrays
 !>          5. For each line in file:
 !>             a. Parse water/solid/gas indices (single or range)
-!>             b. Validate indices and water type flag
-!>             c. Assign indices to boundary/domain/recharge arrays
+!>             b. Validate indices
+!>             c. Assign indices to domain/boundary/recharge arrays based on ordering
 !>             d. For each water in range:
 !>                - Call read_tar_wat_line to initialize water with multiphase chemistry
 !>                - Detect reactive zone changes for optimization
@@ -94,7 +96,6 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
     integer(kind=4) :: bwtype        !> boundary water type index (unused)
     integer(kind=4) :: num_wat_rech !> number of recharge target waters
     integer(kind=4) :: num_wat_bd   !> number of boundary target waters
-    integer(kind=4) :: num_tar_wat  !> number of domain (target) waters = num_wat - num_wat_rech - num_wat_bd
     integer(kind=4) :: ind_bd        !> counter for boundary waters processed
     integer(kind=4) :: ind_bar_wat   !> position of '-' character in water range string
     
@@ -102,6 +103,10 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
     integer(kind=4) :: first_wat     !> first water index in a range
     integer(kind=4) :: last_wat      !> last water index in a range
     integer(kind=4) :: int_wat_size  !> size of water index range
+    
+    !> Mixing and auxiliary variables
+    integer(kind=4) :: mix_wat_ind   !> mixing water index (unused)
+    integer(kind=4) :: aux_col       !> auxiliary column index (unused)
     integer(kind=4) :: aux_istype    !> auxiliary solid type from previous iteration
     integer(kind=4) :: aux_igzn      !> auxiliary gas zone from previous iteration
     integer(kind=4) :: unit          !> file unit number for I/O
@@ -263,8 +268,7 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
             call this%allocate_bd_waters_indices(num_wat_bd) !> allocate array for boundary water indices
             read(unit,*) num_wat_rech !> read number of recharge (infiltration) waters
             call this%allocate_rech_waters_indices(num_wat_rech) !> allocate array for recharge water indices
-            num_tar_wat = num_wat - num_wat_bd - num_wat_rech !> compute number of domain (target) waters
-            call this%allocate_tar_wat_indices(num_tar_wat) !> allocate array for domain (target) water indices
+            call this%allocate_tar_wat_indices(num_wat-num_wat_rech-num_wat_bd) !> allocate array for target water indices
             !call this%allocate_ext_waters_indices(num_wat_bd+num_wat_rech) !> allocate external waters (boundary + recharge)
             !call this%allocate_waters(this%num_target_waters+this%num_rech_waters+this%num_bd_waters) !> allocate domain waters (total - external)
             !call this%allocate_waters_init(this%num_target_waters_init+this%num_rech_waters+this%num_bd_waters) !> allocate initial domain waters
@@ -289,8 +293,9 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                 !> Step 4.5: Main loop - read and process each target water line
                 do !> loop until all target waters processed (exits when last_wat or tar_wat_ind == num_tar_wat)
                     !> Read one data line from file: water_id water_type solid_id gas_id
+                    !> (any trailing flag column present in legacy input files is ignored)
                     read(unit,*) int_wat, wtype, int_sol, int_gas
-                    !print *, int_wat, wtype, int_sol, int_gas !> (commented) debug output
+                    !print *, int_wat, wtype, public, int_sol, int_gas !> (commented) debug output
                     
                     flag=.true. !> initialize flag to true (will be set false for domain waters later)
                     
@@ -323,24 +328,19 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                         !> Validate range bounds
                         if (first_wat<1 .or. first_wat>last_wat .or. last_wat>this%num_waters) then
                             error stop "water index out of bounds" !> range must be valid and within total
-                        !> (COMMENTED BLOCK) Additional validation options
-                        !else if (tar_wat_ind<1 .or. tar_wat_ind>this%num_tar_waters) then
-                        !    error stop "Target water index out of bounds"
-                        !else if (wtype<1 .or. wtype>nwtype) then
-                        !    error stop "Water type index out of bounds"
-                        !else if (ind_tar_sol<0 .or. ind_tar_sol>this%num_target_solids) then
-                        !    error stop "Target solid index out of bounds"
-                        !else if (int_gas<0 .or. int_gas>ngzns) then
-                        !    error stop "Gas type index out of bounds"
+                        end if
                         
-                        !> Assign water indices to appropriate category based on position in file
-                        else if (first_wat<=num_tar_wat) then !> DOMAIN (TARGET) WATER
+                        !> Assign water indices to the appropriate category based on the assumed
+                        !> ordering: target (domain) waters first, then boundary, then recharge.
+                        !> The category is inferred from the first index of the range (each range is
+                        !> assumed to lie entirely within a single category).
+                        if (first_wat<=this%num_target_waters) then !> TARGET WATER (internal)
                             do i=1,int_wat_size !> loop over all waters in range
                                 this%tar_wat_indices(ind_dom+i)=first_wat+i-1 !> store target water index
                             end do
                             ind_dom=ind_dom+int_wat_size !> increment domain water counter by range size
                             flag=.false. !> set flag to false for domain waters
-                        else if (first_wat<=num_tar_wat+num_wat_bd) then !> BOUNDARY WATER
+                        else if (first_wat<=this%num_target_waters+num_wat_bd) then !> BOUNDARY WATER
                             do i=1,int_wat_size !> loop over all waters in range
                                 this%bd_waters_indices(ind_bd+i)=first_wat+i-1 !> store boundary water index
                             end do
@@ -432,18 +432,14 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                             read(int_gas_trim,*) tar_gas_ind !> convert gas index string to integer
                             
                             !> Validate single gas index
-                            if (tar_gas_ind<0 .or. tar_gas_ind>max(this%num_target_gases,this%num_gas_zones)) then
+                            if (tar_gas_ind<0 .or. tar_gas_ind>this%num_target_gases) then
                                 error stop "Target gas index out of bounds" !> gas index must be valid
                             else
                                 !> All waters in range point to same single gas
                                 allocate(ind_tar_gases(int_wat_size),ind_gas_zones(int_wat_size)) !> allocate arrays sized for water range
                                 ind_tar_gases=tar_gas_ind !> set all elements to same gas index
                                 if (tar_gas_ind>0) then !> gas index is valid (>0 means gas present)
-                                    if (this%num_target_gases>=tar_gas_ind) then
-                                        ind_gas_zones=this%target_gases(tar_gas_ind)%id !> get gas zone ID from target gas
-                                    else
-                                        ind_gas_zones=tar_gas_ind !> direct reference to boundary gas zone
-                                    end if
+                                    ind_gas_zones=this%target_gases(tar_gas_ind)%id !> get gas zone ID for this gas
                                 else !> tar_gas_ind=0 means no gas phase
                                     ind_gas_zones=0 !> set zone ID to 0 (no gas chemistry)
                                 end if
@@ -517,15 +513,15 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                             error stop "Dimension error: a single target water cannot point to a range of target gases"
                         else if (tar_sol_ind<0 .or. tar_sol_ind>this%num_target_solids) then
                             error stop "Target solid index out of bounds" !> solid index must be valid
-                        else if (tar_gas_ind<0 .or. tar_gas_ind>max(this%num_target_gases,this%num_gas_zones)) then
+                        else if (tar_gas_ind<0 .or. tar_gas_ind>this%num_target_gases) then
                             error stop "Target gas index out of bounds" !> gas index must be valid
-                        end if
-                        !> Assign single water to appropriate category based on position in file
-                        if (tar_wat_ind<=num_tar_wat) then !> DOMAIN (TARGET) WATER
+                        !> Assign single water to the appropriate category based on the assumed
+                        !> ordering: target (domain) waters first, then boundary, then recharge.
+                        else if (tar_wat_ind<=this%num_target_waters) then !> DOMAIN WATER (internal/mobile)
                             ind_dom=ind_dom+1 !> increment domain water counter
                             this%tar_wat_indices(ind_dom)=tar_wat_ind !> store domain water index
                             flag=.false. !> set flag to false for domain waters
-                        else if (tar_wat_ind<=num_tar_wat+num_wat_bd) then !> BOUNDARY WATER (Dirichlet BC)
+                        else if (tar_wat_ind<=this%num_target_waters+num_wat_bd) then !> BOUNDARY WATER (Dirichlet BC)
                             ind_bd=ind_bd+1 !> increment boundary water counter
                             this%bd_waters_indices(ind_bd)=tar_wat_ind !> store boundary water index
                         else !> RECHARGE WATER (infiltration/precipitation)
@@ -547,11 +543,7 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                         
                         !> Extract gas zone index from target gas
                         if (tar_gas_ind>0) then !> gas index is valid (>0 means gas present)
-                            if (this%num_target_gases>=tar_gas_ind) then
-                                igzn=this%target_gases(tar_gas_ind)%id !> get gas zone ID from target gas
-                            else
-                                igzn=tar_gas_ind !> direct reference to boundary gas zone
-                            end if
+                            igzn=this%target_gases(tar_gas_ind)%id !> get gas zone ID from target gas
                             !> (COMMENTED) Old validation approach
                             ! if (size(ind_tar_gases)/=1) then
                             !     error stop "Dimension error: number of target gases associated to gas zone must be 1"
@@ -679,7 +671,7 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                 !            call this%waters(tar_wat_ind)%solid_chemistry%reactive_zone%compute_U_SkT_prod()
                 !        end if
                 !    !end if
-                !    call this%waters(tar_wat_ind)%allocate_reaction_rates() !> allocate reaction rate arrays
+                !    call this%waters(tar_wat_ind)%allocate_rxn_rates_and_amounts() !> allocate reaction rate arrays
                 !    call this%waters(tar_wat_ind)%set_indices_rk() !> set reaction rate indices
                 !    aux_istype=istype !> store current solid type for next iteration
                 !    aux_int_gas=int_gas !> store current gas zone for next iteration
@@ -862,7 +854,7 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
             !    !!    else
             !    !!        call this%waters(tar_wat_ind)%solid_chemistry%reactive_zone%compute_U_SkT_prod()
             !    !!    end if
-            !    !!    call this%waters(tar_wat_ind)%allocate_reaction_rates()
+            !    !!    call this%waters(tar_wat_ind)%allocate_rxn_rates_and_amounts()
             !    !!    call this%waters(tar_wat_ind)%set_indices_rk()
             !    !!    aux_istype=istype
             !    !!    aux_int_gas=int_gas

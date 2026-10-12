@@ -228,11 +228,11 @@ contains !< Begin module procedure implementations
             !select type (PDE=>this%PDE) !< Dynamic type checking of PDE object
             !class is (PDE_1D_transient_c) !< MRMT requires 1D transient PDE formulation
                 !> Determine time integration method from PDE configuration
-                if (this%PDE%time_discr%int_method==1) then !< Method 1: Euler Explicit
+                if (this%PDE%time_discr%int_method_tpt==1) then !< Method 1: Euler Explicit
                     theta=0d0 !< Explicit scheme: θ = 0 (forward Euler)
-                else if (this%PDE%time_discr%int_method==3) then !< Method 3: Euler Implicit
+                else if (this%PDE%time_discr%int_method_tpt==3) then !< Method 3: Euler Implicit
                     theta=1d0 !< Fully implicit scheme: θ = 1 (backward Euler)
-                else if (this%PDE%time_discr%int_method==4) then !< Method 4: Crank-Nicolson
+                else if (this%PDE%time_discr%int_method_tpt==4) then !< Method 4: Crank-Nicolson
                     theta=5d-1 !< Crank-Nicolson scheme: θ = 0.5 (trapezoidal rule)
                 end if
                 !> Allocate output array: (number of target locations) × (initial + final time)

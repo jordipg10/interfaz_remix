@@ -98,13 +98,13 @@ subroutine write_transport_1D_transient(this,root,Time_out,output)
     end select
     write(1,"(2x,'Final time:',ES15.5/)") this%time_discr%Final_time !> write simulation final time t_f [T]
     write(1,"(2x,'Number of time steps:',I10/)") this%time_discr%Num_time !> write number of time steps N_t [-]
-    if (this%time_discr%int_method.eq.1) then !> check if Euler explicit method
+    if (this%time_discr%int_method_tpt.eq.1) then !> check if Euler explicit method
         write(1,"(2x,'Integration method:',10x,'Euler explicit',/)") !> write Euler explicit label
-    else if (this%time_discr%int_method.eq.2) then !> check if Euler fully implicit method
+    else if (this%time_discr%int_method_tpt.eq.2) then !> check if Euler fully implicit method
         write(1,"(2x,'Integration method:',10x,'Euler fully implicit',/)") !> write Euler fully implicit label
-    else if (this%time_discr%int_method.eq.3) then !> check if Crank-Nicolson method
+    else if (this%time_discr%int_method_tpt.eq.3) then !> check if Crank-Nicolson method
         write(1,"(2x,'Integration method:',10x,'Crank-Nicolson',/)") !> write Crank-Nicolson label
-    else if (this%time_discr%int_method.eq.4) then !> check if Runge-Kutta-Fehlberg method
+    else if (this%time_discr%int_method_tpt.eq.4) then !> check if Runge-Kutta-Fehlberg method
         write(1,"(2x,'Integration method:',10x,'RKF45',/)") !> write RKF45 adaptive method label
     end if
     write(1,"(2x,'Linear system:',5x,'A*c^(k+1) = B*c^k + f',/)") !> write discretized linear system equation
@@ -132,7 +132,7 @@ subroutine write_transport_1D_transient(this,root,Time_out,output)
         write(1,"(/,2x,'Stability parameters:',/)") !> write stability parameters section header
         write(1,"(10x,'Critical time step:',/)") !> write critical time step subsection header
         write(1,"(20x,ES15.5)") this%stab_params_tpt%Delta_t_crit !> write critical time step Δt_crit [T]
-        if (Delta_t>0d0 .and. Delta_t>this%stab_params_tpt%Delta_t_crit .and. this%time_discr%int_method<3) then !> check if time step violates stability for explicit methods
+        if (Delta_t>0d0 .and. Delta_t>this%stab_params_tpt%Delta_t_crit .and. this%time_discr%int_method_tpt<3) then !> check if time step violates stability for explicit methods
             write(1,"(/,20x,'You must reduce time step to have stability')") !> write stability warning message
         end if
         write(1,"(/,10x,'Courant:',/)") !> write Courant number header
@@ -174,7 +174,7 @@ subroutine write_transport_1D_transient(this,root,Time_out,output)
     end do
    
     if (size(output,1).eq.this%spatial_discr%Num_targets-this%spatial_discr%targets_flag) then !> check if output is for single mobile zone (not MRMT)
-        if (this%time_discr%int_method<4) then !> check if using fixed time step methods (not adaptive RKF45)
+        if (this%time_discr%int_method_tpt<4) then !> check if using fixed time step methods (not adaptive RKF45)
             write(1,"(/,2x,'Cell',*(ES20.5)/)") (Time_out(k), k=1,Num_output) !> write header with output times [T]
             do i=1,this%spatial_discr%Num_targets-this%spatial_discr%targets_flag !> loop over spatial cells
                 write(1,"(2x,I4,*(F20.5))") i,(output(i,k), k=1,Num_output) !> write cell index and concentration at each output time [C]

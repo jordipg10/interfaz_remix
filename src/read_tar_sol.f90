@@ -17,13 +17,15 @@
     !logical, intent(out) :: CV_flag !> TRUE if converges, FALSE otherwise
     
     integer(kind=4) :: first,last,ind_dom,num_tar_sol,ind,i,j,k,m,iszone,num_tar_wat,tar_wat_ind,wtype,nstype,nbwtype,bwtype,&
-        mix_wat_ind,ngzns,igzn,num_tar_wat_rech,ind_bar,flag_wat_type,num_tar_wat_bd,ind_bd,unit,ind_tar_sol
+        mix_wat_ind,ngzns,igzn,num_tar_wat_rech,ind_bar,flag_wat_type,num_tar_wat_bd,ind_bd,unit,ind_tar_sol,num_int
     real(kind=8), allocatable :: c_nc(:),u_init(:,:),c1_init(:),c2_init(:),c2_ig(:),gamma_2aq(:)
     integer(kind=4) :: aux_iszone, aux_igzn
     character(len=256) :: label,str,interval
     character(len=:), allocatable :: interval_trim,first_str,last_str
-    logical :: flag_comp,flag_surf,flag_aq_phase,flag, flag_Se
+    logical :: flag_comp,flag_surf,flag_aq_phase,flag, flag_Se, file_exists
     integer(kind=4), allocatable :: swap(:),aux_swap(:)
+    logical :: is_interface !> TRUE if target solid i separates two mineral zones with no mineral in common
+    integer(kind=4), allocatable :: ind_min_left(:) !> chemical-system indices of the minerals of target solid i-1
     type(solid_chemistry_c), target :: solid_chem !> default solid chemistry object
     type(reactive_zone_c), target :: react_zone   !> default reactive zone object
     type(reactive_zone_c), allocatable :: aux_react_zones(:) !> auxiliary reactive zones (chapuza)
@@ -43,7 +45,6 @@
     
     !flag_comp=.true. !> by default
 
-    
     if (nstype==0) then !> chapuza
         allocate(aux_react_zones(this%num_reactive_zones))
         do i=1,this%num_reactive_zones
@@ -92,7 +93,7 @@
         !call this%target_solids_dummy(i)%reactive_zone%set_stoich_mat_react_zone() !> chapuza
         !call this%target_solids_dummy(i)%reactive_zone%set_ind_gases_stoich_mat() !> chapuza
         !call this%target_solids_dummy(i)%reactive_zone%set_ind_mins_stoich_mat() !> chapuza
-        !call this%target_solids_dummy(i)%allocate_reaction_rates_solid_chem() !> we allocate reaction rates in solid chemistry object
+        !call this%target_solids_dummy(i)%allocate_rxn_rates_and_amounts_solid_chem() !> we allocate reaction rates in solid chemistry object
     end do
 
     ! if (this%num_mineral_zones==0) then !> chapuza
@@ -102,6 +103,11 @@
     ! end if
 
     unit=56 !> arbitrary unit number
+    !> No <root>_tar_sol.dat is provided when no target (domain) water has a solid phase
+    !> (only the external inflow water does): there are no target solids, so return with none
+    !> (the dummy target solids/reactive zones set up above cover the solid-free waters).
+    inquire(file=root//'_tar_sol.dat', exist=file_exists)
+    if (.not. file_exists) return
     open(unit, file=root//'_tar_sol.dat', status='old', action='read') !> we open the file with target waters associated with their solids and/or gases
     do
         read(unit,*) label
@@ -125,14 +131,11 @@
                         do i=first,last
                             call this%target_solids(i)%copy_solid_chemistry(this%materials(iszone)) !> we assign the initial solid type
                             call this%target_solids(i)%set_id(iszone) !> the id of the target solid is the solid zone index
-                            !call this%target_solids(i)%set_reactive_zone(this%reactive_zones(ngrz+iszone)) !> we set the reactive zone of the target solid
-                            call this%target_solids(i)%reactive_zone%set_speciation_alg_dimensions(.true.) !< esto creo que no es necesario
-                            call this%target_solids(i)%reactive_zone%set_ind_eq_reacts() !> chapuza
-                            call this%target_solids(i)%reactive_zone%allocate_ind_var_act_species() !> chapuza
-                            call this%target_solids(i)%reactive_zone%set_stoich_mat_react_zone() !> chapuza
-                            call this%target_solids(i)%reactive_zone%set_ind_gases_stoich_mat() !> chapuza
-                            call this%target_solids(i)%reactive_zone%set_ind_mins_stoich_mat() !> chapuza
-                            call this%target_solids(i)%allocate_reaction_rates_solid_chem() !> we allocate reaction rates in solid chemistry object
+                            !> materials(iszone)%reactive_zone dangles after this%reactive_zones was
+                            !> reallocated during setup; (re)point this target solid at the live,
+                            !> fully-configured reactive zone instead of the copied stale pointer.
+                            call this%target_solids(i)%set_reactive_zone(this%reactive_zones(ngrz+iszone))
+                            call this%target_solids(i)%allocate_rxn_rates_and_amounts_solid_chem() !> we allocate reaction rates in solid chemistry object
                         end do
                     end if
                     if (last==num_tar_sol) then
@@ -146,13 +149,11 @@
                     else
                         call this%target_solids(ind_tar_sol)%copy_solid_chemistry(this%materials(iszone)) !> we set the initial solid type
                         call this%target_solids(ind_tar_sol)%set_id(iszone) !> the id of the target solid is the material index
-                        !call this%target_solids(ind_tar_sol)%set_reactive_zone(this%reactive_zones(ngrz+iszone)) !> we set the reactive zone of the target solid
-                        call this%target_solids(ind_tar_sol)%reactive_zone%set_speciation_alg_dimensions(.true.) !< esto creo que no es necesario
-                        call this%target_solids(ind_tar_sol)%reactive_zone%set_ind_eq_reacts() !> chapuza
-                        call this%target_solids(ind_tar_sol)%reactive_zone%allocate_ind_var_act_species() !> chapuza
-                        call this%target_solids(ind_tar_sol)%reactive_zone%set_stoich_mat_react_zone() !> chapuza
-                        call this%target_solids(ind_tar_sol)%reactive_zone%set_ind_gases_stoich_mat() !> chapuza
-                        call this%target_solids(ind_tar_sol)%reactive_zone%set_ind_mins_stoich_mat() !> chapuza
+                        !> materials(iszone)%reactive_zone dangles after this%reactive_zones was
+                        !> reallocated during setup; (re)point this target solid at the live,
+                        !> fully-configured reactive zone instead of the copied stale pointer.
+                        call this%target_solids(ind_tar_sol)%set_reactive_zone(this%reactive_zones(ngrz+iszone))
+                        call this%target_solids(ind_tar_sol)%allocate_rxn_rates_and_amounts_solid_chem() !> allocate reaction rates
                     end if
                     if (ind_tar_sol==num_tar_sol) then
                         exit
@@ -281,7 +282,7 @@
                 !            call this%waters(tar_wat_ind)%solid_chemistry%reactive_zone%compute_U_SkT_prod()
                 !        end if
                 !    !end if
-                !    call this%waters(tar_wat_ind)%allocate_reaction_rates()
+                !    call this%waters(tar_wat_ind)%allocate_rxn_rates_and_amounts()
                 !    call this%waters(tar_wat_ind)%set_indices_rk()
                 !    aux_iszone=iszone
                 !    aux_igzn=igzn
@@ -393,7 +394,7 @@
     !             !    else
     !             !        call this%target_solids%reactive_zone%compute_U_SkT_prod()
     !             !    end if
-    !             !    call this%waters(tar_wat_ind)%allocate_reaction_rates()
+    !             !    call this%waters(tar_wat_ind)%allocate_rxn_rates_and_amounts()
     !             !    call this%waters(tar_wat_ind)%set_indices_rk()
     !             !    aux_iszone=iszone
     !             !    aux_igzn=igzn
@@ -403,13 +404,25 @@
             continue
         end if
     end do
-    ! close(unit) !> we close the file with target waters associated with their solids and/or gases
-    ! this%waters_init=this%waters
-    ! this%target_solids_init=this%target_solids
-    ! if (allocated(this%target_gases)) then
-    !     this%target_gases_init=this%target_gases
-    ! end if
-    ! call this%write_aq_comps_init(root) !> write aqueous components of initial target waters
+    num_int=0 !> initialize the number of interfaces
+    if (this%chem_syst%num_minerals > 0) then
+        do i=2,this%num_target_solids-1
+            is_interface = .true. 
+            num_int=num_int+1 
+            ind_min_left=this%target_solids(i-1)%mineral_zone%ind_min_chem_syst
+            associate(mz_right => this%target_solids(i+1)%mineral_zone)
+            do j=1,mz_right%num_minerals
+                if (any(ind_min_left==mz_right%ind_min_chem_syst(j))) then
+                    is_interface = .false.
+                    num_int=num_int-1
+                    exit
+                end if
+            end do
+            end associate
+            call this%target_solids(i)%set_is_interface(is_interface)
+        end do
+    end if
+    call this%set_num_interfaces(num_int) !> set the total number of interfaces found
     do i=1,this%num_target_solids
         call this%target_solids_init(i)%copy_solid_chemistry(this%target_solids(i)) !> we assign the initial target solids to the target solids
     end do

@@ -16,8 +16,7 @@ subroutine compute_c2_from_a1_ideal(this,a1,log_gamma2,c2)
     !n_sec_aq=this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species
     
 !> mass action law
-    log_a2=matmul(this%solid_chemistry%reactive_zone%speciation_alg%Se_1_star,log10(a1))+&
-        this%solid_chemistry%reactive_zone%speciation_alg%logK_tilde
+    log_a2=matmul(this%solid_chemistry%reactive_zone%speciation_alg%Se_1_star,log10(a1))+this%logK_tilde
     
     log_c2=log_a2-log_gamma2 !> we compute log_10 secondary species concentrations
     c2=10**log_c2 !> we compute secondary species concentrations

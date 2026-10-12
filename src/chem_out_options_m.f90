@@ -25,6 +25,7 @@ module chem_out_options_m
         integer(kind=4), allocatable :: ind_waters(:)             !< [-] Indices of waters to output
         integer(kind=4) :: num_time_steps=0                       !< [#] Number of output time steps
         integer(kind=4), allocatable :: time_steps(:)             !< [-] Time step indices for output
+        logical :: all_time_steps=.false.                        !< [-] .true. => output every time step (empty TIME STEPS section)
         integer(kind=4) :: num_aq_species=0                       !< [#] Number of aqueous species to output
         integer(kind=4), allocatable :: ind_aq_species(:)         !< [-] Indices of aqueous species in phase
         integer(kind=4) :: num_reacts=0                           !< [#] Total number of reactions to output
@@ -34,10 +35,11 @@ module chem_out_options_m
         integer(kind=4) :: num_mins=0                             !< [#] Number of minerals to output
         integer(kind=4), allocatable :: ind_mins(:)               !< [-] Indices of minerals in chem system
         integer(kind=4) :: num_vars=0                             !< [#] Number of output variable types (-1 = all)
-        character(len=256), allocatable :: vars(:)                !< [-] Variable names ('conc', 'react_rate', 'vol_fract')
+        character(len=256), allocatable :: vars(:)                !< [-] Variable names ('conc', 'conc_mix', 'conc_hat', 'react_rate', 'react_amnt', 'min-to-pore', 'pH', 'saturation')
     contains
         procedure :: set_ind_waters             !< Set water output indices
         procedure :: set_time_steps             !< Set output time step indices
+        procedure :: finalize_time_steps        !< Set last output step to Num_time (expand 'all' request) before solvers
         procedure :: read_chem_out_options      !< Read output options from file
     end type
     
@@ -57,16 +59,36 @@ module chem_out_options_m
             this%time_steps=time_steps
         end subroutine
 
-        subroutine read_chem_out_options(this,dir,root,chem_syst,num_wat)
+        !> Finalizes the output time steps before the solvers run: sets the last element to Num_time.
+        !> If the TIME STEPS request was empty ('all time steps'), expands it to [0,1,...,num_time].
+        subroutine finalize_time_steps(this,num_time)
+            implicit none
+            class(chem_out_options_s) :: this
+            integer(kind=4), intent(in) :: num_time
+            integer(kind=4) :: i
+            if (this%all_time_steps) then
+                if (allocated(this%time_steps)) deallocate(this%time_steps)
+                this%num_time_steps=num_time+1
+                allocate(this%time_steps(this%num_time_steps))
+                do i=1,this%num_time_steps
+                    this%time_steps(i)=i-1
+                end do
+            else
+                this%time_steps(this%num_time_steps)=num_time
+            end if
+        end subroutine
+
+        subroutine read_chem_out_options(this,dir,root,chem_syst,num_wat,num_rech_wat)
             implicit none
             class(chem_out_options_s) :: this
             character(len=*), intent(in) :: dir
             character(len=*), intent(in) :: root
             class(chem_system_c), intent(in) :: chem_syst
             integer(kind=4), intent(in) :: num_wat
+            integer(kind=4), intent(in), optional :: num_rech_wat !< number of recharge waters (excluded from default output)
             
             integer(kind=4) :: num_time,nits,i,num_mins,num_vars,num_reacts,notw,&
-                num_aq_species,flag,j,k
+                num_aq_species,flag,j,k,num_rech_loc
             integer(kind=4) :: unit_local
             integer(kind=4), allocatable :: time_steps(:),ind_wat(:),ind_reacts(:),flags(:)
             character(len=256) :: label,name
@@ -74,6 +96,8 @@ module chem_out_options_m
             
             !num_tar_wat=size(waters)
             num_mins=0
+            num_rech_loc=0
+            if (present(num_rech_wat)) num_rech_loc=num_rech_wat !< recharge waters are the last num_rech_wat indices
             unit_local = 52
             open(unit=unit_local,file=dir//root//'_out_opts.dat',status='old',action='read')
             do
@@ -85,13 +109,11 @@ module chem_out_options_m
                     read(unit_local,*) nits
                     if (nits<0) then
                         error stop "Invalid number of time steps"
-                    else
+                    else if (nits>0) then
                         this%num_time_steps=nits+2
                         allocate(time_steps(this%num_time_steps-2))
                         allocate(this%time_steps(this%num_time_steps))
-                        if (nits>0) then
-                            read(unit_local,*) time_steps
-                        end if
+                        read(unit_local,*) time_steps
                         if (minval(time_steps)<1) then
                             error stop "Invalid time step index"
                         end if
@@ -112,12 +134,6 @@ module chem_out_options_m
                         else
                             this%ind_waters=ind_wat
                         end if
-                    else
-                        this%num_waters=0
-                        !allocate(this%ind_waters(this%num_waters))
-                        !do i=1,this%num_waters
-                        !    this%ind_waters(i)=i
-                        !end do
                     end if
                     !print *, this%ind_waters
                 else if (label=='VARIABLES') then
@@ -131,7 +147,10 @@ module chem_out_options_m
                             read(unit_local,*) name
                             name_trimmed=trim(name)
                             if (name_trimmed=='conc' .or. name_trimmed=='react_rate' .or. &
-                                name_trimmed=='vol_fract') then
+                                name_trimmed=='min-to-pore' .or. name_trimmed=='conc_mix' .or. &
+                                name_trimmed=='conc_hat' .or. &
+                                name_trimmed=='react_amnt' .or. name_trimmed=='pH' .or. &
+                                name_trimmed=='saturation') then
                                 this%vars(i)=name_trimmed
                             else
                                 error stop "Invalid variable name in chem_out_options"
@@ -167,8 +186,6 @@ module chem_out_options_m
                                 call chem_syst%aq_phase%get_aq_species_index_by_name(trim(name),this%ind_aq_species(i))
                             end if
                         end do
-                    else
-                        this%num_aq_species=0
                     end if
                 else if (label=='MINERALS') then
                     read(unit_local,*) num_mins
@@ -189,8 +206,6 @@ module chem_out_options_m
                                 call chem_syst%get_mineral_index_by_name(trim(name),this%ind_mins(i))
                             end if
                         end do
-                    else
-                        this%num_mins=0
                     end if
                 else if (label=='REACTIONS') then
                     read(unit_local,*) num_reacts
@@ -235,13 +250,64 @@ module chem_out_options_m
                             end if
                             !this%ind_reacts(i)=ind_reacts(i)
                         end do
-                    else
-                        this%num_reacts=0
                     end if
                 else
                     continue
                 end if
             end do
+            !> Sections omitted from the file (or given count 0) default to outputting all
+            if (.not. allocated(this%time_steps)) then
+                this%all_time_steps=.true.
+                this%num_time_steps=2
+                allocate(this%time_steps(this%num_time_steps))
+                this%time_steps(1)=0
+            end if
+            if (.not. allocated(this%ind_waters)) then
+                this%num_waters=num_wat-num_rech_loc !< default output = domain + boundary waters, excluding recharge
+                allocate(this%ind_waters(this%num_waters))
+                do i=1,this%num_waters
+                    this%ind_waters(i)=i
+                end do
+            end if
+            if (.not. allocated(this%ind_aq_species)) then
+                this%num_aq_species=chem_syst%aq_phase%num_species
+                allocate(this%ind_aq_species(this%num_aq_species))
+                do i=1,this%num_aq_species
+                    this%ind_aq_species(i)=i
+                end do
+            end if
+            if (.not. allocated(this%ind_mins)) then
+                this%num_mins=chem_syst%num_minerals
+                allocate(this%ind_mins(this%num_mins))
+                do i=1,this%num_mins
+                    this%ind_mins(i)=i
+                end do
+            end if
+            if (.not. allocated(this%ind_reacts)) then
+                this%num_reacts_eq=chem_syst%speciation_alg%num_eq_reactions
+                this%num_reacts_kin=chem_syst%num_kin_reacts
+                this%num_reacts=this%num_reacts_eq+this%num_reacts_kin
+                allocate(this%ind_reacts(this%num_reacts))
+                do i=1,this%num_reacts_eq
+                    this%ind_reacts(i)=i
+                end do
+                do i=1,this%num_reacts_kin
+                    this%ind_reacts(this%num_reacts_eq+i)=i
+                end do
+            end if
+            !> default (no VARIABLES section): every variable except conc_mix, whose place is taken by
+            !> conc_hat (the mix entering the speciation); conc_mix is written only when requested
+            if (.not. allocated(this%vars)) then
+                this%num_vars=7
+                allocate(this%vars(this%num_vars))
+                this%vars(1)='conc'
+                this%vars(2)='react_rate'
+                this%vars(3)='min-to-pore'
+                this%vars(4)='conc_hat'
+                this%vars(5)='react_amnt'
+                this%vars(6)='pH'
+                this%vars(7)='saturation'
+            end if
             close(unit_local)
         end subroutine
 end module

@@ -3,6 +3,8 @@
 !> It is supposed to be called after the conservative transport has been solved
 !> It assumes there are both equilibrium and kinetic reactions
 !> It uses Euler explicit and applies lumping to the kinetic mixing ratios
+!> NOTE: the explicit kinetic term uses the previous-step rates, which are zero in the initial
+!> state read by the interface; a single call therefore carries no kinetic reaction
 !> It receives the concentrations after conservative transport as an argument, and returns the concentrations after reactive mixing as an argument as well
 subroutine interfaz_comps_vars(this,u_tilde,Delta_t,u_new)
     use chemistry_m, only: chemistry_c

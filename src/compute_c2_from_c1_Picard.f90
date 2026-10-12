@@ -17,24 +17,44 @@
 !> - \f$S_{e,1}^*\f$: Modified stoichiometric matrix [n_sec × n_prim]
 !> - \f$\tilde{K}\f$: Modified equilibrium constants [-]
 !>
-!> **Picard Iteration Algorithm**:
-!> 1. Initialize \f$c_2^{(0)}\f$ with initial guess
-!> 2. For iteration k:
-!>    - Compute ionic strength: \f$I = \frac{1}{2} \sum_i c_i z_i^2\f$
-!>    - Update activity coefficients: \f$\gamma_i(I)\f$ via Debye-Hückel or Davies
-!>    - Compute free site concentration (for cation exchange)
-!>    - Apply mass action law: \f$c_2^{(k+1)} = 10^{S_{e,1}^*(\log\gamma_1 + \log c_1) + \log\tilde{K} - \log\gamma_2}\f$
-!>    - Check convergence: \f$\|\frac{c_2^{(k+1)} - c_2^{(k)}}{c_2^{(k)}}\|_\infty < \text{tol}\f$
-!> 3. Exit when converged or max iterations reached
+!> **Picard Iteration Algorithm** (optimised as compute_c2v_from_c1_Picard):
+!>
+!> Only the activity coefficients of the AQUEOUS species change along the iteration (they depend on
+!> the ionic strength, i.e. on the aqueous secondary concentrations themselves); \f$c_1\f$,
+!> \f$\log\tilde{K}\f$ and the activity coefficients of the non-aqueous primary (free site, kinetic
+!> solids and gases) and secondary (minerals, surface complexes, gases) species are fixed, so their
+!> whole contribution is assembled ONCE before the loop (log_c2_cst). The iteration works on local
+!> arrays only (no object updates, allocations or array temporaries per iteration):
+!> 1. Ionic strength \f$I = I_{fixed} + \tfrac12\sum_i z_i^2 c_{2,i}\f$ over the aqueous secondary
+!>    species, with \f$I_{fixed}\f$ (aqueous primary species, from the object's concentrations) and the
+!>    squared valences precomputed
+!> 2. \f$\log_{10}\gamma\f$ of the dissolved solids from \f$I\f$ with the per-species model parameters
+!>    gathered once: \f$\log\gamma_i = -\alpha_i A z_i^2\sqrt{I}/(1+\beta_i\sqrt{I}) + \gamma_i I\f$
+!>    (the formula of aq_phase_c%compute_log_act_coeffs_aq_phase; the water's \f$\log\gamma\f$ is fixed)
+!> 3. Aqueous \f$\gamma\f$ corrections of the mass action law, accumulated column by column over the
+!>    aqueous primary columns of \f$S_{e,1}^*\f$, then the exponentiation
+!> 4. Convergence check: \f$\|\frac{c_2^{(k+1)} - c_2^{(k)}}{c_2^{(k)}}\|_\infty < \text{rel\_tol}\f$ AND
+!>    \f$\|\frac{\log c_2^{(k+1)} - \log c_2^{(k)}}{\log c_2^{(k)}}\|_\infty < 10^{\text{log\_rel\_tol}}\f$
+!>
+!> The object is updated once after convergence: ionic strength and aqueous log activity
+!> coefficients at the converged \f$c_2\f$, the secondary concentrations (aqueous, solid, gas),
+!> activities, the water activity coefficient, the salinity and the gas partial pressures.
+!>
+!> **Differences with the previous version** (both fixes make the result independent of the species
+!> order of the water, as compute_c2v_from_c1_Picard and compute_log_act_coeffs_aq_chem already were):
+!> - every concentration is paired with the valence / activity-coefficient parameters of ITS species
+!>   through the water -> aqueous phase index maps (indices_aq_phase, ind_prim_species,
+!>   ind_sec_species); the previous version read concentrations, valences and \f$\log\gamma_1\f$ by
+!>   POSITION, which mixed species up whenever the aqueous species had been reordered (swapped
+!>   primaries), e.g. an ionic strength of 1.47 instead of 0.66 for the saline water of the rezaei case
+!> - the water activity coefficient (Raoult's law, compute_log_act_coeff_wat) is evaluated once after
+!>   convergence instead of being refreshed inside the loop and fed back into the mass action law
 !>
 !> **Special Handling**:
-!> - **Cation Exchange**: Free site concentration computed as \f$X^- = 1 - \sum_{i} X_i^-\f$
-!> - **Gas Phase**: If present, includes gas-aqueous equilibria (Henry's law)
-!> - **Non-ideal Solutions**: Activity coefficients updated each iteration
-!>
-!> **Convergence Criteria**:
-!> - Relative tolerance on concentration changes
-!> - Maximum iteration limit to prevent infinite loops
+!> - **Gas Phase**: the gas activity (fugacity) coefficients \f$\gamma_i = RT\f$ are constant and are
+!>   computed once before the loop, for THIS gas object; the partial pressures \f$P_i=\gamma_i c_i\f$
+!>   and the total pressure are evaluated after convergence
+!> - **Non-ideal Solutions**: aqueous activity coefficients updated each iteration
 !>
 !> \note This version supports systems with aqueous + solid primary species (minerals, surface sites).
 !>       For purely aqueous systems, use compute_c2_from_c1_aq_Picard instead.
@@ -48,302 +68,180 @@
 !> \author Jordi Petchamé-Guerrero
 !> \date 2024
 !>
-!> \brief Picard iteration for computing secondary species from primary species
-!> \details Iteratively solves equilibrium speciation using mass action law with activity coefficient updates.
-!>
 !> \param[in,out] this Aqueous chemistry object containing chemical system and solution state
-!> \param[in,out] c1 Primary species concentrations [M] - updated with free site concentration if cation exchange present
-!> \param[in] c2_ig Initial guess for secondary variable activity species concentrations [M]
-!> \param[out] c2 Converged secondary variable activity species concentrations [M] (pre-allocated)
+!> \param[in] c1 Primary species concentrations [M] (must be already set in the object)
+!> \param[in] c2_ig Initial guess for secondary species concentrations [M]
+!> \param[out] c2 Converged secondary species concentrations [M] (pre-allocated, size = num_sec_species)
 !> \param[out] niter Number of Picard iterations performed until convergence or failure [-]
-!> \param[out] CV_flag Convergence flag: TRUE if converged, FALSE if max iterations exceeded
+!> \param[out] CV_flag Convergence flag: TRUE if converged, FALSE if max iterations exceeded (e.g. the
+!>             ionic strength of an absurd trial point makes the activity coefficients overflow): the
+!>             object is then left untouched and c2 holds the last (non-converged, possibly NaN)
+!>             iterate; the callers decide how to react (reject the point, fall back, or stop)
 !>
 subroutine compute_c2_from_c1_Picard(this,c1,c2_ig,c2,niter,CV_flag)
     use aqueous_chemistry_m, only: aqueous_chemistry_c
-    use vectors_m, only: inf_norm_vec_real !< Import chemistry class and linear algebra utilities
-
     implicit none !< Enforce explicit variable declarations
-    
-!> \subsection arguments Argument Declarations
-    !> \param[in,out] this
-    !> \brief Aqueous chemistry object
-    !> \details Contains:
-    !> - Chemical system definition (species, reactions, equilibrium constants)
-    !> - Current solution state (concentrations, activities, ionic strength)
-    !> - Speciation algebra matrices (S, U, logK)
-    !> - Convergence parameters (tolerances, max iterations)
+!> Arguments
     class(aqueous_chemistry_c) :: this !< Aqueous chemistry object (polymorphic)
-    
-    !> \param[in,out] c1
-    !> \brief Primary species concentrations [M]
-    !> \details Input: Known primary species concentrations
-    !> Output: Updated with computed free site concentration (last element) if cation exchange
-    real(kind=8), intent(in) :: c1(:) !< Primary concentrations [M]
-    
-    !> \param[in] c2_ig
-    !> \brief Initial guess for secondary species concentrations [M]
-    !> \details Starting point for Picard iteration. Good initial guess improves convergence.
-    !> Typical choices:
-    !> - Previous time step solution
-    !> - Ideal solution approximation (γ=1)
-    !> - Small positive values (e.g., 1e-10 M)
-    real(kind=8), intent(in) :: c2_ig(:) !< Initial guess secondary variable activity concentrations [M]
-    
-    !> \param[out] c2
-    !> \brief Converged secondary variable activity species concentrations [M]
-    !> \details Must be pre-allocated to size = num_sec_var_act_species
-    !> Contains final concentrations after Picard iteration converges
-    real(kind=8), intent(out) :: c2(:) !< Secondary variable activity concentrations [M] (pre-allocated)
-    
-    !> \param[out] niter
-    !> \brief Number of iterations performed [-]
-    !> \details Count of Picard iterations executed. Used for:
-    !> - Diagnostics and performance monitoring
-    !> - Identifying slow-converging cases
+    real(kind=8), intent(in) :: c1(:) !< Primary concentrations [M] (dim=n_p)
+    real(kind=8), intent(in) :: c2_ig(:) !< Initial guess secondary concentrations [M] (dim=n_e)
+    real(kind=8), intent(out) :: c2(:) !< Secondary concentrations [M] (pre-allocated, dim=n_e)
     integer(kind=4), intent(out) :: niter !< Number of iterations [-]
-    
-    !> \param[out] CV_flag
-    !> \brief Convergence flag
-    !> \details TRUE: Converged within tolerance and max iterations
-    !> FALSE: Failed to converge (max iterations exceeded)
     logical, intent(out) :: CV_flag !< TRUE if converges, FALSE otherwise
-    
-!> \subsection variables Local Variable Declarations
-    !> \var n_p
-    !> \brief Number of primary species (aqueous + solid) [-]
-    !> \details Total count of basis species including minerals and surface sites
-    integer(kind=4) :: n_p !< Number of primary species
-    
-    !> \var n_p_aq
-    !> \brief Number of aqueous primary species [-]
-    !> \details Count of primary species in aqueous phase only (excludes minerals, surface sites)
-    integer(kind=4) :: n_p_aq !< Number of aqueous primary species
-    
-    !> \var n_2_aq
-    !> \brief Number of secondary aqueous species (complexes) [-]
-    !> \details Count of aqueous complexes formed from primary species via equilibrium reactions
-    integer(kind=4) :: n_2_aq !< Number of secondary aqueous species
-    
-    !> \var n_v
-    !> \brief Number of variable activity species [-]
-    !> \details Total count of species with non-constant activity (not used in this version)
-    integer(kind=4) :: n_v !< Number of variable activity species
-    
-    !> \var n_e
-    !> \brief Number of equilibrium reactions (total secondary species) [-]
-    !> \details Total count including aqueous complexes + gas equilibria + surface complexes
-    integer(kind=4) :: n_e !< Number of equilibrium reactions
-    
-    !> \var n_aq
-    !> \brief Total number of aqueous species [-]
-    !> \details n_aq = n_p_aq + n_2_aq (primary + secondary aqueous)
-    integer(kind=4) :: n_aq !< Total aqueous species count
-    
-    !> \var i
-    !> \brief Loop counter [-]
-    !> \details General-purpose index for iterations
-    integer(kind=4) :: i !< Loop counter
-    
-    !> \var k
-    !> \brief Damping counter for negative free site concentration [-]
-    !> \details Incremented when free site becomes negative, used to reduce c2 guess: c2_ig/(10^k)
-    integer(kind=4) :: k !< Damping counter
-    
-    !> \var log_gamma1_old
-    !> \brief Log₁₀ of primary species activity coefficients [-]
-    !> \details Stores \f$\log_{10} \gamma_1\f$ from previous iteration for mass action law
-    !> Dimension: [n_p]
-    real(kind=8), allocatable :: log_gamma1_old(:) !< Log activity coefficients of primary species
-    
-    !> \var log_gamma2_old
-    !> \brief Log₁₀ of secondary species activity coefficients [-]
-    !> \details Stores \f$\log_{10} \gamma_2\f$ from previous iteration
-    !> Dimension: [n_e] (all equilibrium reactions)
-    real(kind=8), allocatable :: log_gamma2_old(:) !< Log activity coefficients of secondary species
-    
-    !> \var log_c2_new
-    !> \brief Log₁₀ of new secondary species concentrations [-]
-    !> \details Result of mass action law: \f$\log c_2^{new} = S \log(c_1 \gamma_1) + \log K - \log \gamma_2\f$
-    !> Dimension: [n_e]
-    real(kind=8), allocatable :: log_c2_new(:) !< Log of new secondary concentrations
-    real(kind=8), allocatable :: log_c2_old(:) !< Log of old secondary concentrations
-    !> \var c2_old
-    !> \brief Secondary species concentrations from previous iteration [M]
-    !> \details Used to check convergence: \f$\|c_2^{new} - c_2^{old}\| / \|c_2^{old}\|\f$
-    !> Dimension: [n_e]
-    real(kind=8), allocatable :: c2_old(:) !< Previous iteration secondary concentrations [M]
-    real(kind=8), allocatable :: log_gamma_vec(:) !< Log activity coefficients for all species
-    integer(kind=4) :: n_sp !< Number of species
-    integer(kind=4) :: n_gas_eq !< Number of gas equilibrium reactions
-    integer(kind=4) :: n_gas_eq_cst_act !< Number of gas equilibrium reactions with constant activity
-    integer(kind=4) :: n_gas_eq_var_act !< Number of gas equilibrium reactions with variable activity
-!****************************************************************************************************************************************************
-!> \subsection preprocessing Pre-processing: Initialize dimensions and arrays
-    !> Extract problem dimensions from speciation algebra object
-    n_p=this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species     !< Total primary species
-    n_p_aq=this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species !< Aqueous primary species
-    n_e=this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions      !< Equilibrium reactions
-    n_2_aq=this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species !< Secondary aqueous species
-    n_aq=this%aq_phase%num_species             !< Total aqueous species
-    n_sp=this%solid_chemistry%reactive_zone%speciation_alg%num_species         !< Total solid species
-    n_gas_eq=this%solid_chemistry%reactive_zone%gas_phase%num_gases_eq     !< Number of gas equilibrium reactions
-    n_gas_eq_cst_act=this%solid_chemistry%reactive_zone%gas_phase%num_gases_eq     !< Number of gas equilibrium reactions
-    n_gas_eq_var_act=this%solid_chemistry%reactive_zone%gas_phase%num_gases_eq     !< Number of gas equilibrium reactions
-    !> Allocate working arrays for Picard iteration
-    allocate(log_gamma1_old(n_p),log_gamma_vec(n_sp),log_c2_new(n_e),c2_old(n_e),log_c2_old(n_e),log_gamma2_old(n_e))
-    
-    log_gamma1_old=this%get_log_gamma1()  !< Initialize primary activity coefficients to zero (ideal approximation initially)
-    log_gamma2_old=this%get_log_gamma2() !< Get initial secondary activity coefficients from chemistry object
-    !log_gamma_vec=this%get_log_gamma() !< Get initial secondary activity coefficients from chemistry object
-    c2_old=c2_ig        !< Initialize with user-provided initial guess
+!> Local variables
+    integer(kind=4) :: n_p,n_p_aq,n_2_aq,n_e,n_aq,n_diss,niter_max,i,j,k,m
+    real(kind=8) :: rel_tol,log_rel_tol_lin,rel_change,log_rel_change,A_DH,I_fixed,ionic_str,lg_j
+    real(kind=8), allocatable :: log_gamma1(:),log_gamma2(:),log_c2_cst(:),log_c2_new(:),log_c2_old(:),c2_old(:)
+    real(kind=8), allocatable :: lg(:) !> log10 activity coefficients of the aqueous species at the current ionic strength, concentration order (n_aq)
+    real(kind=8), allocatable :: coef_A(:),coef_beta(:),coef_gamma(:) !> per dissolved solid: -alpha*A*z^2, beta, gamma (n_diss)
+    integer(kind=4), allocatable :: ind_diss(:) !> concentration index of each dissolved solid (n_diss)
+    integer(kind=4), allocatable :: ind_prim_aq(:) !> concentration index of each aqueous primary species (n_p_aq)
+    integer(kind=4), allocatable :: ind_sec_aq(:) !> concentration index of each aqueous secondary species, c2 order (n_2_aq)
+    real(kind=8), allocatable :: z2_sec(:) !> squared valence of each aqueous secondary species (n_2_aq)
+    logical, allocatable :: is_sec(:) !> concentration index belongs to an aqueous secondary species (n_aq)
+!> Pre-process
+    associate(sa => this%solid_chemistry%reactive_zone%speciation_alg, Se => this%solid_chemistry%reactive_zone%speciation_alg%Se_1_star, &
+              aq => this%aq_phase)
+    n_p=sa%num_prim_species !< Total primary species
+    n_p_aq=sa%num_aq_prim_species !< Aqueous primary species
+    n_e=sa%num_eq_reactions !< Equilibrium reactions (= secondary species)
+    n_2_aq=sa%num_sec_aq_species !< Secondary aqueous species
+    n_aq=aq%num_species !< Total aqueous species
+    n_diss=n_aq-aq%wat_flag !< Dissolved solids (water excluded)
+    rel_tol=this%solid_chemistry%reactive_zone%CV_params%rel_tol
+    !> log_rel_tol is stored as a base-10 logarithm by convention (e.g. -14 = 1e-14), matching the
+    !> *_CV_params.dat files and the abs_tol/log_abs_tol pairing: convert it to a linear threshold
+    log_rel_tol_lin=1d1**this%solid_chemistry%reactive_zone%CV_params%log_rel_tol
+    niter_max=this%solid_chemistry%reactive_zone%CV_params%niter_max
+    !> Gas activity (fugacity) coefficients gamma_i = R*T are constant throughout the iteration, so
+    !> they are computed once here, before get_log_gamma2 reads them. They must be set for THIS gas
+    !> object (incl. per-cell target gases) because compute_partial_pressures reads them after convergence.
+    if (associated(this%gas_chemistry)) call this%gas_chemistry%compute_log_act_coeffs_gases()
+    !> Constant part of the mass action law (fixed along the iteration):
+    !>   Se_1_star*log10(c1) + logK_tilde
+    !>   + Se_1_star(:,non-aqueous primaries)*log gamma1(non-aqueous primaries)
+    !>   - log gamma2(non-aqueous secondaries)
+    log_gamma1=this%get_log_gamma1()
+    log_gamma2=this%get_log_gamma2()
+    allocate(log_c2_cst(n_e),log_c2_new(n_e),log_c2_old(n_e),c2_old(n_e))
+    log_c2_cst=matmul(Se,log10(c1))+this%logK_tilde
+    if (n_p>n_p_aq) log_c2_cst=log_c2_cst+matmul(Se(:,n_p_aq+1:n_p),log_gamma1(n_p_aq+1:n_p))
+    if (n_e>n_2_aq) log_c2_cst(n_2_aq+1:n_e)=log_c2_cst(n_2_aq+1:n_e)-log_gamma2(n_2_aq+1:n_e)
+    !> Concentration indices of the aqueous primary and secondary species (the latter in c2 order, as
+    !> set_conc_sec_species scatters them) and the squared valences of the secondaries, the only ionic
+    !> strength contributions that change along the iteration
+    allocate(ind_prim_aq(n_p_aq),ind_sec_aq(n_2_aq),z2_sec(n_2_aq),is_sec(n_aq),lg(n_aq))
+    ind_prim_aq=this%ind_prim_species(1:n_p_aq)
+    ind_sec_aq=this%ind_sec_species(1:n_2_aq)
+    is_sec=.false.
+    do i=1,n_2_aq
+        m=ind_sec_aq(i)
+        is_sec(m)=.true.
+        z2_sec(i)=dble(aq%aq_species(this%indices_aq_phase(m))%valence**2)
+    end do
+    !> Fixed part of the ionic strength: the aqueous species that are not secondary (primaries; each
+    !> concentration paired with the valence of ITS species through the water -> aqueous phase index map)
+    I_fixed=0d0
+    do m=1,n_aq
+        if (is_sec(m)) cycle
+        I_fixed=I_fixed+this%concentrations(m)*dble(aq%aq_species(this%indices_aq_phase(m))%valence**2)
+    end do
+    I_fixed=0.5d0*I_fixed
+    !> Activity coefficient model parameters of the dissolved solids, gathered once (water excluded:
+    !> its log gamma is kept as stored in the object, like compute_log_act_coeffs_aq_chem does).
+    !> beta and gamma are evaluated with THIS water's Debye-Hückel A and B (temperature dependent).
+    allocate(ind_diss(n_diss),coef_A(n_diss),coef_beta(n_diss),coef_gamma(n_diss))
+    A_DH=this%params_aq_sol%A
+    do i=1,n_diss
+        k=aq%ind_diss_solids(i)
+        ind_diss(i)=this%indices_aq_species(k)
+        coef_A(i)=-(aq%aq_species(k)%params_act_coeff%alpha*(A_DH*dble(aq%aq_species(k)%valence**2)))
+        coef_beta(i)=aq%aq_species(k)%params_act_coeff%get_beta(this%params_aq_sol)
+        coef_gamma(i)=aq%aq_species(k)%params_act_coeff%get_gamma(this%params_aq_sol)
+    end do
+    lg=this%log_act_coeffs !> non-dissolved-solid entries (water) stay as stored
+!> Process: Picard iteration on the aqueous activity coefficients
+    c2_old=c2_ig !< Initialize with user-provided initial guess
     log_c2_old=log10(c2_old) !< Log of initial guess for convergence check
-    niter=0             !< Initialize iteration counter to zero
-    CV_flag=.false.     !< Initialize convergence flag to FALSE (not converged yet)
-    !call this%compute_molalities() !< (Commented) Convert to molalities for activity calculations
-    k=0                 !< Initialize damping counter to zero
-    
-!****************************************************************************************************************************************************
-!> \subsection picard_loop Picard Iteration Loop
-!> Iteratively solve for secondary species concentrations until convergence or max iterations
-    do                  !< Start infinite loop with exit conditions inside
-        niter=niter+1   !< Increment iteration counter
-        
-        !> \subsection update_ionic_strength Update ionic strength and activity coefficients
-        !call this%compute_molalities() !< (Commented) Convert molarities to molalities [mol/kg H₂O]
-        call this%compute_ionic_strength() !< Compute ionic strength: I = 0.5 * Σ(c_i * z_i²)
-        !call this%compute_salinity()      !< (Commented) Compute salinity from TDS
-        !call this%compute_molarities()    !< (Commented) Convert back to molarities
-        
-    !> \subsection compute_activity_coeffs Compute activity coefficients for all species
-        !> Compute log₁₀(γ) for aqueous species using Debye-Hückel, Davies, or Pitzer equation
-        call this%compute_log_act_coeffs_aq_chem()
-        
-        !> Update activities for all species: a_i = γ_i * c_i
-        call this%compute_activities() !< Compute activities (aqueous + solid phases)
-        
-        !> Compute water activity coefficient via Raoult's law approximation
-        call this%compute_log_act_coeff_wat() !< log γ_w ≈ -0.018 * Σm_i
-        
-        !> Extract activity coefficients for mass action law
-        log_gamma1_old(1:n_p_aq)=this%log_act_coeffs(1:n_p_aq)            !< Aqueous primary γ₁
-        log_gamma2_old(1:n_2_aq)=this%log_act_coeffs(n_p_aq+1:n_aq)       !< Aqueous secondary γ₂
-        
-        !> If gas phase present, compute gas activity coefficients (fugacity coefficients)
-        ! do i=1,n_gas_eq_cst_act
-        !     !call this%gas_chemistry%compute_log_act_coeffs_gas(i)        !< Compute log φ_i for gases
-        !     log_gamma_vec(n_e-n_gas_eq_cst_act+i)=this%gas_chemistry%log_act_coeffs(i) !< Store gas coefficients
-        ! end do
-        ! do i=1,n_gas_eq_var_act
-        !     !call this%gas_chemistry%compute_log_act_coeffs_gas(i)        !< Compute log φ_i for gases
-        !     log_gamma_vec(n_e-n_gas_eq+i)=this%gas_chemistry%log_act_coeffs(n_gas_eq_cst_act+i) !< Store gas coefficients
-        ! end do
-
-    !> \subsection compute_free_site Compute free site concentration for cation exchange
-        !> Free site concentration: X⁻ = 1 - Σ(X-M⁺) where X-M⁺ are occupied sites
-        !> Last primary species (c1(n_p)) is the free cation exchange site
-        ! c1(n_p)=1d0-sum(this%solid_chemistry%activities(this%solid_chemistry%num_solids-&
-        !     this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl+2:this%solid_chemistry%num_solids))
-                                                                            !< Free site = 1 - Σ(surface complexes)
-        
-        !> \subsection handle_negative_free_site Handle negative free site (non-physical situation)
-        if (c1(n_p)<0d0) then       !< Free site concentration became negative (unphysical)
-            k=k+1                   !< Increment damping counter
-            !> Reduce initial guess by factor of 10^k to recover physically valid solution
-            call this%set_conc_sec_species(c2_ig/(10**k)) !< Damped secondary concentrations
-        else                        !< Free site is positive (physical solution)
-            
-        !> \subsection mass_action_law Apply mass action law to compute secondary concentrations
-            !> Mass action law in matrix form:
-            !> log c₂ = Se₁* · (log γ₁ + log c₁) + log K̃ - log γ₂
-            !> Where:
-            !> - Se₁* is modified stoichiometric matrix [n_e × n_p]
-            !> - K̃ are modified equilibrium constants
-            log_c2_new=matmul(this%solid_chemistry%reactive_zone%speciation_alg%Se_1_star,log_gamma1_old+log10(c1))+&
-                this%solid_chemistry%reactive_zone%speciation_alg%logK_tilde-log_gamma2_old
-                                                                            !< Matrix-vector multiply + constants
-            
-            c2=10**log_c2_new       !< Convert from log space to linear: c₂ = 10^(log c₂)
-            
-        !> \subsection update_secondary Update secondary species concentrations in chemistry object
-            call this%set_conc_sec_species(c2) !< Update concentrations array with new c₂ values
-            !if (associated(this%gas_chemistry)) then !< (Commented) Gas phase handling
-            !    !call this%gas_chemistry%update_conc_gases(c2(n_2_aq+1:n_e)*this%volume)
-            !    call this%gas_chemistry%compute_vol_gas_species_conc()
-            !end if
-            
-        !> \subsection check_convergence Check convergence criterion
-             !> Relative convergence test: ||Δc₂/c₂||_∞ < tol
-             if (inf_norm_vec_real((c2-c2_old)/c2_old)<this%solid_chemistry%reactive_zone%CV_params%rel_tol .and. &
-                 inf_norm_vec_real((log_c2_new-log_c2_old)/log_c2_old)<this%solid_chemistry%reactive_zone%CV_params%log_rel_tol)then
-                CV_flag=.true.      !< Set convergence flag to TRUE
-                exit                !< Exit Picard loop - converged successfully
-                
-            !> \subsection check_max_iter Check for maximum iterations exceeded
-            else if (niter==this%solid_chemistry%reactive_zone%CV_params%niter_max) then
-                print *, inf_norm_vec_real((c2-c2_old)/c2_old) !< Print final error for diagnostics
-                print *, inf_norm_vec_real((log_c2_new-log_c2_old)/log_c2_old) !< Print final error for diagnostics
-                error stop "Too many Picard iterations in speciation" !< Fatal error - did not converge
-                
-            !> \subsection continue_iteration Continue to next iteration
-            else
-                c2_old=c2           !< Update c₂_old for next iteration convergence check
-                log_c2_old=log_c2_new !< Update log c₂_old for next iteration
+    ionic_str=I_fixed+0.5d0*dot_product(z2_sec,c2_old(1:n_2_aq)) !> ionic strength of the initial guess
+    call log_act_coeffs_diss_solids(ionic_str)
+    niter=0 !< Initialize iteration counter to zero
+    CV_flag=.false. !< Initialize convergence flag to FALSE (not converged yet)
+    do
+        niter=niter+1 !< Increment iteration counter
+    !> Mass action law: constant part + aqueous activity coefficient corrections (aqueous primary
+    !> columns of Se_1_star, then the aqueous secondaries' own gamma)
+        log_c2_new=log_c2_cst
+        do j=1,n_p_aq
+            lg_j=lg(ind_prim_aq(j))
+            if (lg_j/=0d0) log_c2_new=log_c2_new+Se(:,j)*lg_j
+        end do
+        do i=1,n_2_aq
+            log_c2_new(i)=log_c2_new(i)-lg(ind_sec_aq(i))
+        end do
+        c2=1d1**log_c2_new !< Convert from log space to linear: c2 = 10^(log c2)
+    !> Convergence: relative change of the concentrations AND of their logarithms (the latter against
+    !> the linear threshold of log_rel_tol). A NaN iterate (overflow) is never accepted as converged.
+        rel_change=0d0
+        log_rel_change=0d0
+        do i=1,n_e
+            if (c2(i)/=c2(i)) then
+                rel_change=huge(1d0)
+                exit
             end if
-        end if                      !< End of free site positive branch
-    end do                          !< End Picard iteration loop
-    
-!****************************************************************************************************************************************************
-!> \subsection postprocessing Post-processing: Final property calculations
-!> After convergence, recompute all solution properties with final concentrations
-    
-    !call this%compute_molalities() !< (Commented) Convert molarities to molalities for final ionic strength
-    
-    !> Compute final ionic strength with converged concentrations
-    call this%compute_ionic_strength() !< I = 0.5 * Σ(c_i * z_i²) with final c_i
-    
-    !> Recompute activity coefficients with final ionic strength
-    call this%compute_log_act_coeffs_aq_chem()
-                                                        !< Final log γ_i using Debye-Hückel at final I
-    
-    !> Compute final activities for all species
-    call this%compute_activities()  !< Final a_i = γ_i * c_i for aqueous and solid phases
-    
-    !> Legacy code for free site activity coefficient calculation (commented out)
-    !> This would compute activity coefficient of free cation exchange site
-    !if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl>0) then
-    !    if (ASSOCIATED(this%solid_chemistry%mineral_zone)) then
-    !        this%solid_chemistry%activities(this%solid_chemistry%mineral_zone%num_minerals+1)=1d0-SUM(this%solid_chemistry%activities(this%solid_chemistry%mineral_zone%num_minerals+2:this%solid_chemistry%mineral_zone%num_minerals+this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl))
-    !        !this%solid_chemistry%log_act_coeffs(this%solid_chemistry%mineral_zone%num_minerals+1)=LOG10(this%solid_chemistry%activities(this%solid_chemistry%mineral_zone%num_minerals+1))-LOG10(this%solid_chemistry%concentrations(this%solid_chemistry%mineral_zone%num_minerals+1))
-    !    else
-    !        this%solid_chemistry%activities(this%solid_chemistry%reactive_zone%num_minerals+1)=1d0-SUM(this%solid_chemistry%activities(this%solid_chemistry%reactive_zone%num_minerals+2:this%solid_chemistry%reactive_zone%num_solids))
-    !        !this%solid_chemistry%log_act_coeffs(this%solid_chemistry%reactive_zone%num_minerals+1)=LOG10(this%solid_chemistry%activities(this%solid_chemistry%reactive_zone%num_minerals+1))-LOG10(this%solid_chemistry%concentrations(this%solid_chemistry%reactive_zone%num_minerals+1))
-    !    end if
-    !end if
-    
-    !> Compute final water activity coefficient
-    call this%compute_log_act_coeff_wat() !< log γ_w via Raoult's law: γ_w ≈ exp(-0.018 * Σm_i)
-    
-    !> Compute final salinity (total dissolved solids)
-    call this%compute_salinity()    !< S = TDS / (1 + TDS) where TDS = Σ(c_i * MW_i)
-    
-    !call this%compute_molarities() !< (Commented) Convert back from molalities to molarities
-    
-!> \subsection gas_phase_final Final gas phase calculations (if present)
-    if (associated(this%gas_chemistry)) then !< Check if gas chemistry is defined
-        !call this%gas_chemistry%update_conc_gases(c2v(n_v2_aq+1:n_e)*this%volume)
-        !< (Commented) Update gas moles from concentrations
-        
-        !> Compute final gas activity coefficients (fugacity coefficients)
-        call this%gas_chemistry%compute_log_act_coeffs_gases() !< log φ_i for non-ideal gas mixtures
-        
-        !> Compute final partial pressures from concentrations
-        call this%gas_chemistry%compute_partial_pressures() !< P_i = x_i * P_total via Dalton's law
-        
-        !> Compute total gas pressure
-        call this%gas_chemistry%compute_pressure() !< P_total = Σ P_i
-        
-        !> Compute total gas volume from concentrations and equation of state
-        call this%gas_chemistry%compute_vol_gas_species_conc() !< V_gas via ideal or real gas law
+            rel_change=max(rel_change,abs(c2(i)-c2_old(i))/abs(c2_old(i)))
+            log_rel_change=max(log_rel_change,abs(log_c2_new(i)-log_c2_old(i))/abs(log_c2_old(i)))
+        end do
+    !> Ionic strength and aqueous activity coefficients at the new iterate: next iteration's input,
+    !> or the converged state stored in the object below
+        ionic_str=I_fixed+0.5d0*dot_product(z2_sec,c2(1:n_2_aq))
+        call log_act_coeffs_diss_solids(ionic_str)
+        if (rel_change<rel_tol .and. log_rel_change<log_rel_tol_lin) then
+            CV_flag=.true. !< Converged successfully
+            exit
+        else if (niter==niter_max) then
+            exit !> no CV: leave with CV_flag = .false. (the caller decides; the object is not updated)
+        end if
+        c2_old=c2 !< Update for next iteration convergence check
+        log_c2_old=log_c2_new
+    end do
+    end associate
+!> Post-process: state consistent with the converged c2 (skipped when the fixed point failed, so that
+!> the object keeps the state of the last converged speciation; c2 then holds the last, possibly
+!> NaN, iterate)
+    if (CV_flag) then
+    this%ionic_strength=ionic_str
+    do i=1,n_diss
+        this%log_act_coeffs(ind_diss(i))=lg(ind_diss(i)) !> log_10 activity coefficients of the dissolved solids at the converged ionic strength
+    end do
+    call this%set_conc_sec_species(c2) !> secondary concentrations in the aqueous, solid and gas chemistry objects
+    call this%compute_activities() !< Final a_i = gamma_i * c_i for aqueous and solid phases
+    call this%compute_pH()
+    call this%compute_log_act_coeff_wat() !< log gamma_w via Raoult's law
+    call this%compute_salinity() !< S = TDS / (1 + TDS) where TDS = sum(c_i * MW_i)
+    call this%compute_alkalinity() !< Final alkalinity calculation
+!> Final gas phase calculations (if present)
+    if (associated(this%gas_chemistry)) then
+        !> Partial pressures directly from the mass-action gas concentrations, P_i = gamma_i*c_i with
+        !> gamma_i = R*T (computed once before the loop). Since logK_tilde uses the UNMODIFIED
+        !> equilibrium constant (no partial-pressure fold), the mass-action c_i is the physical
+        !> molarity (n/V) and P_i the correct equilibrium partial pressure.
+        call this%gas_chemistry%compute_partial_pressures() !< P_i = gamma_i * c_i
+        call this%gas_chemistry%compute_pressure() !< P_total = sum P_i
     end if
-    
- end subroutine !< End compute_c2_from_c1_Picard
+    end if
+    deallocate(log_gamma1,log_gamma2,log_c2_cst,log_c2_new,log_c2_old,c2_old,lg,coef_A,coef_beta,coef_gamma,ind_diss, &
+        ind_prim_aq,ind_sec_aq,z2_sec,is_sec)
+contains
+    !> log10 activity coefficients of the dissolved solids at ionic strength I (stored in lg by
+    !> concentration index): -alpha*A*z^2*sqrt(I)/(1+beta*sqrt(I)) + gamma*I, as compute_log_act_coeffs_aq_phase
+    subroutine log_act_coeffs_diss_solids(I)
+        real(kind=8), intent(in) :: I
+        real(kind=8) :: sqrt_I
+        integer(kind=4) :: ii
+        sqrt_I=sqrt(I)
+        do ii=1,n_diss
+            lg(ind_diss(ii))=coef_A(ii)*sqrt_I/(1d0+coef_beta(ii)*sqrt_I)+coef_gamma(ii)*I
+        end do
+    end subroutine log_act_coeffs_diss_solids
+end subroutine compute_c2_from_c1_Picard

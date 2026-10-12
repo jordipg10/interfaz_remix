@@ -13,10 +13,8 @@
 !>   - File I/O for time discretization parameters
 !>
 !>   Integration Methods (int_method):
-!>   - 1: Euler Explicit (forward Euler, 1st order, conditionally stable)
-!>   - 2: Euler Implicit (backward Euler, 1st order, unconditionally stable)
-!>   - 3: Crank-Nicolson (trapezoidal rule, 2nd order, unconditionally stable)
-!>   - 4: RKF45 (Runge-Kutta-Fehlberg 4(5), adaptive, embedded error estimate)
+!>   - 1: Euler explicit (theta_t = 0)
+!>   - 2: Euler implicit (theta_t > 0)
 !>
 !>   Class Hierarchy:
 !>   ```
@@ -50,12 +48,14 @@ module time_discr_m
     !>   - Final_time: Total simulation time
     !>   - Final_time_D: Dimensionless final time [-]
     !>   - Num_time: Number of time steps [-]
-    !>   - int_method: Integration method ID (1-4)
+    !>   - int_method_tpt: Transport integration method (1=explicit, 2=implicit)
+    !>   - int_method_chem: Reactions integration method (1=explicit, 2=implicit)
     !>
     !>   Implemented Procedures:
     !>   - set_Final_time: Set final simulation time
     !>   - set_Num_time: Set number of time steps
-    !>   - set_int_method: Set integration method
+    !>   - set_int_method_tpt: Set transport integration method
+    !>   - set_int_method_chem: Set reactions integration method
     !>   - compute_Final_time: Calculate final time from time steps
     !>   - compute_Final_time_D: Calculate dimensionless final time
     !>   - compute_Num_time: Calculate number of time steps
@@ -76,13 +76,15 @@ module time_discr_m
         real(kind=8) :: Final_time      !< Final simulation time
         real(kind=8) :: Final_time_D    !< Dimensionless final time = t_f / t_c [-]
         integer(kind=4) :: Num_time     !< Number of time steps [-]
-        integer(kind=4) :: int_method   !< Integration method: 1=EE, 2=EfI, 3=CN, 4=RKF45
+        integer(kind=4) :: int_method_tpt   !< Transport integration method: 1=Euler explicit (theta_t=0), 2=Euler implicit (theta_t>0)
+        integer(kind=4) :: int_method_chem  !< Reactions integration method: 1=Euler explicit (theta_r=0), 2=Euler implicit (theta_r>0)
     contains
         procedure :: set_theta_t                           !< Set time integration weighting factor for transport
         procedure :: set_theta_r                           !< Set time integration weighting factor for reactions
         procedure :: set_Final_time                          !< Set final time value
         procedure :: set_Num_time                            !< Set number of time steps
-        procedure :: set_int_method                          !< Set integration method
+        procedure :: set_int_method_tpt                      !< Set transport integration method
+        procedure :: set_int_method_chem                     !< Set reactions integration method
         procedure :: compute_Final_time                      !< Compute final time from steps
         procedure :: compute_Final_time_D                    !< Compute dimensionless final time
         procedure :: compute_Num_time                        !< Compute number of steps
@@ -320,11 +322,11 @@ module time_discr_m
             this%theta_r = theta
         end subroutine
         
-        !> \brief Set time integration method
+        !> \brief Set transport time integration method
         !> \param[in,out] this       Time discretization object to modify
-        !> \param[in]     int_method Integration method ID (1-4)
+        !> \param[in]     int_method Transport integration method ID (1-4)
         !> \details 
-        !>   Sets the numerical integration method for time stepping:
+        !>   Sets the numerical integration method for transport time stepping:
         !>   - 1: Euler Explicit (forward Euler)
         !>   - 2: Euler Implicit (backward Euler)
         !>   - 3: Crank-Nicolson (trapezoidal)
@@ -335,15 +337,38 @@ module time_discr_m
         !>
         !>   Example:
         !>   \code{.f90}
-        !>   call time_discr%set_int_method(3)  ! Crank-Nicolson
+        !>   call time_discr%set_int_method_tpt(2)  ! Euler implicit
         !>   \endcode
-        subroutine set_int_method(this,int_method)
+        subroutine set_int_method_tpt(this,int_method)
             implicit none
             class(time_discr_c) :: this                     !< Time discretization object (modified)
-            integer(kind=4), intent(in) :: int_method       !< Integration method ID
+            integer(kind=4), intent(in) :: int_method       !< Transport integration method ID
             
             if (int_method > 4 .or. int_method < 1) error stop "Integration method not implemented yet"  !< Validate range [1,4]
-            this%int_method = int_method                    !< Assign method to object member
+            this%int_method_tpt = int_method                !< Assign method to object member
+        end subroutine
+        
+        !> \brief Set reactions time integration method
+        !> \param[in,out] this       Time discretization object to modify
+        !> \param[in]     int_method Reactions integration method ID (1=explicit, 2=implicit)
+        !> \details 
+        !>   Sets the numerical integration method for chemical reactions:
+        !>   - 1: Euler Explicit (theta_r = 0)
+        !>   - 2: Euler Implicit (theta_r > 0)
+        !>
+        !>   Validates that int_method ∈ [1,2].
+        !>
+        !>   Example:
+        !>   \code{.f90}
+        !>   call time_discr%set_int_method_chem(2)  ! Euler implicit
+        !>   \endcode
+        subroutine set_int_method_chem(this,int_method)
+            implicit none
+            class(time_discr_c) :: this                     !< Time discretization object (modified)
+            integer(kind=4), intent(in) :: int_method       !< Reactions integration method ID
+            
+            if (int_method > 2 .or. int_method < 1) error stop "Reactions integration method must be 1 (explicit) or 2 (implicit)"  !< Validate range [1,2]
+            this%int_method_chem = int_method               !< Assign method to object member
         end subroutine
         
         !> \brief Compute final time from time steps
@@ -518,15 +543,20 @@ module time_discr_m
                     read(1,*) theta_r_read                      !< Read time weighting factor for reactions
                     call this%set_theta_r(theta_r_read)
                     
-                    !> Derive int_method from theta_t
+                    !> Derive the transport int_method from theta_t and the reactions int_method_chem
+                    !> from theta_r, each as a binary explicit/implicit flag: theta=0 -> explicit (1),
+                    !> any theta>0 -> implicit (2). No Crank-Nicolson / fully-implicit distinction.
                     if (theta_t_read==0d0) then
-                        call this%set_int_method(1)             !< Euler explicit
-                    else if (theta_t_read==1d0) then
-                        call this%set_int_method(2)             !< Euler fully implicit
-                    else if (theta_t_read==5d-1) then
-                        call this%set_int_method(3)             !< Crank-Nicolson
+                        call this%set_int_method_tpt(1)         !< transport Euler explicit (theta_t=0)
+                    else if (theta_t_read>0d0 .and. theta_t_read<=1d0) then
+                        call this%set_int_method_tpt(2)         !< transport Euler implicit (theta_t>0)
                     else
-                        error stop "Theta must be 0, 0.5, or 1"
+                        error stop "Theta must be between 0 and 1"
+                    end if
+                    if (theta_r_read==0d0) then
+                        call this%set_int_method_chem(1)        !< reactions Euler explicit (theta_r=0)
+                    else
+                        call this%set_int_method_chem(2)        !< reactions Euler implicit (theta_r>0)
                     end if
                     
                     read(1,*) this%Delta_t                      !< Read time step from line 3
@@ -861,7 +891,13 @@ module time_discr_m
                     else
                         error stop "Integration method not implemented"
                     end if
-                    this%int_method = int_method_chem_reacts
+                    !> Store the reactions integration method as a binary flag from theta_r; leave the
+                    !> transport int_method untouched (they are now separate attributes).
+                    if (this%theta_r==0d0) then
+                        call this%set_int_method_chem(1)
+                    else
+                        call this%set_int_method_chem(2)
+                    end if
                     read(unit,*) this%Delta_t
                     if (this%Delta_t < 0d0) error stop "Time step must be positive"
                     read(unit,*) this%Num_time

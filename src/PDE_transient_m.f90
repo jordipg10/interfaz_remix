@@ -73,8 +73,8 @@ module PDE_transient_m
     !>   
     !>   Water Mixing Approach (WMA):
     !>   - mixing_ratios_conc: Concentrations of mixing waters
-    !>   - mixing_ratios_R: Reaction amounts for mixing waters
-    !>   - mix_conc_indices: Connectivity for water mixing
+    !>   - mixing_ratios_R: Reaction amounts for mixing waters (same layout as mixing_ratios_conc)
+    !>   - mix_conc_indices: Connectivity for water mixing (shared by both mixing ratio sets)
     !>   - Enables operator splitting: Transport → Reaction → Transport
     !>   - Preserves mass balance exactly
     !>   
@@ -93,10 +93,9 @@ module PDE_transient_m
         real(kind=8), allocatable :: A_mat_inv(:,:)                           !< Inverse of A_mat (for implicit methods)
         real(kind=8), allocatable :: f_vec(:)                                 !< Independent term: f = Y*c_rech + Z*c_bd
         type(real_array_c) :: mixing_ratios_conc                              !< WMA mixing ratios for concentrations (any dimension)
-        type(real_array_c) :: mixing_ratios_R                                !< WMA mixing ratios for reaction amounts
-        type(real_array_c) :: mixing_ratios_R_init                           !< WMA initial mixing ratios for reactions
-        type(int_array_c) :: mix_conc_indices                            !< Indices of target waters mixing with each target
-        type(int_array_c) :: mix_react_indices                        !< Indices of domain target waters only
+        type(real_array_c) :: mixing_ratios_R                                !< WMA mixing ratios for reaction amounts, position-aligned with mixing_ratios_conc / mix_conc_indices (0 for the waters that mix concentrations but not reaction rates: boundary and recharge waters)
+        type(real_array_c) :: mixing_ratios_R_init                           !< WMA initial mixing ratios for reactions (same layout)
+        type(int_array_c) :: mix_conc_indices                            !< Indices of the mixing waters of each target: [self, upstream..., downstream..., num_up, num_down] (externals included), shared by mixing_ratios_conc and mixing_ratios_R
         real(kind=8), allocatable :: mixing_ratios_mat_conc_mesh(:,:)          !< WMA mesh mixing ratios matrix (implicit Euler)
         real(kind=8), allocatable :: mixing_ratios_mat_conc_bd(:,:)           !< WMA boundary mixing ratios matrix (implicit Euler)
         real(kind=8), allocatable :: bd_mat_prev(:)          !< boundary matrix at previous time step (for time-dependent BCs)
@@ -104,7 +103,6 @@ module PDE_transient_m
     contains
     !> Set procedures
         procedure :: set_time_discr                                   !< Set time discretization
-        procedure :: set_mix_react_indices                                 !< [COMMENTED] Set characteristic parameters
         procedure :: set_Lagr_flag
         procedure :: is_initialized                                   !< Check if object is fully initialized
     !> Allocate procedures
@@ -122,6 +120,8 @@ module PDE_transient_m
         procedure(allocate_X_mat), public, deferred :: allocate_X_mat !< Allocate WMA domain matrix
         procedure :: allocate_mixing_ratios_mat_conc_bd               !< Allocate WMA boundary matrix
         procedure :: allocate_mix_conc_indices                   !< Allocate WMA water indices
+        procedure :: write_mixing_ratios_conc_rows               !< Write dense concentration mixing ratios (lambdas) by rows to file
+        procedure :: write_mixing_ratios_R_rows                  !< Write dense reaction mixing ratios (A^{-1}) by rows to file
     !> Computation procedures
         procedure(compute_F_mat_PDE), public, deferred :: compute_F_mat_PDE   !< Compute storage matrix (deferred)
         !procedure :: compute_E_mat                                    !< Compute external matrix
@@ -691,15 +691,58 @@ module PDE_transient_m
             class(PDE_transient_c) :: this
             integer(kind=4) :: i
             call this%mix_conc_indices%allocate_array(this%mixing_ratios_conc%num_cols)
-            !call this%mix_react_indices%allocate_array(this%mixing_ratios_conc%num_cols-&
-            !    2*this%spatial_discr%targets_flag)
             do i=1,this%mix_conc_indices%num_cols
                 call this%mix_conc_indices%cols(i)%allocate_vector(this%mixing_ratios_conc%cols(i)%dim+2) !> +2 for number of upstream and downstream waters, respectively
-                !call this%mix_react_indices%cols(i)%allocate_vector(this%mix_react_indices%num_cols+2)
             end do
-            ! do i=1,this%mix_react_indices%num_cols
-            !     call this%mix_react_indices%cols(i)%allocate_vector(this%mix_react_indices%num_cols+2)
-            ! end do
+        end subroutine
+
+        !> \brief Write dense concentration mixing ratios (lambdas) by rows to a file
+        !> \details Each row corresponds to one target water. The first column is the
+        !>   inflow boundary lambda, columns 2..N+1 are the domain target lambdas
+        !>   (contribution of each domain target water), and the last column (N+2) is the
+        !>   outflow boundary lambda.
+        !> \param[in] filename Full path of the output file
+        subroutine write_mixing_ratios_conc_rows(this,filename)
+            implicit none
+            class(PDE_transient_c) :: this
+            character(len=*), intent(in) :: filename
+            integer(kind=4) :: i,j,n,unit
+            n=this%spatial_discr%Num_targets
+            if (.not. allocated(this%mixing_ratios_mat_conc_mesh) .or. &
+                .not. allocated(this%mixing_ratios_mat_conc_bd)) then
+                print *, "WARNING: write_mixing_ratios_conc_rows: dense mixing ratio matrices not allocated, skipping output"
+                return
+            end if
+            open(newunit=unit,file=filename,status='replace',action='write')
+            do i=1,n
+                write(unit,'(*(es23.15,1x))') this%mixing_ratios_mat_conc_bd(i,1), &
+                    (this%mixing_ratios_mat_conc_mesh(j,i), j=1,n), &
+                    this%mixing_ratios_mat_conc_bd(i,2)
+            end do
+            close(unit)
+        end subroutine
+
+        !> \brief Write dense reaction mixing ratios by rows to a file
+        !> \details Row i = reaction mixing ratios of target water i over the N domain target
+        !>   waters (column j = contribution of target j's reaction amounts), i.e. row i of
+        !>   A^{-1}, which is what mixing_ratios_R%cols(i) stores. Boundary waters do not react,
+        !>   so there are no boundary columns.
+        !> \param[in] filename Full path of the output file
+        subroutine write_mixing_ratios_R_rows(this,filename)
+            implicit none
+            class(PDE_transient_c) :: this
+            character(len=*), intent(in) :: filename
+            integer(kind=4) :: i,n,unit
+            n=this%spatial_discr%Num_targets
+            if (.not. allocated(this%A_mat_inv)) then
+                print *, "WARNING: write_mixing_ratios_R_rows: A_mat_inv not allocated, skipping output"
+                return
+            end if
+            open(newunit=unit,file=filename,status='replace',action='write')
+            do i=1,n
+                write(unit,'(*(es23.15,1x))') this%A_mat_inv(i,1:n)
+            end do
+            close(unit)
         end subroutine
 
         subroutine compute_X_mat_1D(this,theta,E_mat)
@@ -835,62 +878,40 @@ module PDE_transient_m
             !this%Y_mat%super=(1d0-theta)*E_mat%super
         end subroutine
 
+        !> Option-4 lumped reaction mixing ratio of every target: self + downstream reaction ratios.
+        !> mixing_ratios_R is aligned with mix_conc_indices ([self, upstream..., downstream...]), so the
+        !> downstream block starts after the num_up (= mix_conc_indices col_1(dim-1)) upstream entries;
+        !> external waters carry a zero reaction ratio and add nothing.
         function compute_mix_ratios_R_opt4(this) result(mix_ratios_R)
             implicit none
             class(PDE_transient_c) :: this !> object
-            !real(kind=8), intent(in) :: theta !> theta parameter
             real(kind=8), allocatable :: mix_ratios_R(:) !> new mixing ratios
             
-            integer(kind=4) :: i,j,num_up
-            real(kind=8) :: sum
+            integer(kind=4) :: i,num_up
             
             allocate(mix_ratios_R(this%mixing_ratios_R%num_cols))
-            !n_targets=this%spatial_discr%Num_targets
             !> Mixing ratios for reaction amounts in next time step at computation targets
             do i=1,this%mixing_ratios_R%num_cols
-                sum=this%mixing_ratios_R%cols(i)%col_1(1) !> initial mixing ratio (first entry)
-                !> loop over downstream waters
-                do j=1,this%mix_react_indices%cols(i)%col_1(&
-                    this%mix_react_indices%cols(i)%dim)
-                    num_up=this%mix_react_indices%cols(i)%col_1(&
-                        this%mix_react_indices%cols(i)%dim-1) !> number of upstream waters
-                    sum=sum+this%mixing_ratios_R%cols(i)%col_1(1+num_up+j) !> we update sum with downstream waters
-                end do
-                mix_ratios_R(i)=sum !> final mixing ratio for target i
+                num_up=this%mix_conc_indices%cols(i)%col_1(this%mix_conc_indices%cols(i)%dim-1) !> number of upstream waters (externals included)
+                mix_ratios_R(i)=this%mixing_ratios_R%cols(i)%col_1(1)+&
+                    sum(this%mixing_ratios_R%cols(i)%col_1(2+num_up:this%mixing_ratios_R%cols(i)%dim)) !> self + downstream waters
             end do
-            !mix_ratios_R=mix_ratios_R*theta !> multiply by theta parameter
         end function
 
         function compute_mix_ratio_R_opt4(this,i) result(mix_ratio_R)
             implicit none
             class(PDE_transient_c) :: this !> object
             integer(kind=4), intent(in) :: i !> target index
-            !real(kind=8), intent(in) :: theta !> theta parameter
             real(kind=8) :: mix_ratio_R !> new mixing ratio
             
-            integer(kind=4) :: j,num_up
-            real(kind=8) :: sum
+            integer(kind=4) :: num_up
             
-            num_up=this%mix_react_indices%cols(i)%col_1(&
-                this%mix_react_indices%cols(i)%dim-1) !> number of upstream waters
-            !allocate(mix_ratio_R(this%mixing_ratios_R%num_cols))
-            !n_targets=this%spatial_discr%Num_targets
-            !> Mixing ratios for reaction amounts in next time step at computation targets
-            !do i=1,this%mixing_ratios_R%num_cols
-                sum=this%mixing_ratios_R%cols(i)%col_1(1) !> initial mixing ratio (first entry)
-                !> loop over downstream waters
-                do j=1,this%mix_react_indices%cols(i)%col_1(&
-                    this%mix_react_indices%cols(i)%dim)
-                    ! num_up=this%mix_react_indices%cols(i)%col_1(&
-                    !     this%mix_react_indices%cols(i)%dim-1) !> number of upstream waters
-                    sum=sum+this%mixing_ratios_R%cols(i)%col_1(1+num_up+j) !> we update sum with downstream waters
-                end do
-                mix_ratio_R=sum !> final mixing ratio for target i
-                if (mix_ratio_R < 0d0 .or. mix_ratio_R > 1d0) then
-                    error stop "Error in compute_mix_ratio_R_opt4: mixing ratio out of bounds"
-                end if
-            !end do
-            !mix_ratio_R=mix_ratio_R*theta !> multiply with theta parameter
+            num_up=this%mix_conc_indices%cols(i)%col_1(this%mix_conc_indices%cols(i)%dim-1) !> number of upstream waters (externals included)
+            mix_ratio_R=this%mixing_ratios_R%cols(i)%col_1(1)+&
+                sum(this%mixing_ratios_R%cols(i)%col_1(2+num_up:this%mixing_ratios_R%cols(i)%dim)) !> self + downstream waters
+            if (mix_ratio_R < 0d0 .or. mix_ratio_R > 1d0) then
+                error stop "Error in compute_mix_ratio_R_opt4: mixing ratio out of bounds"
+            end if
         end function
 
         subroutine allocate_trans_mat_1D_trans(this)
@@ -967,53 +988,6 @@ module PDE_transient_m
             class(PDE_2D_transient_c) :: this
             type(BCs_2D_c), intent(in) :: BCs_2D
            this%BCs=BCs_2D
-        end subroutine
-
-        subroutine set_mix_react_indices(this)
-            implicit none
-            class(PDE_transient_c) :: this
-            integer(kind=4) :: i, j, num_up_conc, num_up_domain, num_down_domain, num_up_ext
-            
-            call this%mix_react_indices%allocate_array(this%mixing_ratios_R%num_cols)
-            do i=1,this%mix_react_indices%num_cols
-                num_up_conc = this%mix_conc_indices%cols(i)%col_1( &
-                    this%mix_conc_indices%cols(i)%dim-1)
-                
-                if (this%time_discr%int_method > 1) then
-                    !> Implicit: all domain targets are coupled
-                    num_up_domain = i - 1
-                    num_down_domain = this%spatial_discr%Num_targets - i
-                else
-                    !> Explicit: only actual neighbors, all domain
-                    num_up_domain = num_up_conc
-                    num_down_domain = this%mix_conc_indices%cols(i)%col_1( &
-                        this%mix_conc_indices%cols(i)%dim)
-                end if
-                num_up_ext = num_up_conc - num_up_domain
-                
-                call this%mix_react_indices%cols(i)%allocate_vector( &
-                    1 + num_up_domain + num_down_domain + 2)
-                
-                !> Current water index
-                this%mix_react_indices%cols(i)%col_1(1) = &
-                    this%mix_conc_indices%cols(i)%col_1(1)
-                !> Number of upstream and downstream domain waters
-                this%mix_react_indices%cols(i)%col_1( &
-                    this%mix_react_indices%cols(i)%dim-1) = num_up_domain
-                this%mix_react_indices%cols(i)%col_1( &
-                    this%mix_react_indices%cols(i)%dim) = num_down_domain
-                
-                !> Copy upstream domain water indices (skip external upstream entries)
-                do j=1, num_up_domain
-                    this%mix_react_indices%cols(i)%col_1(1+j) = &
-                        this%mix_conc_indices%cols(i)%col_1(1 + num_up_ext + j)
-                end do
-                !> Copy downstream domain water indices (skip external downstream entries)
-                do j=1, num_down_domain
-                    this%mix_react_indices%cols(i)%col_1(1 + num_up_domain + j) = &
-                        this%mix_conc_indices%cols(i)%col_1(1 + num_up_conc + j)
-                end do
-            end do
         end subroutine
 
         !> \brief Set Lagrangian/Eulerian method flag

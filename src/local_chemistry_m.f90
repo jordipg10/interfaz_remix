@@ -23,19 +23,24 @@ module local_chemistry_m
         real(kind=8), allocatable :: activities(:)          !< Species activities
         real(kind=8), allocatable :: log_act_coeffs(:)      !< log_10 activity coefficients
         real(kind=8), allocatable :: log_Jacobian_act_coeffs(:,:) !< log_10 Jacobian activity coefficients
-        real(kind=8), allocatable :: rk_new(:)              !< Kinetic reaction rates at end of time step
-        real(kind=8), allocatable :: Rk_est(:)              !< Estimated kinetic reaction amounts
-        real(kind=8), allocatable :: Rk(:)                  !< Kinetic reaction amount during a time step
-        real(kind=8), allocatable :: Rk_accum(:)            !< Accumulated kinetic reaction amount during simulation
-        real(kind=8), allocatable :: rk_mean(:)             !< Mean kinetic reaction rate during a time step
-        real(kind=8), allocatable :: rk_old(:)              !< Kinetic reaction rates in previous time step
+        real(kind=8), allocatable :: rxn_rate_kin(:)        !< Kinetic reaction rates at end of time step
+        real(kind=8), allocatable :: rxn_amnt_kin(:)        !< Kinetic reaction amount during a time step
+        real(kind=8), allocatable :: cum_rxn_amnt_kin(:)      !< Cumulative kinetic reaction amount over the simulation
+        real(kind=8), allocatable :: cum_rxn_amnt_eq(:)       !< Cumulative equilibrium reaction amount over the simulation
+        real(kind=8), allocatable :: rxn_rate_kin_avg(:)      !< Mean kinetic reaction rate during a time step
+        real(kind=8), allocatable :: rxn_rate_kin_old(:)      !< Kinetic reaction rates after previous time step
         real(kind=8), allocatable :: rk_old_old(:)          !< Kinetic reaction rates in two previous time steps
         real(kind=8), allocatable :: rk_old_old_old(:)      !< Kinetic reaction rates in three previous time steps
-        real(kind=8), allocatable :: Re(:)                  !< Equilibrium reaction amount during a time step
-        real(kind=8), allocatable :: re_mean(:)             !< Mean equilibrium reaction rate during a time step
+        real(kind=8), allocatable :: rxn_amnt_eq(:)         !< Equilibrium reaction amount during a time step
+        real(kind=8), allocatable :: rxn_rate_eq(:)         !< equilibrium reaction rates during a time step
+        real(kind=8), allocatable :: rxn_rate_eq_old(:)      !< equilibrium reaction rates in previous time step
+        real(kind=8), allocatable :: rxn_rate_eq_old_old(:)      !< equilibrium reaction rates in two previous time steps
+        real(kind=8), allocatable :: rxn_rate_eq_old_old_old(:)  !< equilibrium reaction rates in three previous time steps
+        real(kind=8), allocatable :: contrib_rxn_amnt_eq(:)      !< Contribution of equilibrium reaction amounts to species mass balance (rho_eq); NOT the reaction amount Re itself
+        real(kind=8), allocatable :: contrib_rxn_amnt_kin(:)     !< Contribution of kinetic reaction amounts to species mass balance (rho_kin); NOT the reaction amount Rk itself
         real(kind=8) :: volume=1d0                          !< Volume of solution or volumetric fraction (default 1) [L]
-        integer(kind=4), allocatable :: var_act_species_indices(:) !< Indices of variable activity species
-        integer(kind=4), allocatable :: cst_act_species_indices(:) !< Indices of constant activity species
+        integer(kind=4), allocatable :: var_act_species_indices(:) !< Indices of variable activity species in chemical system
+        integer(kind=4), allocatable :: cst_act_species_indices(:) !< Indices of constant activity species in chemical system
     contains
         procedure :: set_name
         procedure :: set_id
@@ -45,14 +50,15 @@ module local_chemistry_m
         procedure :: set_volume
         procedure :: set_conc_old
         procedure :: set_conc_old_old
-        procedure :: set_re_mean
-        procedure :: set_Rk_est
+        ! procedure :: set_eq_rxn_rates
         procedure(set_concentrations), public, deferred :: set_concentrations
         procedure :: allocate_var_act_species_indices
         procedure :: allocate_cst_act_species_indices
-        procedure :: update_rk_old
+        procedure :: update_rxn_rates_and_amounts
+        procedure :: update_cum_rxn_amnt
         procedure :: update_conc_old
         procedure :: copy_local_chemistry
+        ! procedure :: compute_rxn_rate_kin_avg
     end type local_chemistry_c
     
     abstract interface
@@ -126,7 +132,7 @@ contains
         if (present(density)) then
             this%density = density
         else
-            this%density = 0.9970749d0
+            this%density = 0.9970749d0 !< Default density of water at 25°C [kg/L]
         end if
     end subroutine
 
@@ -148,13 +154,48 @@ contains
         allocate(this%cst_act_species_indices(num_cst))
     end subroutine
 
-    !> \brief Update kinetic reaction rates for previous time steps
+    !> \brief Update kinetic and equilibrium reaction-rate histories (shift current rates into the old-step arrays)
     !> \param this Local chemistry object
-    subroutine update_rk_old(this)
+    subroutine update_rxn_rates_and_amounts(this)
         class(local_chemistry_c) :: this
-        this%rk_old_old_old = this%rk_old_old
-        this%rk_old_old = this%rk_old
-        this%rk_old = this%rk_new
+        !> Guard the kinetic-rate history shift: dummy solid chemistries (e.g. gas-only waters
+        !> with no minerals/kinetics) leave these arrays unallocated.
+        if (allocated(this%rk_old_old)) this%rk_old_old_old = this%rk_old_old
+        if (allocated(this%rxn_rate_kin_old)) this%rk_old_old = this%rxn_rate_kin_old
+        if (allocated(this%rxn_rate_kin)) this%rxn_rate_kin_old = this%rxn_rate_kin
+        !if (allocated(this%rxn_amnt_kin)) this%rxn_rate_kin_avg = 0.5d0*(this%rxn_rate_kin + this%rxn_rate_kin_old)
+        !if (allocated(this%rxn_amnt_kin)) this%cum_rxn_amnt_kin = this%cum_rxn_amnt_kin + this%rxn_amnt_kin
+        !> Shift the equilibrium mean-rate history end-of-step, in lockstep with the kinetic history,
+        !> so that get_r_old/get_r_old_old/get_r_old_old_old pair rxn_rate_eq_old/rxn_rate_eq_old_old/rxn_rate_eq_old_old_old
+        !> with rk_old/rk_old_old/rk_old_old_old at the same time level (re_mean itself is the current
+        !> value, set per water in set_eq_rxn_rates). Guard each shift by its source: a dummy/gas-only solid
+        !> may have re_mean allocated without the _old history arrays.
+        if (allocated(this%rxn_rate_eq_old_old)) this%rxn_rate_eq_old_old_old = this%rxn_rate_eq_old_old
+        if (allocated(this%rxn_rate_eq_old)) this%rxn_rate_eq_old_old = this%rxn_rate_eq_old
+        if (allocated(this%rxn_rate_eq)) this%rxn_rate_eq_old = this%rxn_rate_eq
+        !if (allocated(this%rxn_amnt_eq)) this%cum_rxn_amnt_eq = this%cum_rxn_amnt_eq + this%rxn_amnt_eq
+    end subroutine
+
+    !> \brief Update cumulative reaction amounts for kinetic and equilibrium reactions
+    !> \param this Local chemistry object
+    subroutine update_cum_rxn_amnt(this) 
+        class(local_chemistry_c) :: this
+        !> Guard the kinetic-rate history shift: dummy solid chemistries (e.g. gas-only waters
+        !> with no minerals/kinetics) leave these arrays unallocated.
+        ! if (allocated(this%rk_old_old)) this%rk_old_old_old = this%rk_old_old
+        ! if (allocated(this%rxn_rate_kin_old)) this%rk_old_old = this%rxn_rate_kin_old
+        ! if (allocated(this%rxn_rate_kin)) this%rxn_rate_kin_old = this%rxn_rate_kin
+        !if (allocated(this%rxn_amnt_kin)) this%rxn_rate_kin_avg = 0.5d0*(this%rxn_rate_kin + this%rxn_rate_kin_old)
+        if (allocated(this%cum_rxn_amnt_kin)) this%cum_rxn_amnt_kin = this%cum_rxn_amnt_kin + this%rxn_amnt_kin
+        !> Shift the equilibrium mean-rate history end-of-step, in lockstep with the kinetic history,
+        !> so that get_r_old/get_r_old_old/get_r_old_old_old pair rxn_rate_eq_old/rxn_rate_eq_old_old/rxn_rate_eq_old_old_old
+        !> with rk_old/rk_old_old/rk_old_old_old at the same time level (re_mean itself is the current
+        !> value, set per water in set_eq_rxn_rates). Guard each shift by its source: a dummy/gas-only solid
+        !> may have re_mean allocated without the _old history arrays.
+        ! if (allocated(this%rxn_rate_eq_old_old)) this%rxn_rate_eq_old_old_old = this%rxn_rate_eq_old_old
+        ! if (allocated(this%rxn_rate_eq_old)) this%rxn_rate_eq_old_old = this%rxn_rate_eq_old
+        ! if (allocated(this%rxn_rate_eq)) this%rxn_rate_eq_old = this%rxn_rate_eq
+        if (allocated(this%cum_rxn_amnt_eq)) this%cum_rxn_amnt_eq = this%cum_rxn_amnt_eq + this%rxn_amnt_eq
     end subroutine
 
     !> \brief Update concentrations for previous time steps
@@ -220,6 +261,14 @@ contains
             this%concentrations = other%concentrations
             this%conc_old = other%conc_old
             this%conc_old_old = other%conc_old_old
+            !this%contrib_rxn_amnt_kin = other%contrib_rxn_amnt_kin
+            !this%contrib_rxn_amnt_eq = other%contrib_rxn_amnt_eq
+        end if
+        if (allocated(other%contrib_rxn_amnt_kin)) then
+            this%contrib_rxn_amnt_kin = other%contrib_rxn_amnt_kin
+        end if
+        if (allocated(other%contrib_rxn_amnt_eq)) then
+            this%contrib_rxn_amnt_eq = other%contrib_rxn_amnt_eq
         end if
         if (allocated(other%activities)) then
             this%activities = other%activities
@@ -232,35 +281,36 @@ contains
             this%var_act_species_indices = other%var_act_species_indices
             this%cst_act_species_indices = other%cst_act_species_indices
         end if
-        if (allocated(other%Rk)) then
-            this%rk_new = other%rk_new
-            this%Rk_est = other%Rk_est
-            this%Rk = other%Rk
-            this%Rk_accum = other%Rk_accum
-            this%rk_mean = other%rk_mean
-            this%rk_old = other%rk_old
+        if (allocated(other%rxn_amnt_kin)) then
+            this%rxn_rate_kin = other%rxn_rate_kin
+            this%rxn_amnt_kin = other%rxn_amnt_kin
+            this%cum_rxn_amnt_kin = other%cum_rxn_amnt_kin
+            this%rxn_rate_kin_avg = other%rxn_rate_kin_avg
+            this%rxn_rate_kin_old = other%rxn_rate_kin_old
             this%rk_old_old = other%rk_old_old
             this%rk_old_old_old = other%rk_old_old_old
+            !this%contrib_rxn_amnt_kin = other%contrib_rxn_amnt_kin
         end if
-        if (allocated(other%Re)) then
-            this%Re = other%Re
-            this%re_mean = other%re_mean
+        !> the eq arrays are not always allocated together (solid/gas allocators vs the aqueous one),
+        !> so copy each on its own: assigning from an unallocated allocatable is undefined behaviour
+        if (allocated(other%rxn_amnt_eq)) then
+            this%rxn_amnt_eq = other%rxn_amnt_eq
         end if
-    end subroutine
-
-    !> \brief Set the mean equilibrium reaction rates during a time step
-    !> \param this Local chemistry object
-    !> \param Delta_t Time step size
-    subroutine set_re_mean(this,Delta_t)
-        class(local_chemistry_c) :: this
-        real(kind=8), intent(in) :: Delta_t
-        this%re_mean = this%Re / Delta_t
-    end subroutine
-    
-    subroutine set_Rk_est(this,Rk_est)
-        class(local_chemistry_c) :: this
-        real(kind=8), intent(in) :: Rk_est(:)
-        this%Rk_est = Rk_est
+        if (allocated(other%rxn_rate_eq)) then
+            this%rxn_rate_eq = other%rxn_rate_eq
+        end if
+        if (allocated(other%cum_rxn_amnt_eq)) then
+            this%cum_rxn_amnt_eq = other%cum_rxn_amnt_eq
+        end if
+        if (allocated(other%rxn_rate_eq_old)) then
+            this%rxn_rate_eq_old = other%rxn_rate_eq_old
+        end if
+        if (allocated(other%rxn_rate_eq_old_old)) then
+            this%rxn_rate_eq_old_old = other%rxn_rate_eq_old_old
+        end if
+        if (allocated(other%rxn_rate_eq_old_old_old)) then
+            this%rxn_rate_eq_old_old_old = other%rxn_rate_eq_old_old_old
+        end if
     end subroutine
 
 end module

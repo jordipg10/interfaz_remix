@@ -8,9 +8,7 @@
 !> **Initialization Steps:**
 !> 1. Set dimensionless form flag
 !> 2. Read and configure spatial discretization (mesh)
-!>    - Option 1: 1D homogeneous Eulerian mesh
-!>    - Option 2: 1D heterogeneous Eulerian mesh
-!>    - Option 3: Radial mesh (for cylindrical/spherical coordinates)
+!>    - Option 1: 2D homogeneous (uniform) Eulerian mesh (only 2D mesh implemented)
 !> 3. Read and set boundary conditions (BCs)
 !>    - Dirichlet, Neumann, Robin, or prescribed mass flux (PMF)
 !>    - Read inflow flux data
@@ -26,10 +24,8 @@
 !> 6. Compute flux field (constant, linear, or polynomial)
 !> 7. Compute stability parameters (Courant number, Peclet number)
 !>
-!> **Mesh Types:**
-!> - mesh_type = 1: 1D homogeneous (uniform properties)
-!> - mesh_type = 2: 1D heterogeneous (spatially variable properties)
-!> - mesh_type = 3: Radial (cylindrical/spherical symmetry)
+!> **Mesh Types (2D):**
+!> - mesh_type = 1: 2D homogeneous / uniform (only 2D mesh implemented)
 !>
 !> **Flux Computation:**
 !> - source_term_order = 0: Constant flux
@@ -38,7 +34,7 @@
 !> \param[in,out] this Transport 1D transient object to be initialized
 !> \param[in] path Directory path for input and output files
 !> \param[in] root Root name for input and output files
-!> \param[in] mesh_type Mesh type selector: 1 = 1D homogeneous, 2 = 1D heterogeneous, 3 = radial
+!> \param[in] mesh_type Mesh type selector (2D): 1 = 2D homogeneous/uniform (only uniform implemented)
 !>
 !> \use BCs_m Provides BCs_1D_c type for boundary conditions
 !> \use time_discr_m Provides time discretization classes
@@ -69,7 +65,7 @@ subroutine initialise_transport_2D_transient_RT(this,path,root,mesh_type)
     class(transport_2D_transient_c) :: this !> Transport 2D transient object to be initialized (contains mesh, time discretization, BCs, properties)
     character(len=*), intent(in) :: path !> Directory path for input and output files (e.g., "./input/")
     character(len=*), intent(in) :: root !> Root name for input and output files (e.g., "problem1")
-    integer(kind=4), intent(in) :: mesh_type !> Mesh type selector: 1 = 1D homogeneous, 2 = 1D heterogeneous, 3 = radial [-]
+    integer(kind=4), intent(in) :: mesh_type !> Mesh type selector (2D): 1 = 2D homogeneous/uniform (only uniform implemented) [-]
     
     type(tpt_props_heterog_2D_c) :: my_props_tpt !> Heterogeneous transport properties object (porosity, dispersion, flux)
     class(spatial_discr_c), pointer :: my_mesh=>null() !> Pointer to spatial discretization base class (points to specific mesh type)
@@ -96,28 +92,28 @@ subroutine initialise_transport_2D_transient_RT(this,path,root,mesh_type)
     dimless=.false. !> Set dimensionless form flag to FALSE (use dimensional equations, should be read from input file)
     this%dimless=dimless !> Store dimensionless flag in transport object
 !> Mesh (chapuza)
-    mesh_file=trim(path//root//'_discr_esp.dat') !> Construct mesh filename by concatenating path, root, and '_discr_esp.dat' (spatial discretization file)
-    if (mesh_type.eq.1) then !> Check if mesh type is 1 (1D homogeneous)
-        allocate(mesh_2D_Euler_homog_c :: my_mesh) !> Allocate pointer to 1D homogeneous Eulerian mesh class
+    mesh_file=trim(path//root//'_discr_space.dat') !> Construct mesh filename by concatenating path, root, and '_discr_space.dat' (spatial discretization file)
+    if (mesh_type.eq.1) then !> Check if mesh type is 1 (2D homogeneous/uniform — only 2D mesh implemented)
+        allocate(mesh_2D_Euler_homog_c :: my_mesh) !> Allocate pointer to 2D homogeneous (uniform) Eulerian mesh class
     ! else if (mesh_type.eq.2) then !> Check if mesh type is 2 (1D heterogeneous)
     !     allocate(mesh_1D_Euler_heterog_c :: my_mesh) !> Allocate pointer to 1D heterogeneous Eulerian mesh class
     ! else if (mesh_type.eq.3) then !> Check if mesh type is 3 (radial)
     !     allocate(spatial_discr_rad_c :: my_mesh) !> Allocate pointer to radial spatial discretization class
-    !     mesh_file=trim(path//root//'_discr_esp_rad.dat') !> Override mesh filename for radial case (use '_discr_esp_rad.dat')
+    !     mesh_file=trim(path//root//'_discr_space_rad.dat') !> Override mesh filename for radial case (use '_discr_space_rad.dat')
     !     !write(*,*) "Porosity?" !> Print prompt for porosity input (interactive)
     !     !read(*,*) phi !> Read porosity value from user input [-]
     !     phi=1d-4 !> Set porosity to 1d-4 (hardcoded workaround for push-pull test) [-]
     ! else if (mesh_type.eq.4) then !> Check if mesh type is 4 (2D homogeneous)
     !     allocate(mesh_2D_Euler_homog_c :: my_mesh) !> Allocate pointer to 2D homogeneous spatial discretization class
-    else !> If mesh type is not 1, 2, or 3
-        error stop "Error: mesh_type must be 1 (1D homog), 2 (1D heterog), 3 (radial) or 4 (2D homog)" !> Terminate program with error message
+    else !> If mesh type is not a supported 2D value
+        error stop "Error: for 2D problems mesh_type must be 1 (2D uniform); only the uniform 2D mesh is implemented" !> Terminate program with error message
     end if !> End mesh type selection
     call my_mesh%read_mesh(mesh_file,phi) !> Read mesh data from file (node positions, cell sizes, connectivity, porosity φ)
     call this%set_spatial_discr(my_mesh) !> Store mesh object in transport object's spatial discretization component
 !> Boundary conditions
     call my_BCs%read_BCs(path//root//'_BCs.dat') !> Read boundary condition types and values from file (Dirichlet, Neumann, Robin, PMF)
     !if (my_BCs%labels(1).eq.1 .and. my_BCs%labels(2).eq.1 .and. this%spatial_discr%targets_flag.eq.0) then !> (commented out) Check if both BCs are Dirichlet and no internal targets
-        call my_BCs%read_caudal_inf(path//root//'_caudal_inf.dat') !> Read inflow flux (caudal) data from file q(t) [L³/T or L/T depending on dimension]
+        call my_BCs%read_caudal_inf(path//root//'_discharge_inf.dat') !> Read inflow flux (caudal) data from file q(t) [L³/T or L/T depending on dimension]
     ! else if (my_BCs%labels(1).eq.3) then !> (commented out) Check if left BC is Robin type
     !     call my_BCs%read_Robin_BC_inflow(path//root//'_Robin_BC_inflow.dat') !> (commented out) Read Robin BC inflow data from file
     !end if !> (commented out) End BC type check
@@ -126,7 +122,7 @@ subroutine initialise_transport_2D_transient_RT(this,path,root,mesh_type)
 !> Time discretization setup
     !my_time_discr=>my_homog_time_discr !> Alternative: use pointer assignment instead of allocation (commented out)
     allocate(time_discr_homog_c :: my_time_discr) !> Allocate pointer to homogeneous time discretization class (uniform time steps) [-]
-    call my_time_discr%read_time_discr(path//root//'_discr_temp.dat') !> Read time discretization from file: initial time t₀, final time t_f, time step Δt [T]
+    call my_time_discr%read_time_discr(path//root//'_discr_time.dat') !> Read time discretization from file: initial time t₀, final time t_f, time step Δt [T]
     call this%set_time_discr(my_time_discr) !> Assign time discretization object to transport%time_discr member [-]
 !****************************************************************************************************************************************************
 !> Transport properties configuration

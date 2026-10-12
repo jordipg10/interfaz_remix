@@ -32,7 +32,7 @@ module params_spec_vol_m
     !>
     !> @par Equation Form:
     !> V̄ = a₁ + a₂/(ω+I) + a₃/(ω+I)² + a₄/(ω+I)³ + W·I + DH_correction(ion_size, i₁, i₂, i₃, i₄)
-    !> where I is ionic strength [mol/L]
+    !> where I is ionic strength [mol/kg H₂O] (molality-based, as computed by compute_ionic_strength)
     !>
     !> @par Parameter Meanings:
     !> - a₁, a₂, a₃, a₄: Polynomial coefficients for 1/(ω+I) expansion [cm³/mol]

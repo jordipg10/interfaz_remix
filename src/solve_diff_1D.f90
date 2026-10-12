@@ -35,20 +35,20 @@ subroutine solve_diff_1D(this,Time_out,output)
     !        select type (time_discr=>this%time_discr)
     !        type is (time_discr_homog_c)
     !            !call this%compute_mixing_ratios_Delta_t_homog()
-    !            if (time_discr%int_method.eq.1) then
+    !            if (time_discr%int_method_tpt.eq.1) then
     !                !call this%compute_mixing_ratios_Delta_t_homog(0d0)
     !                !call this%solve_PDE_EE_Delta_t_homog(Time_out,output)
-    !            else if (time_discr%int_method.eq.2) then
+    !            else if (time_discr%int_method_tpt.eq.2) then
     !                !call this%compute_mixing_ratios_Delta_t_homog(1d0)
     !                call this%solve_diff_EI_Delta_t_homog(1d0,Time_out,output)
-    !            else if (time_discr%int_method.eq.3) then
+    !            else if (time_discr%int_method_tpt.eq.3) then
     !                !call this%compute_mixing_ratios_Delta_t_homog(5d-1)
     !                call this%solve_diff_EI_Delta_t_homog(5d-1,Time_out,output)
-    !            else if (time_discr%int_method.eq.4) then
+    !            else if (time_discr%int_method_tpt.eq.4) then
     !                call this%solve_diff_RKF45(time_discr%Delta_t,tol)
     !            end if
     !        type is (time_discr_heterog_c)
-    !            if (time_discr%int_method.eq.1) then
+    !            if (time_discr%int_method_tpt.eq.1) then
     !                call this%solve_diff_EE_Delta_t_heterog(Time_out,output)
     !            end if
     !        end select

@@ -20,24 +20,32 @@ subroutine mixing_iter_comp(this,c1_old,c_hat,mix_ratio_r,Delta_t,theta,conc_nc,
 !> Variables
     integer(kind=4) :: niter !> number of iterations in Newton speciation
     integer(kind=4) :: n_p_aq !> number of aqueous primary species
+    integer(kind=4) :: n_p !> number of primary species
+    integer(kind=4) :: n_eq !> number of equilibrium reactions
     logical :: CV_flag !> convergence flag
-    real(kind=8) :: mu=0d0 !> Newton initialistaion parameter
+    real(kind=8) :: mu !> Newton initialisation/damping parameter (reset each call; NO implicit SAVE)
     real(kind=8), allocatable :: c1(:) !> concentration primary species
     real(kind=8), allocatable :: c1_ig(:) !> initial guess primary species
     real(kind=8), allocatable :: c2v_ig(:) !> initial guess secondary variable activity species
     real(kind=8), allocatable :: log_act_coeffs(:) !> logarithm (base 10) of activity coefficients of variable activity species
 !> Pre-process
-    n_p_aq=this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species
+    mu=0d0 !> reset damping each call (a declaration initialiser would give mu an implicit SAVE)
+    associate(spec_alg => this%solid_chemistry%reactive_zone%speciation_alg, &
+              CV_params => this%solid_chemistry%reactive_zone%CV_params)
+    n_p_aq=spec_alg%num_aq_prim_species
+    n_p=spec_alg%num_prim_species
+    n_eq=spec_alg%num_eq_reactions
     c1=this%get_c1()
-    allocate(c1_ig(this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species))
-    allocate(c2v_ig(this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions))
-!> Process  
+!> Process
     !> We compute component concentrations after mixing
-        conc_comp=MATMUL(THIS%solid_chemistry%reactive_zone%speciation_alg%comp_mat,c_hat)
-        if (inf_norm_vec_real(c_hat(1:this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)-c1)<&
-            this%solid_chemistry%reactive_zone%CV_params%zero) then !> chapuza
-            conc_nc=this%get_conc_nc()
+        conc_comp=MATMUL(spec_alg%comp_mat,c_hat)
+        if (inf_norm_vec_real(c_hat(1:n_p)-c1)<CV_params%zero) then !> chapuza
+            conc_nc=this%get_conc_var_act()
         else
+            !> Speciation needed: allocate work arrays once, reused across Newton restarts
+            allocate(c1_ig(n_p))
+            allocate(c2v_ig(n_eq))
+            allocate(log_act_coeffs(spec_alg%num_var_act_species))
             !> Loop until speciation converges
             do
             !> We initialise primary concentrations for Newton speciation
@@ -51,7 +59,7 @@ subroutine mixing_iter_comp(this,c1_old,c_hat,mix_ratio_r,Delta_t,theta,conc_nc,
             !> We check convergence
                 if (CV_flag.eqv..false.) then !> NO CV
                     if (mu<1d0) then
-                        mu=mu+0.25
+                        mu=mu+0.25d0
                     else
                         error stop "Newton speciation does not converge"
                     end if
@@ -61,8 +69,9 @@ subroutine mixing_iter_comp(this,c1_old,c_hat,mix_ratio_r,Delta_t,theta,conc_nc,
             end do
         end if
 !> Post-process
-    !> We check concentrations
-        !call this%check_conc_aq_var_act_species(conc_comp)
-        !call this%check_act_aq_species()
-        deallocate(c1_ig,c1)
+    !> We compute derived quantities from the converged concentrations
+        call this%compute_pH()
+        call this%compute_salinity()
+        call this%compute_ionic_strength()
+    end associate
 end subroutine

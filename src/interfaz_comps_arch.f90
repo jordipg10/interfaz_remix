@@ -3,8 +3,11 @@
 !> It has to be called only once in each time step
 !> It is supposed to be called after the conservative transport has been solved
 !> For each target water it solves the coupled equilibrium+kinetic system implicitly
-!> (theta=0.5 Crank-Nicolson, lumped kinetic mixing ratio), falling back to explicit
-!> Euler for any cell whose implicit Newton solve does not converge
+!> (theta=1 backward Euler, lumped kinetic mixing ratio), falling back to explicit
+!> Euler for any cell whose implicit Newton solve does not converge. The interface performs
+!> a single step from an initial state whose kinetic reaction rates are zero (rk_old=0), hence
+!> the fully implicit weighting; for the same reason the explicit fallback carries no kinetic
+!> reaction (it reduces to speciating the conservatively transported components)
 !> It reads the aqueous component concentrations after conservative transport in a file, and writes the component and variable-activity-species concentrations plus the end-of-step kinetic reaction rates after reactive mixing in a different file
 subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,file_out)
     use chemistry_m, only: chemistry_c
@@ -83,12 +86,13 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
         !> --------------------------------------------------------------------
         !> Step 1: implicit reactive mixing. Speciate u_tilde to the mixed
         !> variable-activity species c_hat (so U*c_hat = u_tilde), then solve the
-        !> coupled equilibrium+kinetic system (theta=0.5 Crank-Nicolson, lumped ratio=1). If the
+        !> coupled equilibrium+kinetic system (theta=1 backward Euler, lumped ratio=1). If the
         !> implicit Newton does not converge (stiff cell, e.g. O2 driven to ~0), fall back to the
         !> explicit (EE) update for that cell so the run always completes.
         !> --------------------------------------------------------------------
         block
             real(kind=8), allocatable :: c_hat(:) !< mixed variable-activity species (speciation of u_tilde)
+            real(kind=8), parameter :: theta=1d0  !< reaction time weighting: fully implicit (no previous-step rates exist in a single-step call)
             logical :: CV_impl                    !< implicit-solve convergence flag
             integer(kind=4) :: ic, nz_idx, nz_cnt !< species-equivalent-component clamp helpers (EE fallback)
             real(kind=8) :: cval                  !< comp_mat_aq coefficient (EE fallback)
@@ -101,13 +105,20 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
                 error stop
             end if
             conc_nc(:,j)=c_hat !< initial guess for the implicit Newton solver
-            !> Implicit attempt: u_hat = U*c_hat = u_tilde; theta=0.5 (Crank-Nicolson), lumped ratio=1.
-            call tw%Newton_EI_eq_kin_anal_ideal_opt2(u_tilde(:,j),1d0,Delta_t,0.5d0,conc_nc(:,j),niter,CV_impl)
+            !> Implicit attempt (theta=1 backward Euler, lumped ratio=1). The solver expects u_hat to
+            !> already contain the previous-step (1-theta) kinetic contribution; the interface performs a
+            !> single step from an initial state with zero kinetic rates (rk_old=0), so the only consistent
+            !> weighting is fully implicit and u_hat = u_tilde.
+            call tw%Newton_EI_eq_kin_anal_ideal_opt2(u_tilde(:,j),1d0,Delta_t,theta,conc_nc(:,j),niter,CV_impl)
             if (CV_impl) then
                 u_new(:,j)=matmul(tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
                     conc_nc(1:tw%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species,j))
             else
-                !> Explicit-Euler fallback for this stiff cell (EE handles depletion by clamping).
+                !> Explicit-Euler fallback for this stiff cell (EE handles depletion by clamping). With the
+                !> zero previous-step rates of the initial state it reduces to speciating u_tilde (no kinetic
+                !> reaction in this cell), so warn.
+                print *, "WARNING: target water ", tw_idx, ": implicit eq+kin solve did not converge; ", &
+                    "explicit fallback with zero previous-step rates (no kinetic reaction in this step)"
                 call tw%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react)
                 u_new(:,j)=u_tilde(:,j)+u_react
                 !> Clamp only species-equivalent components (row of comp_mat_aq is a single +1).
@@ -142,7 +153,7 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
         block
             real(kind=8), allocatable :: rk_new_cell(:) !< end-of-step kinetic rates for this cell
             allocate(rk_new_cell(n_aq_kin+n_min_kin))
-            call tw%compute_rk_new(rk_new_cell)
+            call tw%compute_rxn_rate_kin(rk_new_cell)
             rk_out(1:n_aq_kin+n_min_kin,j) = rk_new_cell
         end block
         !> Gas kinetic rates not yet implemented in gas_chemistry_c
@@ -252,8 +263,11 @@ end subroutine
 !> It has to be called only once in each time step
 !> It is supposed to be called after the conservative transport has been solved
 !> For each target water it solves the coupled equilibrium+kinetic system implicitly
-!> (theta=0.5 Crank-Nicolson, lumped kinetic mixing ratio), falling back to explicit
-!> Euler for any cell whose implicit Newton solve does not converge
+!> (theta=1 backward Euler, lumped kinetic mixing ratio), falling back to explicit
+!> Euler for any cell whose implicit Newton solve does not converge. The interface performs
+!> a single step from an initial state whose kinetic reaction rates are zero (rk_old=0), hence
+!> the fully implicit weighting; for the same reason the explicit fallback carries no kinetic
+!> reaction (it reduces to speciating the conservatively transported components)
 !> It reads the aqueous component concentrations after conservative transport in a file, and writes the component and variable-activity-species concentrations plus the end-of-step kinetic reaction rates after reactive mixing in a different file
 !> In file_in, the rows are targets and columns are components (transposed w.r.t. interfaz_comps_arch_eq_kin)
 subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
@@ -334,12 +348,13 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
         !> --------------------------------------------------------------------
         !> Step 1: implicit reactive mixing. Speciate u_tilde to the mixed
         !> variable-activity species c_hat (so U*c_hat = u_tilde), then solve the
-        !> coupled equilibrium+kinetic system (theta=0.5 Crank-Nicolson, lumped ratio=1). If the
+        !> coupled equilibrium+kinetic system (theta=1 backward Euler, lumped ratio=1). If the
         !> implicit Newton does not converge (stiff cell, e.g. O2 driven to ~0), fall back to the
         !> explicit (EE) update for that cell so the run always completes.
         !> --------------------------------------------------------------------
         block
             real(kind=8), allocatable :: c_hat(:) !< mixed variable-activity species (speciation of u_tilde)
+            real(kind=8), parameter :: theta=1d0  !< reaction time weighting: fully implicit (no previous-step rates exist in a single-step call)
             logical :: CV_impl                    !< implicit-solve convergence flag
             integer(kind=4) :: ic, nz_idx, nz_cnt !< species-equivalent-component clamp helpers (EE fallback)
             real(kind=8) :: cval                  !< comp_mat_aq coefficient (EE fallback)
@@ -352,13 +367,20 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
                 error stop
             end if
             conc_nc(:,j)=c_hat !< initial guess for the implicit Newton solver
-            !> Implicit attempt: u_hat = U*c_hat = u_tilde; theta=0.5 (Crank-Nicolson), lumped ratio=1.
-            call tw%Newton_EI_eq_kin_anal_ideal_opt2(u_tilde(:,j),1d0,Delta_t,0.5d0,conc_nc(:,j),niter,CV_impl)
+            !> Implicit attempt (theta=1 backward Euler, lumped ratio=1). The solver expects u_hat to
+            !> already contain the previous-step (1-theta) kinetic contribution; the interface performs a
+            !> single step from an initial state with zero kinetic rates (rk_old=0), so the only consistent
+            !> weighting is fully implicit and u_hat = u_tilde.
+            call tw%Newton_EI_eq_kin_anal_ideal_opt2(u_tilde(:,j),1d0,Delta_t,theta,conc_nc(:,j),niter,CV_impl)
             if (CV_impl) then
                 u_new(:,j)=matmul(tw%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq, &
                     conc_nc(1:tw%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species,j))
             else
-                !> Explicit-Euler fallback for this stiff cell (EE handles depletion by clamping).
+                !> Explicit-Euler fallback for this stiff cell (EE handles depletion by clamping). With the
+                !> zero previous-step rates of the initial state it reduces to speciating u_tilde (no kinetic
+                !> reaction in this cell), so warn.
+                print *, "WARNING: target water ", tw_idx, ": implicit eq+kin solve did not converge; ", &
+                    "explicit fallback with zero previous-step rates (no kinetic reaction in this step)"
                 call tw%compute_react_term_EE_eq_kin(Delta_t,1.0d0,u_react)
                 u_new(:,j)=u_tilde(:,j)+u_react
                 !> Clamp only species-equivalent components (row of comp_mat_aq is a single +1).
@@ -393,7 +415,7 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
         block
             real(kind=8), allocatable :: rk_new_cell(:) !< end-of-step kinetic rates for this cell
             allocate(rk_new_cell(n_aq_kin+n_min_kin))
-            call tw%compute_rk_new(rk_new_cell)
+            call tw%compute_rxn_rate_kin(rk_new_cell)
             rk_out(1:n_aq_kin+n_min_kin,j) = rk_new_cell
         end block
         !> Gas kinetic rates not yet implemented in gas_chemistry_c

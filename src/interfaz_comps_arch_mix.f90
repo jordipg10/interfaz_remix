@@ -7,6 +7,8 @@
 !> component concentrations PRIOR to mixing together with the mixing ratios, performs
 !> the conservative mixing internally, and only then solves the reactive mixing.
 !> It uses Euler explicit and applies lumping to the kinetic mixing ratios.
+!> NOTE: the explicit kinetic term uses the previous-step rates, which are zero in the initial
+!> state read by the interface; a single call therefore carries no kinetic reaction.
 !> Input files (both located in "path"):
 !>   - file_in : aqueous component concentrations PRIOR to mixing.
 !>               Rows: components, columns: waters (one column per mixing water).
@@ -209,16 +211,16 @@ subroutine interfaz_comps_arch_eq_kin_mix(this,path,num_aq_comps,file_in,file_mi
                 error stop
             end if
             !> ----------------------------------------------------------------
-            !> Step 2: kinetic reaction rates (Euler-explicit uses rk_old).
+            !> Step 2: kinetic reaction rates (Euler-explicit uses rxn_rate_kin_old).
             !> Order: aqueous (linear+redox) | mineral | gas
             !> ----------------------------------------------------------------
             k=0
             do i=1,n_aq_kin
-                rk_out(k+i,j) = tw%rk_old(i)
+                rk_out(k+i,j) = tw%rxn_rate_kin_old(i)
             end do
             k=k+n_aq_kin
             do i=1,n_min_kin
-                rk_out(k+i,j) = tw%solid_chemistry%rk_old(i)
+                rk_out(k+i,j) = tw%solid_chemistry%rxn_rate_kin_old(i)
             end do
             !> Gas kinetic rates not yet implemented in gas_chemistry_c
         else

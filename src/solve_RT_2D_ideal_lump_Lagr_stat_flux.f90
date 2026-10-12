@@ -44,9 +44,10 @@
 !> \ingroup reactive transport
 subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     use RT_m, only: RT_2D_transient_c, move_particles_stat_flux_2D
+    use chemistry_m, only: write_out_step_vars, reset_wat_indices_zones !< Shared per-output-step writer (conc/react_rate/vol_fract); post-displacement zone regrouping
     use aqueous_chemistry_m, only: aqueous_chemistry_c, &
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, &
-        compute_c_mix_global, &
+        compute_c_mix_global_lump, compute_c_mix_by_zones_lump, &
         reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, &
         reactive_mixing_iter_EI_eq_anal_ideal
     implicit none
@@ -86,16 +87,18 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
 !> Index arrays
     integer(kind=4), allocatable :: ind_can_vec(:)     !< Indices of canonical vectors
     integer(kind=4), allocatable :: ind_non_can_vec(:) !< Indices of non-canonical vectors
+    integer(kind=4), allocatable :: mix_ext_indices(:) !< mixer externals: boundary waters (minus the Neumann outflow ones) + the inflow (first-column) cells, whose parcels are the boundary waters each step
+    integer(kind=4), allocatable :: exit_wat_indices(:) !< Neumann outflow (right) boundary waters: hold the parcels that left the last column, grouped in those cells' zone columns (empty for a Dirichlet outflow)
+    integer(kind=4) :: q !< loop index over the external waters
     logical, allocatable :: has_minerals_flag(:)        !< Pre-computed mineral presence flag per target water
     logical, allocatable :: has_gases_flag(:)           !< Pre-computed gas phase presence flag per target water
 !> Time and profiling variables
     real(kind=8) :: time                   !< Current simulation time [s]
     real(kind=8) :: Delta_t                !< Time step size [s]
-    real(kind=8) :: cpu_t0, cpu_t1         !< CPU time markers for time step profiling [s]
     real(kind=8) :: cpu_total_t0, cpu_total_t1 !< CPU time markers for total subroutine profiling [s]
     real(kind=8) :: cpu_prof_t0, cpu_prof_t1   !< Reusable CPU time markers for phase profiling [s]
     real(kind=8) :: cpu_mix_total          !< Accumulated CPU time for compute_c_mix [s]
-    real(kind=8) :: cpu_update_old_total   !< Accumulated CPU time for update_old_attributes [s]
+    real(kind=8) :: cpu_update_old_total   !< Accumulated CPU time for updating old attributes [s]
     real(kind=8) :: cpu_displace_total     !< Accumulated CPU time for particle displacement [s]
     real(kind=8) :: cpu_solver_total       !< Accumulated CPU time for reactive mixing solver [s]
     real(kind=8) :: cpu_derived_total      !< Accumulated CPU time for derived quantities [s]
@@ -104,15 +107,23 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     real(kind=8) :: cpu_output_total       !< Accumulated CPU time for output writing [s]
     real(kind=8) :: cpu_total_elapsed      !< Total subroutine elapsed CPU time [s]
     real(kind=8) :: cpu_data_prep_total    !< Accumulated CPU time for data preparation [s]
-    real(kind=8) :: cpu_getters_total      !< Accumulated CPU time for get_conc_nc + get_c1_old_old [s]
+    real(kind=8) :: cpu_getters_total      !< Accumulated CPU time for get_conc_var_act + get_conc_old_old_prim_new_rz [s]
     real(kind=8) :: cpu_snapshot_total     !< Accumulated CPU time for write_chemistry snapshots [s]
     integer(kind=4) :: iunit_cpu           !< Fortran I/O unit number for CPU profiling output file
+    character(len=:), allocatable :: cpu_root !< root + transport tag for the CPU profiling filename
 !> Concentration and reaction rate arrays
     real(kind=8), allocatable :: conc_comp(:)       !< Component concentrations after mixing [mol/L]
     real(kind=8), allocatable :: c_hat(:)            !< Mixed concentrations from transport [mol/L]
+    real(kind=8), allocatable :: c_tilde(:)
     real(kind=8), allocatable :: conc_nc(:)          !< Variable activity species concentrations [mol/L]
     real(kind=8), allocatable :: lumped_lambdas(:)   !< Lumped mixing ratios per target water [-]
-    real(kind=8), allocatable :: c1_oo(:)            !< Persistent buffer for get_c1_old_old result [mol/L]
+    !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
+    integer(kind=4) :: iunit_mb                      !< mass-balance output file unit
+    integer(kind=4) :: idx_ref                       !< reference target-water index (species names/dimension)
+    integer(kind=4) :: n_v_ref                       !< reference number of variable-activity species
+    real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
+    real(kind=8), allocatable :: mb_lhs_c(:), mb_transp_c(:), mb_react_c(:) !< per-cell terms
+    real(kind=8), allocatable :: c1_oo(:)            !< Persistent buffer for get_conc_old_old_prim_new_rz result [mol/L]
 !> Pre-computed caches (invariant across time steps)
     integer(kind=4), allocatable :: n_p_cache(:)       !< Cached num_prim_species per non-canonical target water
     integer(kind=4), allocatable :: n_v_cache(:)       !< Cached num_var_act_species per non-canonical target water
@@ -129,12 +140,18 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
 !> Procedure pointers
     procedure(reactive_mixing_iter_EI_kin_anal_ideal_opt2), pointer :: p_solver=>null()
     procedure(move_particles_stat_flux_2D), pointer :: p_displace_particles=>null()
+    procedure(compute_c_mix_by_zones_lump), pointer :: p_mixer
 
 
 !> -----------------------------------------------------------------------
 !> Initialization
     !> Start total subroutine CPU timer for overall performance measurement
     call cpu_time(cpu_total_t0)
+    if (this%chemistry%mix_by_zones_flag) then
+        p_mixer => compute_c_mix_by_zones_lump
+    else
+        p_mixer => compute_c_mix_global_lump
+    end if
     !> Initialize total equilibrium reaction counter to zero
     n_eq=0
     !> Loop over all target waters to count total equilibrium reactions in the domain
@@ -175,7 +192,15 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     !> Assign Fortran I/O unit number for main output file
     unit=7
     !> Open main output file for formatted sequential writing of species concentrations
-    open(unit,file=dir//trim(root)//'_output.out',form="formatted",access="sequential",status="unknown")
+    block
+        character(len=:), allocatable :: rtag
+        if (this%chemistry%lump_flag) then
+            rtag = '_Lagr_lumped'
+        else
+            rtag = '_Lagr_consistent'
+        end if
+        open(unit,file=dir//trim(root)//rtag//'_output.out',form="formatted",access="sequential",status="unknown")
+    end block
 
 !> -----------------------------------------------------------------------
 !> Solver Selection
@@ -200,7 +225,7 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     else if (n_eq>0) then
         !> Equilibrium-Only Reactions
         !> Check if Euler Implicit (method 2) is selected for equilibrium reactions
-        if (this%int_method_chem_reacts==2) then
+        if (this%transport%time_discr%int_method_chem==2) then
             !> Assign equilibrium-only analytical ideal Euler Implicit solver
             p_solver=>reactive_mixing_iter_EI_eq_anal_ideal
         !> End integration method check for equilibrium-only system
@@ -268,10 +293,7 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
 
 !> -----------------------------------------------------------------------
 !> Write Output File Header
-    !> Write column headers with selected aqueous species names to the output file
-    write(unit,"(2x,'Species :',5x,*(A15))") (this%chemistry%chem_syst%aq_phase%aq_species(&
-        this%chemistry%chem_out_options%ind_aq_species(j))%name, &
-        j=1,num_out_aq_sp)
+    !> Output headers/blocks are written per step by write_out_step_vars (honours chem_out_options%vars)
 
 !> -----------------------------------------------------------------------
 !> Validate Water Ordering (one-time check)
@@ -385,15 +407,53 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     end do
     !> Initialize profiled time step counter to zero
     num_profiled_steps = 0
-    !> Open CPU profiling output file (replaces any existing file)
-    open(newunit=iunit_cpu, file=dir//trim(root)//'_cpu_profile.out', status='replace', action='write')
+    !> Open CPU profiling output file (replaces any existing file).
+    !> The transport approach (Euler/Lagr) and WMA option (lumped/consistent) are encoded
+    !> in the filename, matching the {root}{_Lagr|_Euler}{_lumped|_consistent}_*.out scheme.
+    if (this%transport%Lagr_flag) then
+        cpu_root = trim(root)//'_Lagr'
+    else
+        cpu_root = trim(root)//'_Euler'
+    end if
+    if (this%chemistry%lump_flag) then
+        cpu_root = cpu_root//'_lumped'
+    else
+        cpu_root = cpu_root//'_consistent'
+    end if
+    open(newunit=iunit_cpu, file=dir//cpu_root//'_cpu_profile.out', status='replace', action='write')
+
+!> -----------------------------------------------------------------------
+!> Domain-integrated mass balance: reference cell (homogeneous reactive zone) + output file
+    idx_ref = this%chemistry%tar_wat_indices(ind_non_can_vec(1))
+    n_v_ref = n_v_cache(1)
+    allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
+    open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
+    write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
+    write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
 
 !> -----------------------------------------------------------------------
 !> Main Time Loop
+    !> Write initial state (t=0) before the first time step, honouring chem_out_options%vars
+    if (this%chemistry%chem_out_options%time_steps(1)==0) then
+        call write_out_step_vars(this%chemistry, unit, 0d0)
+    end if
+    !> Mixer grouping of the waters that are not plain target waters. The inflow (first-column) cells'
+    !> parcels are the boundary waters (zone not in the domain): external, mixed directly. With a
+    !> Neumann outflow, the right boundary waters are the parcels that left the last column: their
+    !> previous-step concentrations were equilibrated in those cells' zones, so they join those zones'
+    !> within-zone mix (classified by reset_wat_indices_zones) and are NOT externals.
+    if (this%transport%BCs%labels(2)==2) then
+        exit_wat_indices=this%chemistry%bd_waters_indices(this%chemistry%num_left_bd_waters+1:&
+            this%chemistry%num_left_bd_waters+this%chemistry%num_right_bd_waters)
+    else
+        allocate(exit_wat_indices(0))
+    end if
+    mix_ext_indices=[pack(this%chemistry%ext_waters_indices, &
+        [(all(this%chemistry%ext_waters_indices(q)/=exit_wat_indices), q=1,this%chemistry%num_ext_waters)]), &
+        (this%chemistry%tar_wat_indices(1+(i-1)*this%transport%spatial_discr%get_num_cells(1)), &
+         i=1,this%chemistry%num_left_bd_waters)]
     !> Begin main time stepping loop from step 1 to total number of time steps
     do k=1,num_time_loc
-        !> Record CPU time at start of this time step for per-step profiling
-        call cpu_time(cpu_t0)
         !> Compute time step size for step k from the time discretization
         Delta_t=this%transport%time_discr%get_Delta_t(k)
         !> Advance simulation time by the current time step size
@@ -402,24 +462,22 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
 
         !> Check if current time step matches the next designated output time step
         is_output_step = (k == this%chemistry%chem_out_options%time_steps(kk))
-        !> If this is an output step, write timing header to the output file
-        if (is_output_step) then
-           !> Write formatted simulation time header to the output file
-           write(unit,"(/,2x,'t = ',*(ES15.5),/)") time
-        !> End output step time header writing
-        end if
+        !> Reset the domain-integrated mass-balance accumulators for this time step
+        mb_lhs=0d0
+        mb_transp=0d0
+        mb_react=0d0
         !> Update Previous Time Step Values
-        !> Profile: start CPU timer for update_old_attributes phase
+        !> Profile: start CPU timer for update_attributes phase
         call cpu_time(cpu_prof_t0)
         !> Loop over all waters to update their previous-time-step attributes
         do i=1,num_waters_loc
             !> Shift current concentrations and state to "old" storage for this water
-            call this%chemistry%waters(i)%update_old_attributes()
-        !> End update_old_attributes loop over waters
+            call this%chemistry%waters(i)%update_attributes()
+        !> End update_attributes loop over waters
         end do
-        !> Profile: record CPU time after update_old_attributes phase
+        !> Profile: record CPU time after update_attributes phase
         call cpu_time(cpu_prof_t1)
-        !> Profile: accumulate elapsed time for update_old_attributes phase
+        !> Profile: accumulate elapsed time for update_attributes phase
         cpu_update_old_total = cpu_update_old_total + (cpu_prof_t1 - cpu_prof_t0)
         !> Profile: start CPU timer for particle displacement phase
         call cpu_time(cpu_prof_t0)
@@ -427,6 +485,11 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
         call p_displace_particles(this,k)
         !> Introduce new particles (e.g. boundary inflow) at time step k
         call this%introduce_particles(k)
+        !> Regroup the target waters by the reactive zone of their previous-step state (the zone of
+        !> the cell each parcel comes from, solid_chemistry_old): wat_indices_zones is the
+        !> classification compute_c_mix_by_zones uses for the within-zone mixing. The Neumann
+        !> outflow waters (exited parcels) are classified with them.
+        call reset_wat_indices_zones(this%chemistry)
         !> Profile: record CPU time after particle displacement phase
         call cpu_time(cpu_prof_t1)
         !> Profile: accumulate elapsed time for particle displacement phase
@@ -472,9 +535,11 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
             !> End data preparation profiling guard
             end if
             !> Compute conservative mixing of concentrations using mixing ratios and cached conc_old
-            call compute_c_mix_global(this%chemistry%waters(mix_col(1)), &
-                all_conc_old, all_ind_aq_sp, mix_col(2:), num_mix_loc, &
-                this%transport%mixing_ratios_conc%cols(idx)%col_1, c_hat)
+            call p_mixer(this%chemistry%waters, this%chemistry%zone_waters(idx,:), mix_col(1:num_mix_loc+1), &
+                this%transport%mixing_ratios_conc%cols(idx)%col_1(1:num_mix_loc+1), &
+                lumped_lambda_loc, &
+                this%chemistry%wat_indices_zones, mix_ext_indices, Delta_t, theta_r_loc, c_hat, c_tilde, .true.)
+            deallocate(c_tilde)
             !> Profile: end conservative mixing timer and accumulate elapsed time
             if (do_profile_inner) then
                 !> Profile: record CPU time after conservative mixing phase
@@ -498,9 +563,9 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
             !> End conditional reallocation check
             end if
             !> Retrieve current variable activity species concentrations from target water
-            conc_nc=tw%get_conc_nc()
+            conc_nc=tw%get_conc_var_act()
             !> Retrieve old-old (two steps back) primary species concentrations from target water
-            c1_oo=tw%get_c1_old_old()
+            c1_oo=tw%get_conc_old_old_prim_new_rz()
             !> Profile: end getters timer and accumulate elapsed time
             if (do_profile_inner) then
                 !> Profile: record CPU time after getter calls
@@ -512,8 +577,9 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
             !> End getter profiling guard
             end if
             !> Reactive Mixing Iteration
+            call tw%set_conc_hat(c_hat(1:n_v)) !< aqueous blocks of the Newton speciation input, for the conc_hat attribute
             call p_solver(tw, c1_oo, c_hat(1:n_v), &
-                lumped_lambda_loc, lumped_lambda_loc, &
+                lumped_lambda_loc, &
                 Delta_t, theta_r_loc, conc_nc, conc_comp)
             !> Profile: end reactive mixing solver timer and accumulate elapsed time
             if (do_profile_inner) then
@@ -528,6 +594,7 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
             !> Update Derived Quantities
             !> Compute pH from current aqueous concentrations
             call tw%compute_pH()
+            call tw%compute_saturation_mins() !< saturation indices of all minerals at the end-of-step state
             !> Compute salinity from current aqueous concentrations
             call tw%compute_salinity()
             !> Compute ionic strength from current aqueous concentrations
@@ -544,21 +611,16 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
             end if
             !> Accumulate Reaction Amounts
             !> Add current kinetic reaction amounts to running accumulator for aqueous chemistry
-            tw%Rk_accum=tw%Rk_accum+tw%Rk
+            tw%cum_rxn_amnt_kin=tw%cum_rxn_amnt_kin+tw%rxn_amnt_kin
             !> Add current kinetic reaction amounts to running accumulator for solid chemistry
-            tw%solid_chemistry%Rk_accum=tw%solid_chemistry%Rk_accum+tw%solid_chemistry%Rk
+            tw%solid_chemistry%cum_rxn_amnt_kin=tw%solid_chemistry%cum_rxn_amnt_kin+tw%solid_chemistry%rxn_amnt_kin
             !> Equilibrium Reaction Rates
             !> Cache number of kinetic reaction rate columns for this target water
             num_kin_rk_cols = tw%indices_rk%num_cols
             !> If both equilibrium reactions and kinetic rate columns exist, compute mixed eq rates
-            if (num_eq_loc>0 .and. num_kin_rk_cols>0) then
-                !> Compute equilibrium reaction rates accounting for kinetic coupling
-                call tw%compute_Re_kin(c_hat(n_p+1:n_v), Delta_t, lumped_lambda_loc)
-            !> If only equilibrium reactions exist (no kinetic rate columns), compute pure eq rates
-            else if (num_eq_loc>0) then
-                !> Compute equilibrium reaction rates from mixed secondary concentrations
-                call tw%compute_Re(c_hat(1:n_v), Delta_t, lumped_lambda_loc)
-            !> End equilibrium reaction rate computation branching
+            if (num_eq_loc>0) then
+                !> Compute equilibrium reaction rates (kinetic term handled inside, zero if no kinetics)
+                call tw%compute_Re(c_hat(1:n_v), Delta_t, lumped_lambda_loc, theta_r_loc)
             end if
             !> Profile: end equilibrium rates timer and accumulate elapsed time
             if (do_profile_inner) then
@@ -570,19 +632,28 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
                 cpu_prof_t0 = cpu_prof_t1
             !> End equilibrium rates profiling guard
             end if
+            !> Domain-integrated mass-balance contribution of this cell
+            call tw%get_react_mix_mass_bal_terms(c_hat(1:n_v), c_hat(1:n_v), lumped_lambda_loc, &
+                Delta_t, theta_r_loc, mb_lhs_c, mb_transp_c, mb_react_c)
+            if (size(mb_lhs_c) == n_v_ref) then
+                mb_lhs = mb_lhs + mb_lhs_c
+                mb_transp = mb_transp + mb_transp_c
+                mb_react = mb_react + mb_react_c
+            end if
+            deallocate(mb_lhs_c, mb_transp_c, mb_react_c)
             !> Solid Chemistry State Variables
             if (has_minerals_flag(i)) then
                 !> Compute mineral mass balances from kinetic reaction amounts and Delta_t
                 call tw%solid_chemistry%compute_mass_bal_mins(Delta_t)
                 !> Update mineral concentrations iteratively based on mass balance results
-                call tw%solid_chemistry%compute_conc_minerals_iter(Delta_t)
+                call tw%solid_chemistry%compute_conc_minerals_iter(Delta_t,lumped_lambda_loc)
             !> End mineral chemistry update conditional
             end if
             !> Gas Chemistry State Variables
             if (has_gases_flag(i)) then
                 !> Compute gas concentrations iteratively from reaction rates and cell volume
                 call tw%gas_chemistry%compute_conc_gases_iter( &
-                    Delta_t, tw%volume, [tw%re_mean, tw%rk_mean])
+                    Delta_t, tw%volume, [tw%rxn_rate_eq, tw%rxn_rate_kin_avg])
                 !> Compute volumetric gas species concentrations from updated gas amounts
                 call tw%gas_chemistry%compute_vol_gas_species_conc()
                 !> Compute logarithmic activity coefficients for gas species
@@ -599,28 +670,6 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
                 cpu_prof_t0 = cpu_prof_t1
             !> End solid/gas chemistry profiling guard
             end if
-            !> Write Chemistry Output
-            if (is_output_step .and. &
-                (idx==this%chemistry%chem_out_options%ind_waters(ii))) then
-                !> Write water index and selected species concentrations to the output file
-                write(unit,"(I10,*(ES15.5))") this%chemistry%chem_out_options%ind_waters(ii), &
-                    (tw%concentrations(tw%indices_aq_species( &
-                    this%chemistry%chem_out_options%ind_aq_species(j))), &
-                    j=1,num_out_aq_sp)
-                !> If more waters remain to output at this time step, advance water counter
-                if (ii<num_out_waters) then
-                    !> Advance to the next output water
-                    ii=ii+1
-                !> If all waters done but more output time steps remain, advance time step counter
-                else if (kk<num_out_ts) then
-                    !> Advance to the next output time step
-                    kk=kk+1
-                    !> Reset output water counter to first water for the new output time step
-                    ii=1
-                !> End output counter advancement branching
-                end if
-            !> End chemistry output writing conditional
-            end if
             !> Profile: end output writing timer and accumulate elapsed time
             if (do_profile_inner) then
                 !> Profile: record CPU time after output writing
@@ -636,12 +685,16 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
         !> End target waters inner loop
         end do
 
+        !> Domain-integrated mass balance for this time step (per variable-activity species)
+        call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+        !> Write chemistry output honouring chem_out_options%vars (conc / react_rate / vol_fract)
+        if (is_output_step) then
+            call write_out_step_vars(this%chemistry, unit, time)
+            if (kk<num_out_ts) kk=kk+1
+        end if
+
         !> Write chemistry snapshot at output time steps
         !> (Snapshots disabled — write_chemistry is called once at the end via write_RT)
-        !> Record CPU time at end of this time step for per-step profiling
-        call cpu_time(cpu_t1)
-        !> Print elapsed CPU time for this individual time step
-        write(*,'(A,I10,A,F14.4,A)') '[CPU] time step ', k, ' took ', cpu_t1 - cpu_t0, ' s'
     !> End main time stepping loop
     end do
 
@@ -670,8 +723,11 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
         cpu_data_prep_total, cpu_mix_total, cpu_getters_total, &
         cpu_solver_total, cpu_derived_total, cpu_eq_rates_total, &
         cpu_solid_gas_total, cpu_output_total, cpu_snapshot_total, &
-        dir, trim(root))
+        dir, cpu_root, 'solve_RT_ideal_lump_Lagr_stat_flux_2D')
     !> Close the main species concentration output file
     close(unit)
+    !> Close the domain-integrated mass-balance output file and free its accumulators
+    close(iunit_mb)
+    deallocate(mb_lhs, mb_transp, mb_react)
 !> End of subroutine
 end subroutine

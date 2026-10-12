@@ -1,343 +1,352 @@
 !> @file solve_reactive_mixing_lump.f90
-!> @brief Solves reactive mixing problem using lumping optimization for mixing ratios and reaction rates
-!> @details Computes concentrations, activities, activity coefficients, reaction rates and volumetric 
-!> fractions of minerals (if present) using a lumping technique to reduce computational cost.
+!> @brief Solves the reactive mixing problem assuming NON-ideal conditions with a lumped formulation.
+!> @details Non-ideal counterpart of solve_reactive_mixing_ideal_lump. It shares the same structure
+!> (canonical/non-canonical vector loop, lumped mixing ratios, global conservative mixing via
+!> compute_c_mix_global, per-target-water dimension caches and CPU profiling) with the single
+!> time-step iteration inlined in the main time loop. The reactive step uses the non-ideal
+!> mixing_iter_comp iteration and non-ideal activity coefficients. Only equilibrium-only systems
+!> are implemented; any system involving kinetic reactions triggers an error stop.
 !>
 !> @author Jordi Petchamé-Guerrero
 !> @date November 2025
 
-subroutine solve_reactive_mixing_lump(this,dir,root,mixing_ratios_conc,mixing_ratios_R,mix_conc_indices,time_discr,&
-    int_method_chem_reacts)
-    !> Import main chemistry class
-    use chemistry_m, only: chemistry_c
-    !> Import aqueous chemistry classes, arrays, and reactive mixing subroutines
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, mixing_iter_comp, reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, &
-        reactive_mixing_iter_EI_kin_anal_ideal_opt2, reactive_mixing_iter_EI_eq_anal_ideal, &
-        mixing_iter_comp_ideal, compute_c_mix
-    !> Import time discretisation class
+subroutine solve_reactive_mixing_lump(this,dir,root,mixing_ratios_conc,mixing_ratios_R,mix_conc_indices,&
+    time_discr,theta_r)
+    use chemistry_m, only: chemistry_c, write_out_step_vars
+    !> Non-ideal reactive-mixing iteration and global conservative mixing
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, mixing_iter_comp, compute_c_mix_global_lump, &
+        compute_c_mix_by_zones_lump
     use time_discr_m, only: time_discr_c
     use arrays_m, only: real_array_c, int_array_c
-    !> Import vector norm function
-    use vectors_m, only: inf_norm_vec_real
-    implicit none !< Enforce explicit variable declarations
+    implicit none
 !> Arguments
     class(chemistry_c) :: this !> chemistry object
     character(len=*), intent(in) :: dir
     character(len=*), intent(in) :: root
     class(real_array_c), intent(in) :: mixing_ratios_conc !> mixing ratios concentration matrix
-    class(real_array_c), intent(in) :: mixing_ratios_R !> mixing ratios reaction rates matrix
-    class(int_array_c), intent(in) :: mix_conc_indices !> matrix that contains indices of target waters that mix with each target water
-    class(time_discr_c), intent(in) :: time_discr !> time discretisation object (used to solve transport)
-    integer(kind=4), intent(in) :: int_method_chem_reacts !> integration method for chemical reactions
-!> @par Local Variables:
-    !> @var i Loop counter for target waters
-    integer(kind=4) :: i !< Target water loop counter [-]
-    !> @var j Loop counter for species and mixing waters
-    integer(kind=4) :: j !< Species/mixing water loop counter [-]
-    !> @var l Loop counter for reactive zones
-    integer(kind=4) :: l !< Reactive zone loop counter [-]
-    !> @var k Counter for main time loop (transport time steps)
-    integer(kind=4) :: k !< Time step counter [1 to Num_time]
-    !> @var kk Counter for output time steps (subset of k)
-    integer(kind=4) :: kk !< Output time step counter [-]
-    !> @var ii Counter for output target waters (subset of all target waters)
-    integer(kind=4) :: ii !< Output target water counter [-]
-    !> @var num_tar_wat Number of target waters in the system
-    integer(kind=4) :: num_tar_wat !< Total number of target waters [-]
-    !> @var num_tar_sol Number of target solids in the system
-    integer(kind=4) :: num_tar_sol !< Total number of target solids [-]
-    !> @var n_p Number of primary species (components)
-    integer(kind=4) :: n_p !< Number of primary species [-]
-    !> @var n_v Number of variable activity species (aqueous + solid)
-    integer(kind=4) :: n_v !< Total number of variable activity species [-]
-    !> @var n_v_aq Number of aqueous variable activity species
-    integer(kind=4) :: n_v_aq !< Number of aqueous variable activity species [-]
-    !> @var n_v_aq_2 Number of aqueous secondary variable activity species
-    integer(kind=4) :: n_v_aq_2 !< Number of secondary aqueous variable activity species [-]
-    !> @var unit Output file unit number
-    integer(kind=4) :: unit !< File unit number for output file [-]
-    !> @var tar_gas_indices Indices of target gases in each reactive zone
-    integer(kind=4), allocatable :: tar_gas_indices(:) !< Target gas indices [-]
-    !> @var tar_sol_indices Indices of target solids in each reactive zone
-    integer(kind=4), allocatable :: tar_sol_indices(:) !< Target solid indices [-]
-    !> @var tar_wat_indices Indices of target waters in each reactive zone
-    integer(kind=4), allocatable :: tar_wat_indices(:) !< Target water indices [-]
-    !> @var perm Permutation vector for aqueous concentrations
-    integer(kind=4), allocatable :: perm(:) !< Permutation array for reordering species [-]
-    !> @var time Current simulation time
-    REAL(KIND=8) :: time !< Current time in simulation [s]
-    !> @var Delta_t Time step size
-    REAL(KIND=8) :: Delta_t !< Time step size Delta_t [s]
-    !> @var theta Time weighting factor (0=EE, 1=IE, 0.5=CN)
-    real(kind=8) :: theta !< Time integration weighting factor [-]
-    !> @var c_mix Variable activity species concentrations after mixing
-    REAL(KIND=8), allocatable :: c_mix(:) !< Mixed concentrations before reaction [mol/L or mol/kg]
-    !> @var conc_nc Concentrations of variable activity species
-    REAL(KIND=8), allocatable :: conc_nc(:) !< Variable activity species concentrations [mol/L or mol/kg]
-    !> @var conc_comp Concentrations of components
-    REAL(KIND=8), allocatable :: conc_comp(:) !< Components concentrations [mol/L or mol/kg]
-    !> @var target_waters_new Target waters at time step k+1
-    type(aqueous_chemistry_c), allocatable :: target_waters_new(:) !< Target waters at new time level [-]
-    !> @var target_waters_old Target waters at time step k
-    type(aqueous_chemistry_c), allocatable :: target_waters_old(:) !< Target waters at current time level [-]
-    !> @var target_waters_old_old Target waters at time step k-1
-    type(aqueous_chemistry_c), allocatable :: target_waters_old_old(:) !< Target waters at previous time level [-]
-    integer(kind=4) :: j_mix !< loop index for mixing waters
-    integer(kind=4) :: num_mix_loc !< number of mixing waters
-    real(kind=8), allocatable :: conc_old_mix(:,:) !< conc_old from each mixing water
-    integer(kind=4), allocatable :: ind_aq_sp_mix(:,:) !< indices_aq_species from each mixing water
+    class(real_array_c), intent(in) :: mixing_ratios_R !> mixing ratios reaction rates matrix (mix_conc_indices layout)
+    class(int_array_c), intent(in) :: mix_conc_indices !> indices of target waters that mix with each target water
+    class(time_discr_c), intent(in) :: time_discr !> time discretisation object
+    real(kind=8), intent(in) :: theta_r !> time weighting factor for chemical reactions (0=explicit, 1=implicit)
+!> Loop counters and indices
+    integer(kind=4) :: i, j, k, kk, ii
+    integer(kind=4) :: idx !< Absolute target-water index tar_wat_indices(ind_non_can_vec(i))
+!> Problem dimensions
+    integer(kind=4) :: n_p, n_v, n_eq
+    integer(kind=4) :: num_can_vec, num_non_can_vec
+    integer(kind=4) :: unit !< Output file unit
+    integer(kind=4) :: iunit_cpu !< CPU-profiling file unit
+    character(len=:), allocatable :: cpu_root !< root + Euler/lumped tag for the CPU-profiling filename
+    integer(kind=4) :: num_time_loc !< Cached total number of time steps
+!> Index arrays
+    integer(kind=4), allocatable :: ind_can_vec(:)
+    integer(kind=4), allocatable :: ind_non_can_vec(:)
+!> Time variables
+    real(kind=8) :: time, Delta_t
+!> Concentration and reaction-rate arrays
+    real(kind=8), allocatable :: conc_nc(:)
+    real(kind=8), allocatable :: conc_comp(:)
+    real(kind=8), allocatable :: lumped_lambdas(:)
+!> Per-step working arrays
+    real(kind=8), allocatable :: c_mix(:)
+    real(kind=8), allocatable :: c_tilde(:)
+    integer(kind=4) :: num_mix_loc
+    real(kind=8), allocatable :: mal_residual(:)
+    real(kind=8) :: mal_max
+!> Domain-integrated reactive-mixing mass balance (per variable-activity species)
+    integer(kind=4) :: iunit_mb !< mass-balance output file unit
+    integer(kind=4) :: idx_ref !< reference target-water index (species names/dimension)
+    integer(kind=4) :: n_v_ref !< reference number of variable-activity species
+    real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
+    real(kind=8), allocatable :: mb_lhs_c(:), mb_transp_c(:), mb_react_c(:) !< per-cell terms
+!> Global caches for compute_c_mix_global
+    real(kind=8), allocatable :: all_conc_old(:,:)
+    integer(kind=4), allocatable :: all_ind_aq_sp(:,:)
+    integer(kind=4) :: w, max_n_conc, max_n_idx
+!> Pre-computed per-target-water caches
+    logical, allocatable :: has_minerals_flag(:)
+    logical, allocatable :: has_gases_flag(:)
+    integer(kind=4), allocatable :: n_p_cache(:)
+    integer(kind=4), allocatable :: n_v_cache(:)
+    integer(kind=4), allocatable :: n_eq_cache(:)
+    integer(kind=4) :: max_n_p, max_n_v
+!> CPU profiling variables
+    real(kind=8) :: cpu_total_t0, cpu_total_t1, cpu_total_elapsed
+    real(kind=8) :: cpu_prof_t0, cpu_prof_t1
+    real(kind=8) :: cpu_solver_total
+    real(kind=8) :: cpu_output_total
+!> Procedure pointer (non-ideal reactive-mixing iteration)
+    procedure(mixing_iter_comp), pointer :: p_solver=>null()
+    procedure(compute_c_mix_by_zones_lump), pointer :: p_mixer
 
-!> @par Procedure Pointers:
-    !> @var p_solver Procedure pointer for reactive mixing subroutine
-    procedure(mixing_iter_comp), pointer :: p_solver=>null() !< Solver procedure pointer [-]
-!> @par Initialization Section:
-!> Initialize target waters for time stepping algorithm
-    !> Copy initial target waters to old state (time step k)
-    target_waters_old=this%waters !< State at time k [mol/L]
-    !> Copy to old-old state (time step k-1) for multi-step methods
-    target_waters_old_old=target_waters_old !< State at time k-1 [mol/L]
-    !> Initialize new state (time step k+1) as copy of current state
-    target_waters_new=target_waters_old !< State at time k+1 (to be computed) [mol/L]
+!> -----------------------------------------------------------------------
+!> Initialization
+    call cpu_time(cpu_total_t0)
+    if (this%mix_by_zones_flag) then
+        p_mixer => compute_c_mix_by_zones_lump
+    else
+        p_mixer => compute_c_mix_global_lump
+    end if
+    n_eq=0
+    do i=1,this%num_target_waters
+        n_eq=n_eq+this%waters(this%tar_wat_indices(i))%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions
+    end do
 
-    !> Initialize simulation time to zero
-    time=0d0 !< Current simulation time [s]
-    !> Initialize output time step counter (starts at 2 since 1 is initial condition)
-    kk=2 !< Next output time step index [-]
-    !> Initialize output target water counter
-    ii=1 !< Next output target water index [-]
-    !> Set last output time step to final simulation time
-    this%chem_out_options%time_steps(this%chem_out_options%num_time_steps)=time_discr%Num_time !< Final time step for output [-]
-            
-    !> Set file unit number for output
-    unit=7 !< File unit number for main output file [-]
-    !> Open formatted output file for time-series concentration data
-    open(unit,file=root//'.out',form="formatted",access="sequential",status="unknown") !< Open output file
-!> @par Solver Selection Based on Reaction Types:
-!> Select reactive mixing subroutine depending on the nature of the chemical system
-!> and the methods to compute Jacobians and integrate in time.
-!> Three main cases: (1) equilibrium + kinetics, (2) equilibrium only, (3) kinetics only
-    if (this%chem_syst%num_kin_reacts>0 .and. this%chem_syst%speciation_alg%num_eq_reactions>0) then !< Case 1: Both equilibrium and kinetic reactions
-        if (int_method_chem_reacts==1) then !< Explicit Euler (EE) method for chemical reactions
-            !> Set time weighting factor theta=0 for fully explicit treatment
-            theta=0d0 !< theta=0 means explicit Euler [-]
-        else if (this%Jac_opt==1) then !< Use analytical Jacobian for Newton-Raphson iterations
-            if (int_method_chem_reacts==2) then !< Implicit Euler (IE)
-                !> Set time weighting factor theta=1 for fully implicit treatment
-                theta=1d0 !< theta=1 means fully implicit Euler [-]
-            else if (int_method_chem_reacts==3) then !< Crank-Nicolson (CN)
-                !> Set time weighting factor theta=0.5 for Crank-Nicolson (2nd order accurate)
-                theta=5d-1 !< theta=0.5 means Crank-Nicolson [-]
-            else
-                !> Invalid integration method specified
-                error stop "Integration method for chemical reactions not implemented yet"
-            end if
-            !> Check kinetic reaction rate averaging option
-            if (this%rk_avg_opt==1) then !< Option 1: not implemented
-                error stop "rk average option 1 not implemented yet"
-            else if (this%rk_avg_opt==2) then !< Option 2: not implemented
-                error stop "rk average option 2 not implemented yet"
-            else
-                !> Invalid averaging option specified
-                error stop "rk average option not implemented yet"
-            end if
-        else
-            !> Invalid integration method specified
-            error stop "Integration method for chemical reactions not implemented yet"
+    time=0d0
+    kk=2
+    ii=1
+    num_time_loc = time_discr%Num_time
+    do i=2,this%chem_out_options%num_time_steps-1
+        if (this%chem_out_options%time_steps(i) > num_time_loc) then
+            print *, "Output time step index", this%chem_out_options%time_steps(i), &
+                "exceeds total number of time steps", num_time_loc
+            error stop "Mismatch between out_opts.dat and discr_temp.dat: output time step exceeds total time steps"
         end if
-    else if (this%chem_syst%speciation_alg%num_eq_reactions>0) then !< Case 2: Only equilibrium reactions (no kinetics)
-        !> Assign procedure pointer to equilibrium-only solver with lumping
-        p_solver=>mixing_iter_comp !< Equilibrium-only solver with lumping optimization [-]
-    else !< Case 3: Only kinetic reactions (no equilibrium)
-        if (int_method_chem_reacts==1) then !< Explicit Euler for kinetics only
-            !> Set time weighting factor for explicit treatment
-            theta=0d0 !< theta=0 means explicit Euler [-]
-        else if (this%Jac_opt==1) then !< Use analytical Jacobian for kinetics-only case
-            if (int_method_chem_reacts==2) then !< Implicit Euler
-                !> Set time weighting factor for fully implicit treatment
-                theta=1d0 !< theta=1 means fully implicit Euler [-]
-            else if (int_method_chem_reacts==3) then !< Crank-Nicolson
-                !> Set time weighting factor for Crank-Nicolson
-                theta=5d-1 !< theta=0.5 means Crank-Nicolson [-]
-            else
-                !> Invalid integration method for kinetics-only case
-                error stop "Integration method for chemical reactions not implemented yet"
-            end if
+    end do
+    unit=7
+    block
+        character(len=:), allocatable :: rtag
+        if (this%lump_flag) then
+            rtag = '_Euler_lumped'
         else
-            !> Invalid Jacobian option specified
-            error stop "Integration method for chemical reactions not implemented yet"
+            rtag = '_Euler_consistent'
         end if
-    end if     
-!> @par Main Time Loop:
-!> Iterate over all transport time steps to solve coupled mixing-reaction problem
-!> At each time step: (1) mix waters, (2) react, (3) update minerals/gases, (4) output results
-        !> Main time loop: iterate from k=1 to final time step
-        do k=1,time_discr%Num_time !< Loop over all transport time steps [-]
-            !> Get time step size for current iteration (may vary for adaptive stepping)
-            Delta_t=time_discr%get_Delta_t(k) !< Time step size Delta_t [s]
-            !> Advance simulation time by Delta_t
-            time=time+Delta_t !< Current time = previous time + Delta_t [s]
-            !> Check if current time step matches an output time step
-            if (k==this%chem_out_options%time_steps(kk)) then !< Check if this is an output time step
-                !> Write current time in scientific notation (ES15.5 format)
-                write(unit,"(2x,'t = ',*(ES15.5))") time !< Output: "  t = 1.23456E+02" [s]
-                !> Write column headers with aqueous species names (15 characters each)
-                write(unit,"(A10,*(A15))") 'Water', (this%chem_syst%aq_phase%aq_species(this%chem_out_options%ind_aq_species(j))%name, &
-                j=1,this%chem_out_options%num_aq_species) !< Species names from output options
+        open(unit,file=dir//trim(root)//rtag//'_output.out',form="formatted",access="sequential",status="unknown")
+    end block
+    !> Output headers/blocks are written per step by write_out_step_vars (honours chem_out_options%vars)
+
+!> -----------------------------------------------------------------------
+!> Solver selection (only equilibrium-only is implemented for the non-ideal lumped solver)
+    if (this%chem_syst%num_kin_reacts>0 .and. n_eq>0) then
+        error stop "Non-ideal lumped solver: equilibrium + kinetic reactions not implemented yet"
+    else if (n_eq>0) then
+        p_solver=>mixing_iter_comp
+    else
+        error stop "Non-ideal lumped solver: kinetic-only reactions not implemented yet"
+    end if
+
+!> -----------------------------------------------------------------------
+!> Pre-compute canonical/non-canonical vectors and lumped lambdas
+    call mixing_ratios_conc%get_can_vec(this%CV_params%abs_tol,num_can_vec,ind_can_vec,num_non_can_vec,ind_non_can_vec)
+    allocate(lumped_lambdas(mixing_ratios_R%num_cols))
+    do i=1,mixing_ratios_R%num_cols
+        lumped_lambdas(i)=sum(mixing_ratios_R%cols(i)%col_1)
+    end do
+
+!> -----------------------------------------------------------------------
+!> Initial conditions setup
+    do i=1,this%num_waters
+        call this%waters(i)%set_conc_old()
+        call this%waters(i)%set_conc_old_old()
+        call this%waters(i)%solid_chemistry%set_conc_old()
+        call this%waters(i)%solid_chemistry%set_conc_old_old()
+    end do
+
+!> -----------------------------------------------------------------------
+!> Pre-compute per-target-water dimensions and flags
+    allocate(n_p_cache(num_non_can_vec))
+    allocate(n_v_cache(num_non_can_vec))
+    allocate(n_eq_cache(num_non_can_vec))
+    allocate(has_minerals_flag(num_non_can_vec))
+    allocate(has_gases_flag(num_non_can_vec))
+    max_n_p = 0
+    max_n_v = 0
+    do i=1,num_non_can_vec
+        idx = this%tar_wat_indices(ind_non_can_vec(i))
+        associate(spec_alg => this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg)
+            n_p_cache(i) = spec_alg%num_prim_species
+            n_v_cache(i) = spec_alg%num_var_act_species
+            n_eq_cache(i) = spec_alg%num_eq_reactions
+        end associate
+        has_minerals_flag(i) = associated(this%waters(idx)%solid_chemistry%mineral_zone)
+        has_gases_flag(i) = associated(this%waters(idx)%gas_chemistry)
+        if (n_p_cache(i) > max_n_p) max_n_p = n_p_cache(i)
+        if (n_v_cache(i) > max_n_v) max_n_v = n_v_cache(i)
+    end do
+
+!> Pre-allocate reusable buffers
+    allocate(conc_comp(max_n_p))
+
+!> Domain-integrated mass balance: reference cell (homogeneous reactive zone) + output file
+    idx_ref = this%tar_wat_indices(ind_non_can_vec(1))
+    n_v_ref = n_v_cache(1)
+    allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
+    !> Tagged root shared by mass-balance and CPU-profile filenames (Eulerian reactive-mixing path).
+    if (this%lump_flag) then
+        cpu_root = root//'_Euler_lumped'
+    else
+        cpu_root = root//'_Euler_consistent'
+    end if
+    open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
+    write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
+    write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
+
+!> Pre-allocate global caches for compute_c_mix_global
+    max_n_conc = 0
+    max_n_idx = 0
+    do w = 1, this%num_waters
+        j = size(this%waters(w)%conc_old)
+        if (j > max_n_conc) max_n_conc = j
+        j = this%waters(w)%aq_phase%num_species
+        if (j > max_n_idx) max_n_idx = j
+    end do
+    allocate(all_conc_old(max_n_conc, this%num_waters))
+    allocate(all_ind_aq_sp(max_n_idx, this%num_waters))
+    do w = 1, this%num_waters
+        all_ind_aq_sp(1:size(this%waters(w)%indices_aq_species), w) = &
+            this%waters(w)%indices_aq_species
+    end do
+
+!> -----------------------------------------------------------------------
+!> Initialize profiling accumulators
+    cpu_solver_total = 0d0
+    cpu_output_total = 0d0
+
+!> Open CPU profiling output file (Eulerian reactive-mixing path; lumped/consistent tag)
+    if (this%lump_flag) then
+        cpu_root = root//'_Euler_lumped'
+    else
+        cpu_root = root//'_Euler_consistent'
+    end if
+    open(newunit=iunit_cpu, file=dir//cpu_root//'_cpu_profile.out', status='replace', action='write')
+
+!> -----------------------------------------------------------------------
+!> Write initial state (t=0) before the first time step, honouring chem_out_options%vars
+    if (this%chem_out_options%time_steps(1)==0) then
+        call write_out_step_vars(this, unit, 0d0)
+    end if
+
+!> Main time loop
+    do k=1,num_time_loc
+        Delta_t=time_discr%get_Delta_t(k)
+        time=time+Delta_t
+        !> Reset the domain-integrated mass-balance accumulators for this time step
+        mb_lhs = 0d0
+        mb_transp = 0d0
+        mb_react = 0d0
+        !> ---- Single time-step reactive-mixing iteration (inlined) ----
+        call cpu_time(cpu_prof_t0)
+        !> Update old attributes (copies previous step's new conc into conc_old)
+        do i = 1, this%num_target_waters
+            call this%waters(this%tar_wat_indices(i))%update_attributes() !< Shift all old attributes
+        end do
+        !> Refresh the global conc_old cache after updates
+        do w = 1, this%num_waters
+            all_conc_old(1:size(this%waters(w)%conc_old), w) = this%waters(w)%conc_old
+        end do
+        !> Target waters loop (non-canonical columns only)
+        do i = 1, num_non_can_vec
+            idx = this%tar_wat_indices(ind_non_can_vec(i))
+            n_p = n_p_cache(i)
+            n_v = n_v_cache(i)
+            n_eq = n_eq_cache(i)
+            if (mix_conc_indices%cols(ind_non_can_vec(i))%col_1(1) /= idx) then
+                error stop "Target waters not in the right order"
             end if
-        !> @par Inner Loop Over Domain Waters:
-        !> For each domain water, solve the mixing-reaction problem
-        !> This is the core computational loop of the reactive transport solver
-            !> Inner loop: iterate over domain target waters only
-            do i=1,this%num_target_waters !< Loop over domain target waters [-]
-                !> @par System Size Extraction:
-                !> Extract dimensions of chemical system for current target water
-                !> These determine array sizes for reactive mixing solver
-                
-                !> Get number of primary species (aqueous components)
-                n_p=this%waters(this%tar_wat_indices(i))%solid_chemistry%reactive_zone%speciation_alg%num_prim_species !< n_p [-]
-                !> Get total number of variable activity species (aqueous + solid)
-                n_v=this%waters(this%tar_wat_indices(i)&
-                    )%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species !< n_v [-]
-                !> Get number of aqueous variable activity species
-                n_v_aq=this%waters(this%tar_wat_indices(i)&
-                    )%solid_chemistry%reactive_zone%speciation_alg%num_aq_var_act_species !< n_v_aq [-]
-                !> Get number of secondary aqueous variable activity species
-                n_v_aq_2=this%waters(this%tar_wat_indices(i)&
-                    )%solid_chemistry%reactive_zone%speciation_alg%num_aq_sec_var_act_species !< n_v_aq_2 [-]
-                !> @par Lumping Criterion Check:
-                !> Check if this target water can be "lumped" (skipped) based on mixing ratios
-                !> If mixing_ratio[1] ≈ 1 and all other ratios ≈ 0, then no mixing occurs
-                if (abs(mixing_ratios_conc%cols(i)%col_1(1)-1d0)<&
-                this%waters(this%tar_wat_indices(i))%solid_chemistry%reactive_zone%CV_params%abs_tol .and. &
-                    inf_norm_vec_real(mixing_ratios_conc%cols(i)%col_1(2:mixing_ratios_conc%cols(i)%dim))<&
-                this%waters(this%tar_wat_indices(i))%solid_chemistry%reactive_zone%CV_params%abs_tol) then !< Check lumping criterion
-                    !> Skip this water: no significant mixing, so no computation needed
-                    continue !< Move to next target water [-]
-                else !< Significant mixing occurs, need to solve reactive mixing
-                    !> @par Solver Selection for Cation Exchange:
-                    !> Check if cation exchange reactions are present in reactive zone
-                    !if (this%waters(this%tar_wat_indices(i))%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl&
-                    !    >0) then !< Check for surface complexation (cation exchange)
-                    !    !> Assign procedure pointer to cation exchange solver with lumping
-                    !    !p_solver=>mixing_iter_comp_exch_lump !< Equilibrium solver with cation exchange and lumping [-]
-                    !end if
-                    !> @par Array Allocation:
-                    !> Allocate working array for concentrations of variable activity species
-                    allocate(conc_nc(n_v)) !< Allocate conc_nc array [n_v] [mol/L or mol/kg]
-                    allocate(c_mix(n_v)) !< Allocate c_mix array [n_v] [mol/L or mol/kg]
-                    allocate(conc_comp(n_p)) !< Allocate conc_comp array [num_comp_species] [mol/L or mol/kg]
-                    !> @par Index Validation:
-                    !> Verify that target water indices match expected order
-                    !> This ensures mix_conc_indices and tar_wat_indices are consistent
-                    if (mix_conc_indices%cols(i)%col_1(1)/=this%tar_wat_indices(i)) then !< Check index consistency
-                        !> Error: inconsistent target water ordering
-                        print *, mix_conc_indices%cols(i)%col_1(1), this%tar_wat_indices(i) !< Print mismatched indices
-                        error stop "Target waters not in the right order" !< Halt execution
-                    end if
-                !> @par Advective Mixing Computation:
-                !> Compute mixed concentrations c_mix from upstream waters
-                !> Initialize with current target water concentrations
-                    !c_mix=target_waters_old(this%tar_wat_indices(i))%get_conc_nc() !< Get variable activity species concentrations [mol/L or mol/kg]
-                    num_mix_loc=size(mix_conc_indices%cols(i)%col_1)-1
-                    allocate(conc_old_mix(size(target_waters_old(mix_conc_indices%cols(i)%col_1(1))%conc_old), num_mix_loc))
-                    allocate(ind_aq_sp_mix(size(target_waters_old(mix_conc_indices%cols(i)%col_1(1))%indices_aq_species), num_mix_loc))
-                    do j_mix=1,num_mix_loc
-                        conc_old_mix(:,j_mix)=target_waters_old(mix_conc_indices%cols(i)%col_1(j_mix+1))%conc_old
-                        ind_aq_sp_mix(:,j_mix)=target_waters_old(mix_conc_indices%cols(i)%col_1(j_mix+1))%indices_aq_species
-                    end do
-                    call compute_c_mix(target_waters_old(mix_conc_indices%cols(i)%col_1(1)),&
-                        conc_old_mix,ind_aq_sp_mix,&
-                        mixing_ratios_conc%cols(i)%col_1,c_mix)
-                    deallocate(conc_old_mix,ind_aq_sp_mix)
-                !> @par Reactive Mixing Solver Call:
-                !> Call procedure pointer to selected solver
-                !> This solves the coupled system of reaction equations after mixing
-                    call p_solver(target_waters_new(this%tar_wat_indices(i)),& !< [inout] Target water to solve (updated)
-                        target_waters_old_old(this%tar_wat_indices(i))%get_c1(),& !< [in] Primary species at k-1 [mol/L]
-                        c_mix,& !< [in] Mixed concentrations from advection
-                        mixing_ratios_R%cols(i)%col_1(1),& !< [in] Mixing ratios for reaction rates
-                        Delta_t,& !< [in] Time step size
-                        theta,& !< [in] Time weighting factor [-]
-                        conc_nc,& !< [out] Variable activity species concentrations at k+1 [mol/L or mol/kg]
-                        conc_comp) !< [out] Components concentrations at k+1 [mol/L or mol/kg]
-                        
-                !> @par Equilibrium Reaction Rate Computation:
-                !> Compute equilibrium reaction rates Re from mass balance equation
-                !> Re is calculated post hoc from the change in primary species concentrations
-                    call target_waters_new(this%tar_wat_indices(i))%compute_Re(&
-                        c_mix(1:n_v),& !< [in] Secondary species after mixing
-                        Delta_t,& !< [in] Time step size
-                        mixing_ratios_R%cols(i)%col_1(1)) !> Compute equilibrium reaction rates using lumped WMA
-            !> @par Mineral Chemistry Update:
-            !> Update solid chemistry state variables (mineral concentrations and volumetric fractions)
-            !> This applies kinetic mineral reactions to compute new mineral masses
-                    !> Check if minerals are present in this reactive zone
-                    if (associated(target_waters_new(this%tar_wat_indices(i))%solid_chemistry%mineral_zone)) then !< Check for mineral zone
-                    !> Compute mass balance for minerals (dissolution/precipitation)
-                    !> Updates mineral volumetric fractions based on kinetic reaction rates
-                        call target_waters_new(this%tar_wat_indices(i))%solid_chemistry%compute_mass_bal_mins(Delta_t) !< [in] Time step [s]
-                    !> Compute updated mineral concentrations for current iteration
-                    !> Ensures minerals remain non-negative and updates volumetric properties
-                        call target_waters_new(this%tar_wat_indices(i))%solid_chemistry%compute_conc_minerals_iter(Delta_t) !< [in] Time step [s]
-                    end if !< End mineral zone check
-                    
-                !> @par Gas Chemistry Update:
-                !> Update gas chemistry state variables (gas phase concentrations and partial pressures)
-                !> This applies equilibrium/kinetic gas reactions
-                    !> Check if gas chemistry object is associated with this target water
-                    if (associated(target_waters_new(this%tar_wat_indices(i))%gas_chemistry)) then !< Check for gas chemistry
-                    !> Compute updated gas concentrations for current iteration
-                    !> Uses equilibrium constants and mean reaction rates
-                        call target_waters_new(this%tar_wat_indices(i))%gas_chemistry%compute_conc_gases_iter(&
-                            Delta_t,& !< [in] Time step size [s]
-                            target_waters_new(i)%volume,& !< [in] Water volume [L]
-                            [target_waters_new(i)%re_mean,target_waters_new(i)%rk]) !< [in] Mean reaction rates [mol/L/s]
-                    !> Compute volumetric gas concentrations [mol/m^3] from molar amounts
-                        call target_waters_new(this%tar_wat_indices(i))%gas_chemistry%compute_vol_gas_species_conc() !< Compute volume [m^3]
-                    !> Compute logarithms of gas phase activity coefficients (for fugacity corrections)
-                        call target_waters_new(this%tar_wat_indices(i))%gas_chemistry%compute_log_act_coeffs_gases() !< Compute log(gamma) [-]
-                    end if !< End gas chemistry check
-                !> @par Conditional Output Writing:
-                !> Write concentrations to output file if this is an output time step and target water
-                !> Output format: target_water_index followed by selected aqueous species concentrations
-                    if (k==this%chem_out_options%time_steps(kk) .and. i==this%chem_out_options%ind_waters(ii)) then !< Check output criteria
-                        !> Write target water index and aqueous species concentrations
-                        !> Format: I10 for index, ES15.5 for each concentration (scientific notation)
-                        write(unit,"(I10,*(ES15.5))") i, (conc_nc(j), j=1,this%chem_out_options%num_aq_species) !< Write data to file
-                        
-                        !> @par Output Counter Updates:
-                        !> Increment output counters after writing
-                        if (ii<this%chem_out_options%num_waters) then !< More target waters at this time step
-                            ii=ii+1 !< Move to next output target water
-                        else if (kk<this%chem_out_options%num_time_steps) then !< More time steps remaining
-                            kk=kk+1 !< Move to next output time step
-                            ii=1 !< Reset target water counter to first
-                        else !< All output complete
-                            exit !< Exit domain water loop (all output written)
-                        end if
-                    end if !< End output check
-                    
-                !> @par Memory Cleanup:
-                !> Deallocate temporary arrays for this target water
-                    deallocate(c_mix,conc_nc) !< Free c_mix and conc_nc memory
-                end if !< End lumping criterion check
-            end do !< End inner loop over domain target waters
-            
-        !> @par Time Step Finalization:
-        !> Shift time levels for multi-step time integration methods
-        !> This prepares state variables for the next time step k+1
-            !> Copy time level k to k-1 (for Crank-Nicolson and other multi-step methods)
-            target_waters_old_old=target_waters_old !< c^(k-1) ← c^k
-            !> Copy time level k+1 to k (advance solution to next time step)
-            target_waters_old=target_waters_new !< c^k ← c^(k+1)
-        end do !< End main time loop over all transport time steps
-        
-!> @par Final State Assignment:
-!> Copy final computed target waters back to chemistry object
-!> This updates the persistent state with the solution at final time
-    this%waters=target_waters_new !< Transfer final solution to chemistry object
-    
-!> @par Output File Cleanup:
-!> Close output file after all time steps are written
-    close(unit) !< Close file unit 7 (root.out)
-end subroutine !< End of solve_reactive_mixing_lump
+            num_mix_loc = mix_conc_indices%cols(ind_non_can_vec(i))%dim - 3
+            !> Conservative mixing (per-reactive-zone, non-ideal speciation)
+            call p_mixer(this%waters, this%zone_waters(i, :), &
+                mix_conc_indices%cols(ind_non_can_vec(i))%col_1(1:mix_conc_indices%cols(ind_non_can_vec(i))%dim-2), &
+                mixing_ratios_conc%cols(ind_non_can_vec(i))%col_1(1:mix_conc_indices%cols(ind_non_can_vec(i))%dim-2), &
+                lumped_lambdas(ind_non_can_vec(i)), &
+                this%wat_indices_zones, this%ext_waters_indices, Delta_t, theta_r, c_mix, c_tilde, ideal=.false.)
+            !> Non-ideal reactive mixing solver (equilibrium speciation with activity coefficients)
+            conc_nc = this%waters(idx)%get_conc_var_act()
+            call this%waters(idx)%set_conc_hat(c_mix(1:n_v)) !> aqueous blocks of the Newton speciation input (the lumped mixer's output), for the conc_hat attribute
+            call p_solver(this%waters(idx), this%waters(idx)%get_conc_old_old_prim_new_rz(), c_mix(1:n_v), &
+                lumped_lambdas(ind_non_can_vec(i)), Delta_t, theta_r, conc_nc, conc_comp(1:n_p))
+            !> Mass action law check for equilibrium reactions (non-ideal activity coefficients)
+            if (n_eq > 0) then
+                block
+                    real(kind=8), allocatable :: log_gamma_mal(:)
+                    log_gamma_mal = this%waters(idx)%get_log_gamma_var_act()
+                    mal_residual = matmul(this%waters(idx)%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star, &
+                        log10(conc_nc(1:n_p)) + log_gamma_mal(1:n_p)) + &
+                        this%waters(idx)%logK_star - &
+                        log10(conc_nc(n_p+1:n_p+n_eq)) - log_gamma_mal(n_p+1:n_p+n_eq)
+                    deallocate(log_gamma_mal)
+                end block
+                mal_max = maxval(abs(mal_residual))
+                if (mal_max > 1d-5) then
+                    print *, "WARNING: mass action law violated after p_solver, water", idx, &
+                        " time step", k, " max|residual|=", mal_max
+                    error stop "Mass action law violation after p_solver"
+                end if
+                deallocate(mal_residual)
+            end if
+            !> Equilibrium reaction amounts
+            if (n_eq > 0) then
+                call this%waters(idx)%compute_Re(c_mix(1:n_v), Delta_t, &
+                    lumped_lambdas(ind_non_can_vec(i)), theta_r)
+            end if
+            !> Solid/gas chemistry
+            if (has_minerals_flag(i)) then
+                call this%waters(idx)%solid_chemistry%compute_mass_bal_mins(Delta_t)
+                call this%waters(idx)%solid_chemistry%compute_conc_minerals_iter(Delta_t,lumped_lambdas(ind_non_can_vec(i)))
+            end if
+            if (has_gases_flag(i)) then
+                call this%waters(idx)%gas_chemistry%compute_conc_gases_iter(Delta_t, &
+                    this%waters(ind_non_can_vec(i))%volume, &
+                    [this%waters(ind_non_can_vec(i))%rxn_rate_eq, this%waters(ind_non_can_vec(i))%rxn_rate_kin_avg])
+                call this%waters(idx)%gas_chemistry%compute_vol_gas_species_conc()
+                !call this%waters(idx)%gas_chemistry%compute_log_act_coeffs_gases()
+            end if
+            !> Accumulate reaction amounts
+            this%waters(idx)%cum_rxn_amnt_kin = this%waters(idx)%cum_rxn_amnt_kin + this%waters(idx)%rxn_amnt_kin
+            this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin = &
+                this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin + this%waters(idx)%solid_chemistry%rxn_amnt_kin
+            !> Domain-integrated mass-balance contribution of this cell
+            call this%waters(idx)%get_react_mix_mass_bal_terms(c_mix(1:n_v), c_mix(1:n_v), &
+                lumped_lambdas(ind_non_can_vec(i)), Delta_t, theta_r, &
+                mb_lhs_c, mb_transp_c, mb_react_c)
+            if (size(mb_lhs_c) == n_v_ref) then
+                mb_lhs = mb_lhs + mb_lhs_c
+                mb_transp = mb_transp + mb_transp_c
+                mb_react = mb_react + mb_react_c
+            end if
+            deallocate(mb_lhs_c, mb_transp_c, mb_react_c)
+            deallocate(c_mix, c_tilde, conc_nc)
+        end do
+        call cpu_time(cpu_prof_t1)
+        cpu_solver_total = cpu_solver_total + (cpu_prof_t1 - cpu_prof_t0)
+        !> Output writing honouring chem_out_options%vars (conc / react_rate / vol_fract)
+        call cpu_time(cpu_prof_t0)
+        if (k==this%chem_out_options%time_steps(kk)) then
+            call write_out_step_vars(this, unit, time)
+            if (kk<this%chem_out_options%num_time_steps) kk=kk+1
+        end if
+        call cpu_time(cpu_prof_t1)
+        cpu_output_total = cpu_output_total + (cpu_prof_t1 - cpu_prof_t0)
+        !> Domain-integrated mass balance for this time step (per variable-activity species)
+        call this%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+    end do
+
+!> -----------------------------------------------------------------------
+!> CPU profiling report
+    call cpu_time(cpu_total_t1)
+    cpu_total_elapsed = cpu_total_t1 - cpu_total_t0
+    write(iunit_cpu,*) '====================================================================================='
+    write(iunit_cpu,*) '  CPU PROFILING REPORT: solve_reactive_mixing_lump'
+    write(iunit_cpu,*) '====================================================================================='
+    write(iunit_cpu,'(A,I10)')     '  Total time steps:       ', num_time_loc
+    write(iunit_cpu,'(A,I10)')     '  Non-canonical waters:   ', num_non_can_vec
+    write(iunit_cpu,*) '-------------------------------------------------------------------------------------'
+    write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Iteration (total):      ', cpu_solver_total, ' s  (', cpu_solver_total/60d0, ' min)'
+    write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  Output writing:         ', cpu_output_total, ' s  (', cpu_output_total/60d0, ' min)'
+    write(iunit_cpu,*) '-------------------------------------------------------------------------------------'
+    write(iunit_cpu,'(A,F14.4,A,F10.2,A)') '  TOTAL SUBROUTINE TIME:  ', cpu_total_elapsed, ' s  (', cpu_total_elapsed/60d0, ' min)'
+    write(iunit_cpu,*) '====================================================================================='
+    close(iunit_cpu)
+    print *, 'CPU profiling written to: ', dir//cpu_root//'_cpu_profile.out'
+
+!> -----------------------------------------------------------------------
+!> Close output file and clean up
+    close(unit)
+    close(iunit_mb)
+    deallocate(mb_lhs, mb_transp, mb_react)
+    deallocate(conc_comp)
+    deallocate(lumped_lambdas)
+    deallocate(all_conc_old, all_ind_aq_sp)
+    deallocate(n_p_cache, n_v_cache, n_eq_cache)
+    deallocate(has_minerals_flag, has_gases_flag)
+end subroutine solve_reactive_mixing_lump

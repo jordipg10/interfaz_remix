@@ -7,7 +7,7 @@
 !>   Key Features:
 !>   - Extends diff_props_heterog_1D_c to add flux/velocity fields
 !>   - Supports spatially variable flux (Darcy velocity)
-!>   - Computes dispersion from dispersivity and flux (D = α_L * |q|)
+!>   - Computes hydrodynamic dispersion from dispersivity and flux (D = α_L * |q| + φ * D_m)
 !>   - Handles constant and variable flux boundary conditions
 !>   - Transient flux capabilities via time_fct_real_c
 !>   - Linear and nonlinear flux profiles
@@ -23,7 +23,7 @@
 !>   Where:
 !>   - φ: Porosity
 !>   - c: Concentration
-!>   - D: Dispersion coefficient = α_L |q| (mechanical dispersion)
+!>   - D: Hydrodynamic dispersion coefficient = α_L |q| + φ * D_m (mechanical + molecular dispersion)
 !>   - q: Darcy flux (volumetric flow rate per unit area)
 !>   - α_L: Longitudinal dispersivity
 !>   - r: Source/sink term
@@ -68,12 +68,12 @@ module transport_properties_heterog_m
     !>
     !>   Inherited from diff_props_heterog_1D_c:
     !>   - porosity: Porosity φ [-]
-    !>   - diffusion_int: Dispersion at interfaces [L²/T]
-    !>   - diffusion_cent: Dispersion at centers [L²/T]
+    !>   - diff_int: Diffusion at interfaces [L²/T]
+    !>   - diff_cent: Diffusion at centers [L²/T]
     !>   - source_term: Source/sink term [1/T]
     !>
     !>   Dispersion Relation:
-    !>   \f[ D = \alpha_L |q| \f]
+    !>   \f[ D = \alpha_L |q| + \phi D_m \f]
     !>   Mechanical dispersion scales with flux magnitude
     !>
     !>   Flux Computation:
@@ -85,7 +85,7 @@ module transport_properties_heterog_m
     !>   - set_cst_flux_flag: Set constant flux indicator
     !>   - update_flux_int_trans: Update flux from transient series
     !>   - read_props: Read properties from file
-    !>   - compute_dispersion: Calculate D from α_L and q
+    !>   - compute_dispersion: Calculate D from α_L, q and D_m
     !>   - compute_flux_lin: Linear flux from source term
     !>   - compute_flux_nonlin: Polynomial flux profile
     !>   - compute_flux_rad: Radial flux (cylindrical geometry)
@@ -104,7 +104,7 @@ module transport_properties_heterog_m
         procedure :: set_cst_flux_flag           !< Set constant flux flag
         procedure :: update_flux_int_trans       !< Update flux from time series
         procedure :: read_props=>read_tpt_props_heterog_1D  !< Read from file
-        procedure :: compute_dispersion_1D          !< Compute D = α_L |q|
+        procedure :: compute_dispersion_1D          !< Compute hydrodynamic dispersion D = α_L |q| + φ·D_m
         procedure :: compute_flux_lin            !< Linear flux profile
         procedure :: compute_flux_nonlin         !< Polynomial flux profile
         procedure :: compute_flux_rad            !< Radial flux
@@ -177,9 +177,8 @@ module transport_properties_heterog_m
 
         !> \brief Set all transport properties programmatically (legacy/unused)
         !> \param[in,out] this            Transport properties object to modify
-        !> \param[in]     porosity        Porosity at cell centers [-]
-        !> \param[in]     diffusion_int  Dispersion at interfaces [L²/T]
-        !> \param[in]     diffusion_cent Dispersion at centers [L²/T]
+        !> \param[in]     disp_int  Dispersion at interfaces [L²/T]
+        !> \param[in]     disp_cent Dispersion at centers [L²/T]
         !> \param[in]     flux_int        Flux at interfaces [L/T]
         !> \param[in]     flux_cent       Flux at centers [L/T]
         !> \details 
@@ -189,32 +188,28 @@ module transport_properties_heterog_m
         !>   - size(flux_cent) = size(porosity) = Num_cells
         !>   - size(flux_int) = size(porosity) + 1 = Num_cells + 1
         !>   - size(diffusion_cent) = size(porosity)
-        !>   - size(diffusion_int) = size(flux_int)
+        !>   - size(disp_int) = size(flux_int)
         !>
         !>   Terminates program if dimension mismatch detected.
         !>
         !>   Note: Appears to be unused in current codebase.
-        subroutine set_tpt_props_heterog(this,porosity,diffusion_int,diffusion_cent,flux_int,flux_cent)
+        subroutine set_tpt_props_heterog(this,disp_int,disp_cent,flux_int,flux_cent)
             implicit none
             class(tpt_props_heterog_1D_c) :: this                  !< Transport properties object (modified)
-            real(kind=8), intent(in) :: porosity(:)             !< Porosity array [-]
-            real(kind=8), intent(in) :: diffusion_int(:)       !< Dispersion at interfaces [L²/T]
-            real(kind=8), intent(in) :: diffusion_cent(:)      !< Dispersion at centers [L²/T]
+            real(kind=8), intent(in) :: disp_int(:)       !< Dispersion at interfaces [L²/T]
+            real(kind=8), intent(in) :: disp_cent(:)      !< Dispersion at centers [L²/T]
             real(kind=8), intent(in) :: flux_int(:)             !< Flux at interfaces [L/T]
             real(kind=8), intent(in) :: flux_cent(:)            !< Flux at centers [L/T]
             
-            if (size(flux_cent) /= size(porosity)) then         !< Validate flux_cent vs porosity
-                error stop "Dimensions of porosity and flux at centres must be the same"
-            else if (size(flux_int) /= size(flux_cent) + 1) then  !< Validate flux_int size
+            if (size(flux_int) /= size(flux_cent) + 1) then  !< Validate flux_int size
                 error stop "Dimensions of fluxes are wrong"
-            else if (size(porosity) /= size(diffusion_cent)) then  !< Validate diffusion_cent
-                error stop "Dimensions of porosity and dispersion at cell centres must be the same"
-            else if (size(diffusion_int) /= size(flux_int)) then   !< Validate diffusion_int
+            else if (size(disp_cent) /= size(flux_cent)) then  !< Validate disp_cent
+                error stop "Dimensions of dispersion at cell centres and flux at centres must be the same"
+            else if (size(disp_int) /= size(flux_int)) then   !< Validate disp_int
                 error stop "Dimensions of dispersion at interfaces and flux at interfaces must be the same"
             else                                                !< All validations passed
-                this%porosity = porosity                        !< Assign porosity
-                this%diff_int = diffusion_int            !< Assign interface dispersion
-                this%diff_cent = diffusion_cent          !< Assign center dispersion
+                this%disp_int = disp_int            !< Assign interface dispersion
+                this%disp_cent = disp_cent          !< Assign center dispersion
                 this%flux_int = flux_int                        !< Assign interface flux
                 this%flux_cent = flux_cent                      !< Assign center flux
             end if
@@ -226,7 +221,7 @@ module transport_properties_heterog_m
         !> \param[in]     spatial_discr  Spatial discretization object (optional)
         !> \details 
         !>   Primary file I/O routine for transport properties.
-        !>   Reads from <root>_tpt_props.dat and <root>_flow_inf.dat (if transient).
+        !>   Reads from <root>_tpt_props.dat. trans_flag=TRUE is no longer supported (see Flux below).
         !>   
         !>   File format (_tpt_props.dat):
         !>   ```
@@ -247,11 +242,17 @@ module transport_properties_heterog_m
         !>   Flux (Line 3):
         !>   - flux_flag=TRUE, value, trans_flag: Constant flux q=value
         !>   - flux_flag=FALSE, trans_flag: Non-constant spatial flux
-        !>   - trans_flag=TRUE: Read transient series from _flow_inf.dat
+        !>   - trans_flag=TRUE: NOT SUPPORTED (error stop) — the inflow discharge is already
+        !>     read via BCs_1D_c%read_caudal_inf (<root>_discharge_inf.dat); use trans_flag=FALSE
         !>
         !>   Longitudinal Dispersivity (Line 4):
         !>   - α_L ≥ 0 (validation performed)
-        !>   - Dispersion computed as D = α_L |q|
+        !>   - Mechanical dispersion computed as D = α_L |q|
+        !>
+        !>   Molecular diffusion (D_m) (Line 5):
+        !>   - D_m ≥ 0 (validation performed)
+        !>   - Hydrodynamic dispersion = mechanical (α_L·|q|) + molecular (φ·D_m)
+        !>   - If D_m=0, only mechanical dispersion is used
         !>
         !>   Initializes:
         !>   - homog_flag = TRUE (default, updated if heterogeneous)
@@ -263,6 +264,7 @@ module transport_properties_heterog_m
         !>   TRUE 0.3
         !>   TRUE 1.0 FALSE
         !>   0.1
+        !>   1d-5
         !>   ```
         subroutine read_tpt_props_heterog_1D(this,root,spatial_discr)
             implicit none
@@ -272,7 +274,7 @@ module transport_properties_heterog_m
             
             integer(kind=4) :: n_flux, Num_cells               !< Flux array size, number of cells
             real(kind=8), parameter :: epsilon = 1d-12         !< Numerical tolerance
-            real(kind=8) :: phi, D, q, r, alpha_L              !< Porosity, dispersion, flux, source, dispersivity
+            real(kind=8) :: phi, D_m, q, r, alpha_L            !< Porosity, molecular diffusion, flux, source, dispersivity
             logical :: flag, trans_flag                        !< General flag, transient flag
             character(len=100) :: label                         !< Input line buffer
             
@@ -338,10 +340,9 @@ module transport_properties_heterog_m
                         end if
                         
                         if (trans_flag .eqv. .true.) then               !< Case: transient flux
-                            call this%set_stat_flag(.false.)            !< Properties are time-dependent
-                            open(unit=60, file=root//'_flow_inf.dat', status='old', action='read')  !< Open flow file
-                            call this%flux_trans%read_time_series(60)   !< Read time series (assumes homogeneous)
-                            close(60)                                   !< Close flow file
+                            !< Not supported: the inflow discharge is already read via BCs%read_caudal_inf (<root>_discharge_inf.dat)
+                            error stop "Error: transient flux (_flow_inf.dat) is no longer supported; "//&
+                                "the inflow discharge is already read via BCs_1D_c%read_caudal_inf"
                         end if
                     end if
                     
@@ -352,6 +353,19 @@ module transport_properties_heterog_m
                     else                                                !< Valid dispersivity
                         this%long_dispersivity = alpha_L                !< Store dispersivity
                     end if
+                    
+                    !> === Read molecular diffusion coefficient D_m (Line 5) ===
+                    !> diff_cent/diff_int store the raw molecular diffusion coefficient D_m. The effective
+                    !> molecular diffusion (phi*D_m) and the total hydrodynamic dispersion (mechanical
+                    !> alpha_L*q + phi*D_m) are assembled in compute_dispersion_1D.
+                    read(1,*) D_m                                       !< Read molecular diffusion coefficient
+                    if (D_m < 0d0) error stop "Error: molecular diffusion coefficient must be non-negative"
+                    Num_cells = spatial_discr%Num_targets - spatial_discr%targets_flag
+                    if (allocated(this%diff_cent)) deallocate(this%diff_cent)
+                    if (allocated(this%diff_int))  deallocate(this%diff_int)
+                    allocate(this%diff_cent(Num_cells), this%diff_int(Num_cells+1))
+                    this%diff_cent = D_m                              !< molecular diffusion coefficient at cell centres
+                    this%diff_int  = D_m                              !< molecular diffusion coefficient at interfaces
                 else if (trim(label) == 'end') then
                     exit                                              !< Skip empty lines
                 else
@@ -624,7 +638,8 @@ module transport_properties_heterog_m
         !>   
         !>   Time Series Structure:
         !>   - flux_trans%time_series(k): Flux value at time step k [L/T]
-        !>   - Loaded from _flow_inf.dat file (see read_tpt_props_heterog)
+        !>   - NOTE: transient flux via _flow_inf.dat is no longer supported (read_tpt_props_heterog_1D/2D
+        !>     error out on trans_flag=.true.); this routine is effectively unreachable in the current codebase
         !>
         !>   Usage Pattern:
         !>   1. Load time series once during initialization
@@ -660,7 +675,7 @@ module transport_properties_heterog_m
         !>
         !>   Typically set during initialization based on:
         !>   - Input file specification (stat_flag line)
-        !>   - Presence/absence of _flow_inf.dat file
+        !>   - Presence/absence of transient flux support (currently unsupported, see read_tpt_props_heterog_1D)
         subroutine set_cst_flux_flag(this,flag)
         implicit none
         class(tpt_props_heterog_1D_c) :: this                      !< Transport properties object (modified)
@@ -715,16 +730,15 @@ module transport_properties_heterog_m
             end do
         end subroutine
 
-        !> \brief Compute mechanical dispersion coefficient from dispersivity and flux
+        !> \brief Compute hydrodynamic dispersion coefficient (mechanical + molecular)
         !> \param[in,out] this   Transport properties object to update
-        !> \param[in]     scheme Spatial discretization scheme (1=traditional FD, 2=IFDS)
         !> \details 
-        !>   Computes hydrodynamic dispersion from longitudinal dispersivity.
-        !>   Mechanical dispersion is proportional to flow velocity (flux).
+        !>   Computes the hydrodynamic dispersion: mechanical dispersion (proportional to the
+        !>   flow velocity/flux) plus effective molecular diffusion (phi*D_m).
         !>   
-        !>   Dispersion-Velocity Relationship:
+        !>   Hydrodynamic Dispersion:
         !>   \f[
-        !>     D(x) = \alpha_L |q(x)|
+        !>     D(x) = \alpha_L |q(x)| + \phi D_m(x)
         !>   \f]
         !>   where:
         !>   - D: Dispersion coefficient [L²/T]
@@ -732,8 +746,8 @@ module transport_properties_heterog_m
         !>   - q: Darcy flux [L/T]
         !>
         !>   Evaluation Points (scheme-independent):
-        !>   - diffusion_int: At cell interfaces (used with flux_int)
-        !>   - diffusion_cent: At cell centers (used with flux_cent)
+        !>   - disp_int: At cell interfaces (used with flux_int)
+        !>   - disp_cent: At cell centers (used with flux_cent)
         !>
         !>   Physics:
         !>   - Mechanical dispersion arises from velocity heterogeneity at pore scale
@@ -742,40 +756,29 @@ module transport_properties_heterog_m
         !>
         !>   Error Handling:
         !>   - Requires flux arrays allocated (compute_flux_* called first)
-        subroutine compute_dispersion_1D(this,scheme)
+        subroutine compute_dispersion_1D(this)
             implicit none
             class(tpt_props_heterog_1D_c) :: this                  !< Transport properties object (modified)
-            integer(kind=4), intent(in) :: scheme               !< Discretization scheme (1=FD, 2=IFDS) [-]
             
-            integer(kind=4) :: i                                !< Loop index (unused, kept for compatibility)
+            integer(kind=4) :: i, Num_cells                     !< Loop index, number of cells
 
             if (allocated(this%flux_int) .and. allocated(this%flux_cent)) then  !< Verify flux arrays exist
-                this%disp_int=this%long_dispersivity*this%flux_int        !< D_int = α_L * q_int at interfaces
-                this%disp_cent=this%long_dispersivity*this%flux_cent      !< D_cent = α_L * q_cent at centers
+                !> Hydrodynamic dispersion = mechanical dispersion (alpha_L*q) + effective molecular diffusion (phi*D_m).
+                this%disp_int=this%long_dispersivity*this%flux_int        !< mechanical dispersion alpha_L*q at interfaces
+                this%disp_cent=this%long_dispersivity*this%flux_cent      !< mechanical dispersion alpha_L*q at centers
+                if (allocated(this%diff_int) .and. allocated(this%diff_cent) .and. allocated(this%porosity)) then
+                    !> effective molecular diffusion phi*D_m (diff_* hold the raw molecular coefficient D_m)
+                    Num_cells = size(this%flux_cent)                      !< number of cells
+                    this%disp_cent = this%disp_cent + this%porosity*this%diff_cent  !< + phi*D_m at centres
+                    this%disp_int(1) = this%disp_int(1) + this%porosity(1)*this%diff_int(1)  !< left interface: first-cell porosity
+                    do i = 2, Num_cells                                    !< interior interfaces: mean of adjacent porosities
+                        this%disp_int(i) = this%disp_int(i) + 5d-1*(this%porosity(i-1)+this%porosity(i))*this%diff_int(i)
+                    end do
+                    this%disp_int(Num_cells+1) = this%disp_int(Num_cells+1) + this%porosity(Num_cells)*this%diff_int(Num_cells+1)  !< right interface: last-cell porosity
+                end if
             else                                                !< Flux not computed yet
                 error stop "Flux not allocated"
             end if
-            ! if (scheme==1) then !> traditional FD scheme
-            !     if (allocated(this%dispersivity) .and. allocated(this%flux_cent)) then
-            !         allocate(this%dispersion(size(this%flux_cent)))
-            !         this%dispersion=this%dispersivity*this%flux_cent
-            !     else if (allocated(this%dispersivity)) then
-            !         error stop "Flux not allocated"
-            !     else
-            !         error stop "Dispersivity not allocated"
-            !     end if
-            ! else if (scheme==2) then !> proposed scheme
-            !     if (allocated(this%dispersivity) .and. allocated(this%flux_int)) then
-            !         allocate(this%dispersion(size(this%flux_int)))
-            !         this%dispersion=this%dispersivity*this%flux_int
-            !     else if (allocated(this%dispersivity)) then
-            !         error stop "Flux not allocated"
-            !     else
-            !         error stop "Dispersivity not allocated"
-            !     end if
-            ! else
-            !     error stop "Subroutine 'compute_dispersion' not implemented yet for this scheme"
-            ! end if
         end subroutine
         
         !> \brief Allocate memory for flux arrays
@@ -857,23 +860,33 @@ module transport_properties_heterog_m
             this%disp_tensor_cent = 0d0
         end subroutine
 
-        !> \brief Compute 2D mechanical dispersion tensor from dispersivities and flux
-        !> \details  D_xx = alpha_L*qx^2/|q| + alpha_T*qy^2/|q|
+        !> \brief Compute 2D hydrodynamic dispersion tensor (mechanical + molecular)
+        !> \details  Mechanical dispersion (flux-driven, anisotropic):
+        !>           D_xx = alpha_L*qx^2/|q| + alpha_T*qy^2/|q|
         !>           D_yy = alpha_L*qy^2/|q| + alpha_T*qx^2/|q|
         !>           D_xy = (alpha_L - alpha_T)*qx*qy/|q|
+        !>           plus effective molecular diffusion (isotropic): D_xx += phi*D_m, D_yy += phi*D_m.
+        !>           The molecular term is added on the diagonal even where |q|=0 (pure diffusion),
+        !>           so a cell with no advective flux still has D = phi*D_m*I instead of zero.
         !> Stored in disp_tensor_int(i,j,1:3) = [D_xx, D_yy, D_xy] at each interface node (i,j)
         !> and disp_tensor_cent(i,j,1:3) at each cell centre (i,j).
         subroutine compute_disp_tensor_2D(this)
             implicit none
             class(tpt_props_heterog_2D_c) :: this
 
-            integer(kind=4) :: i, j, Nx, Ny
-            real(kind=8) :: qx, qy, q_mag
+            integer(kind=4) :: i, j, Nx, Ny, kc
+            real(kind=8) :: qx, qy, q_mag, D_mol
+            logical :: has_mol
 
             if (.not. allocated(this%disp_tensor_int)) &
                 error stop "disp_tensor_int not allocated: call allocate_disp_tensor first"
             if (.not. allocated(this%disp_tensor_cent)) &
                 error stop "disp_tensor_cent not allocated: call allocate_disp_tensor first"
+
+            !> Effective molecular diffusion phi*D_m is isotropic (adds to the diagonal only) and is
+            !> present even where the advective flux vanishes. diff_cent holds the raw molecular
+            !> coefficient D_m (0 when none was provided in the input).
+            has_mol = allocated(this%diff_cent) .and. allocated(this%porosity)
 
             !> --- interface nodes ---
             Nx = size(this%disp_tensor_int, 1) - 1  !< Num_cells_x
@@ -883,15 +896,23 @@ module transport_properties_heterog_m
                     qx    = this%flux_int(min(i, size(this%flux_int)))
                     qy    = this%flux_int_y(min(j, size(this%flux_int_y)))
                     q_mag = sqrt(qx**2 + qy**2)
+                    D_mol = 0d0
+                    if (has_mol) then
+                        kc = min((j-1)*Nx + i, size(this%porosity))
+                        D_mol = this%porosity(kc) * this%diff_cent(kc)  !< effective molecular diffusion phi*D_m
+                    end if
                     if (q_mag > 0d0) then
                         this%disp_tensor_int(i,j,1) = this%long_dispersivity   * qx**2 / q_mag &
-                                                    + this%transv_dispersivity * qy**2 / q_mag
+                                                    + this%transv_dispersivity * qy**2 / q_mag + D_mol
                         this%disp_tensor_int(i,j,2) = this%long_dispersivity   * qy**2 / q_mag &
-                                                    + this%transv_dispersivity * qx**2 / q_mag
+                                                    + this%transv_dispersivity * qx**2 / q_mag + D_mol
                         this%disp_tensor_int(i,j,3) = (this%long_dispersivity - this%transv_dispersivity) &
                                                     * qx * qy / q_mag
                     else
-                        this%disp_tensor_int(i,j,:) = 0d0
+                        !> No advective flux: only isotropic molecular diffusion remains
+                        this%disp_tensor_int(i,j,1) = D_mol
+                        this%disp_tensor_int(i,j,2) = D_mol
+                        this%disp_tensor_int(i,j,3) = 0d0
                     end if
                 end do
             end do
@@ -902,15 +923,20 @@ module transport_properties_heterog_m
                     qx    = this%flux_cent((j-1)*Nx + i)
                     qy    = this%flux_cent_y((j-1)*Nx + i)
                     q_mag = sqrt(qx**2 + qy**2)
+                    D_mol = 0d0
+                    if (has_mol) D_mol = this%porosity((j-1)*Nx + i) * this%diff_cent((j-1)*Nx + i)  !< phi*D_m
                     if (q_mag > 0d0) then
                         this%disp_tensor_cent(i,j,1) = this%long_dispersivity   * qx**2 / q_mag &
-                                                     + this%transv_dispersivity * qy**2 / q_mag
+                                                     + this%transv_dispersivity * qy**2 / q_mag + D_mol
                         this%disp_tensor_cent(i,j,2) = this%long_dispersivity   * qy**2 / q_mag &
-                                                     + this%transv_dispersivity * qx**2 / q_mag
+                                                     + this%transv_dispersivity * qx**2 / q_mag + D_mol
                         this%disp_tensor_cent(i,j,3) = (this%long_dispersivity - this%transv_dispersivity) &
                                                      * qx * qy / q_mag
                     else
-                        this%disp_tensor_cent(i,j,:) = 0d0
+                        !> No advective flux: only isotropic molecular diffusion remains
+                        this%disp_tensor_cent(i,j,1) = D_mol
+                        this%disp_tensor_cent(i,j,2) = D_mol
+                        this%disp_tensor_cent(i,j,3) = 0d0
                     end if
                 end do
             end do
@@ -923,10 +949,10 @@ module transport_properties_heterog_m
             character(len=*), intent(in) :: root
             class(spatial_discr_c), intent(in), optional :: spatial_discr
 
-            integer(kind=4) :: Num_cells
-            real(kind=8) :: phi, qx, qy, r, alpha_L, alpha_T
+            integer(kind=4) :: Num_cells, ios, ipos
+            real(kind=8) :: phi, qx, qy, r, alpha_L, alpha_T, D_m
             logical :: flag, trans_flag
-            character(len=100) :: label
+            character(len=256) :: label   !< Input line buffer (wide enough to hold a full data line + trailing comment before the '!' is stripped)
 
             call this%set_homog_flag(.true.)
             call this%set_stat_flag(.true.)
@@ -993,17 +1019,36 @@ module transport_properties_heterog_m
                         this%flux_cent_y = qy
                     end if
                     if (trans_flag .eqv. .true.) then
-                        call this%set_stat_flag(.false.)
-                        open(unit=60, file=root//'_flow_inf.dat', status='old', action='read')
-                        call this%flux_trans%read_time_series(60)
-                        close(60)
+                        !< Not supported: the inflow discharge is already read via BCs%read_caudal_inf (<root>_discharge_inf.dat)
+                        error stop "Error: transient flux (_flow_inf.dat) is no longer supported; "//&
+                            "the inflow discharge is already read via BCs_1D_c%read_caudal_inf"
                     end if
-                    !> === Dispersivities (alpha_L, alpha_T) ===
-                    read(1,*) alpha_L, alpha_T
+                    !> === Dispersivities (alpha_L, alpha_T) and molecular diffusion D_m ===
+                    !> The dispersivities line MUST provide three values: the longitudinal
+                    !> dispersivity alpha_L, the transverse dispersivity alpha_T and the molecular
+                    !> diffusion coefficient D_m. The line is parsed from a buffer with any trailing
+                    !> comment stripped, so a '!' annotation after the values is allowed, but all three
+                    !> values are required (D_m is not optional).
+                    read(1,'(A)') label
+                    ipos = index(label, '!')
+                    if (ipos > 0) label(ipos:) = ' '   !< drop trailing comment before list-directed parse
+                    read(label,*,iostat=ios) alpha_L, alpha_T, D_m
+                    if (ios /= 0) &
+                        error stop "Error: dispersivities line must provide alpha_L, alpha_T and D_m"
                     if (alpha_L < 0d0 .or. alpha_T < 0d0) &
                         error stop "Error: dispersivities must be non-negative"
+                    if (D_m < 0d0) error stop "Error: molecular diffusion coefficient must be non-negative"
                     this%long_dispersivity   = alpha_L
                     this%transv_dispersivity = alpha_T
+                    !> Store the raw molecular diffusion coefficient D_m in diff_cent/diff_int; the
+                    !> effective molecular diffusion (phi*D_m) is assembled into the hydrodynamic
+                    !> dispersion tensor by compute_disp_tensor_2D.
+                    Num_cells = spatial_discr%Num_targets - spatial_discr%targets_flag
+                    if (allocated(this%diff_cent)) deallocate(this%diff_cent)
+                    if (allocated(this%diff_int))  deallocate(this%diff_int)
+                    allocate(this%diff_cent(Num_cells), this%diff_int(Num_cells+1))
+                    this%diff_cent = D_m
+                    this%diff_int  = D_m
                 else if (trim(label) == 'end') then
                     exit
                 else

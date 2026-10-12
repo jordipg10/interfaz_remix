@@ -75,7 +75,7 @@ subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,n
         else if (icon(i)==4) then
             counters(4)=counters(4)+1
             indices_icon%cols(4)%col_1(counters(4))=i
-            abs_tol_res(i)=this%solid_chemistry%reactive_zone%CV_params%log_rel_tol
+            abs_tol_res(i)=1d1**this%solid_chemistry%reactive_zone%CV_params%log_rel_tol !> phase constraint: logarithmic residual, tolerance 10**log_rel_tol (NOT log_rel_tol itself, whose magnitude made the test vacuous)
         else
             error stop "icon option not implemented"
         end if
@@ -115,6 +115,7 @@ subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,n
             error stop "Too many Newton iterations in initialisation"
         end if
         call this%compute_c2_from_c1_Picard(c1,c2_old,c2_new,niter_Picard,CV_flag)
+        if (.not. CV_flag) error stop "initialise_conc_incr_coeff: Picard speciation did not converge (activity coefficient fixed point diverged)"
         !call this%compute_ionic_strength() !> we compute ionic activity
         !call this%aq_phase%compute_log_act_coeffs_aq_phase(this%ionic_strength,this%params_aq_sol,this%log_act_coeffs) !> we compute log activity coefficients aqueous species
         !call this%compute_activities()
@@ -126,8 +127,8 @@ subroutine initialise_conc_incr_coeff(this,icon,n_icon,indices_constrains,ctot,n
         !c2(1:this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species)=this%concentrations(this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species+1:this%aq_phase%num_species)
     !> We compute resideu and Jacobian of residue using incremental coefficients
         call this%compute_res_Jac_res_incr_coeff(c2_new,indices_icon,n_icon,indices_constrains,ctot,res,Jac_res)
-    !> We check convergence
-        if (inf_norm_vec_real(res)<inf_norm_vec_real(abs_tol_res)) then !> CV reached
+    !> We check convergence: every constraint residual within its own tolerance
+        if (all(abs(res)<=abs_tol_res)) then !> CV reached
             CV_flag=.true.
             exit
         end if

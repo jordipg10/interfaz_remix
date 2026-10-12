@@ -156,7 +156,7 @@ module eq_reaction_m
         !> Compute second derivative of secondary concentration with respect to component concentration
         !> Formula: ∂²c₂/∂u² = 2*K_eq / (u² + 4*K_eq)^(3/2)
         !> Derived from equilibrium constraint c₂ = K_eq*c₁*c₂nc and mass balance u = c₁ + c₂
-        d2c2v_du2=2*this%eq_cst/((u**2+4*this%eq_cst)**1.5) !< [L³/M] second derivative term
+        d2c2v_du2=2*this%eq_cst_ref/((u**2+4*this%eq_cst_ref)**1.5) !< [L³/M] second derivative term
         
         !> Compute effective reaction rate: r = φ * (∂²c₂/∂u²) * D * (∂u/∂x)²
         !> Physical meaning: dispersion-induced mixing drives reactions away from equilibrium

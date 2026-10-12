@@ -20,6 +20,7 @@ subroutine initialise_conc_anal_ideal(this,icon,n_icon,indices_constrains,ctot,n
     use vectors_m, only: inf_norm_vec_real !< Import infinity-norm utility for real vectors
     use arrays_m, only: int_array_c !< Import integer array container type
     use metodos_sist_lin_m, only: LU_lin_syst !< Import LU-decomposition linear system solver
+    use array_ops_m, only: get_ind_int !< map a chemical-system eq. reaction index to its per-water logK position
     implicit none !< Disable implicit typing for safety
 !> Arguments
     class(aqueous_chemistry_c) :: this !< Aqueous chemistry object (polymorphic, passed-object dummy)
@@ -342,7 +343,7 @@ subroutine initialise_conc_anal_ideal(this,icon,n_icon,indices_constrains,ctot,n
                         indices_constrains(ind_cstr_LS,2), 1:n_p_aq), &
                         log10(this%activities(this%ind_prim_species))) + &
                         log10(ctot(indices_icon%cols(4)%col_1(i))) - &
-                        log10(this%solid_chemistry%reactive_zone%chem_syst%eq_reacts(indices_constrains(ind_cstr_LS,2))%eq_cst)
+                        this%logK(get_ind_int(indices_constrains(ind_cstr_LS,2),this%solid_chemistry%reactive_zone%ind_eq_reacts))
                 end do
                 res_trial_norm = inf_norm_vec_real(res_trial) !< Compute infinity-norm of trial residual
                 if (res_trial_norm < res_norm) then !< Check if trial step produces descent (residual decreased)

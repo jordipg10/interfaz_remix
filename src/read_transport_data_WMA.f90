@@ -15,8 +15,12 @@
 !> Key assumptions:
 !> - Upstream/downstream classification is deduced from water indices (index < target = upstream)
 !> - Concentration mixing includes boundary waters; reaction mixing includes only target waters
+!>   (indices 1..num_targets)
 !> - If MIXING RATIOS REACTIONS / MIXING WATERS REACTIONS sections are absent,
-!>   reaction data defaults to concentration data
+!>   reaction data defaults to concentration data (target waters only)
+!> - The stored this%mixing_ratios_R shares the layout of this%mixing_ratios_conc / this%mix_conc_indices:
+!>   the reaction ratio read for a water is placed at that water's concentration position, and the
+!>   waters that mix concentrations but not reaction rates get a zero reaction ratio
 !>
 !> File format ('_WMA_lambdas.dat'):
 !> ```
@@ -51,6 +55,7 @@
 !> 3. Allocate spatial discretization, mixing ratio arrays and mixing index arrays
 !> 4. Second pass: Read mixing ratio values and mixing water indices for both sections
 !> 5. Reorder mixing data: separate current, upstream, and downstream waters (for both sections)
+!> 6. Store the reaction mixing ratios in the concentration layout (zero for conc-only waters)
 !>
 !> @author Jordi Petchamé-Guerrero
 !> @date 2025
@@ -68,6 +73,7 @@ subroutine read_transport_data_WMA(this,dir,root)
     character(len=256) :: label                               !< Section label read from file header lines
     integer(kind=4) :: i                                     !< Loop counter over target waters
     integer(kind=4) :: j                                     !< Loop counter over mixing ratios within a target
+    integer(kind=4) :: p                                     !< Loop counter over the reordered reaction mixing waters
     integer(kind=4) :: tar_dim                               !< Number of mixing ratios for current target (read from file)
     integer(kind=4) :: unit                                  !< Fortran file unit number for I/O operations
     integer(kind=4) :: num_targets                           !< Total number of target waters counted in pass 1
@@ -75,6 +81,8 @@ subroutine read_transport_data_WMA(this,dir,root)
     integer(kind=4), allocatable :: dims_R(:)                !< Array of reaction mixing ratio dimensions per target
     type(real_array_c) :: mixing_ratios_conc                  !< Temporary concentration mixing ratios (before reordering)
     type(real_array_c) :: mixing_ratios_R                     !< Temporary reaction mixing ratios (before reordering)
+    type(real_array_c) :: mixing_ratios_R_reord               !< Reaction mixing ratios reordered into [self, upstream..., downstream...] (reaction waters only)
+    type(int_array_c) :: mix_react_indices                    !< Reaction mixing water indices, same layout as mixing_ratios_R_reord (+2 counts)
     logical :: has_react_ratios                                !< Flag: .true. if MIXING RATIOS REACTIONS section was found
     logical :: has_react_waters                                !< Flag: .true. if MIXING WATERS REACTIONS section was found
 
@@ -134,11 +142,13 @@ subroutine read_transport_data_WMA(this,dir,root)
     this%mixing_ratios_conc = mixing_ratios_conc              !< Copy temp structure to object (needed for allocate_mix_conc_indices)
     call this%allocate_mix_conc_indices()                     !< Allocate mix_conc_indices with dim+2 per target (for up/down counts)
 
-    !> Allocate reaction index structure
-    this%mixing_ratios_R = mixing_ratios_R                   !< Copy temp structure to object for index allocation
-    call this%mix_react_indices%allocate_array(num_targets)   !< Allocate reaction index columns
+    !> Allocate the (local) reordered reaction structures and the stored reaction ratios, which
+    !> share the concentration layout
+    mixing_ratios_R_reord = mixing_ratios_R                  !< Reordered reaction ratios (reaction waters only)
+    call mix_react_indices%allocate_array(num_targets)        !< Allocate reaction index columns
+    this%mixing_ratios_R = mixing_ratios_conc                !< Stored reaction ratios: concentration layout (filled below)
     do i = 1, num_targets                                    !< Loop over each target water
-        call this%mix_react_indices%cols(i)%allocate_vector(mixing_ratios_R%cols(i)%dim + 2) !< Allocate with dim+2 for up/down counts
+        call mix_react_indices%cols(i)%allocate_vector(mixing_ratios_R%cols(i)%dim + 2) !< Allocate with dim+2 for up/down counts
     end do                                                   !< End reaction index allocation loop
 
     rewind(unit)                                             !< Reset file position to beginning for pass 2
@@ -164,21 +174,31 @@ subroutine read_transport_data_WMA(this,dir,root)
         else if (label .eq. 'MIXING WATERS REACTIONS') then  !< Check for reaction mixing waters section
             has_react_waters = .true.                         !< Mark that reaction waters section is present
             call read_and_reorder_waters(num_targets, mixing_ratios_R, & !< Read indices and reorder reaction data
-                this%mixing_ratios_R, this%mix_react_indices)              !< into [self, upstream..., downstream...] layout
+                mixing_ratios_R_reord, mix_react_indices)                  !< into [self, upstream..., downstream...] layout
         end if                                               !< End section label check
     end do                                                   !< End pass 2 main loop
 
-    !> Fallback: if reaction sections absent, default to concentration data
-    if (.not. has_react_ratios) then                          !< No reaction ratios section => copy all conc data
-        do i = 1, num_targets                                !< Loop over each target water
-            this%mixing_ratios_R%cols(i)%col_1 = this%mixing_ratios_conc%cols(i)%col_1 !< Copy reordered conc ratios to reaction ratios
-            this%mix_react_indices%cols(i)%col_1 = this%mix_conc_indices%cols(i)%col_1 !< Copy reordered conc indices to reaction indices
-        end do                                               !< End full fallback copy loop
-    else if (.not. has_react_waters) then                     !< Reaction ratios present but waters section absent
-        do i = 1, num_targets                                !< Loop over each target water
-            this%mix_react_indices%cols(i)%col_1 = this%mix_conc_indices%cols(i)%col_1 !< Copy conc indices to reaction indices
-        end do                                               !< End indices-only fallback copy loop
-    end if                                                   !< End fallback check
+    !> Stored reaction mixing ratios in the CONCENTRATION layout: each concentration mixing water
+    !> gets the reaction ratio read for it (matched by water index), the others (boundary/recharge
+    !> waters, which mix concentrations but not reaction rates) get 0
+    if (has_react_ratios .and. (.not. has_react_waters)) &
+        error stop "read_transport_data_WMA: MIXING RATIOS REACTIONS requires the MIXING WATERS REACTIONS section"
+    do i = 1, num_targets                                    !< Loop over each target water
+        this%mixing_ratios_R%cols(i)%col_1 = 0d0              !< Conc-only waters do not mix reaction rates
+        do j = 1, this%mixing_ratios_conc%cols(i)%dim         !< Loop over the concentration mixing waters
+            if (.not. has_react_ratios) then                  !< No reaction sections: reaction data defaults to the concentration data of the target waters
+                if (this%mix_conc_indices%cols(i)%col_1(j) <= num_targets) &
+                    this%mixing_ratios_R%cols(i)%col_1(j) = this%mixing_ratios_conc%cols(i)%col_1(j)
+            else                                             !< Both reaction sections present: match by water index
+                do p = 1, mixing_ratios_R_reord%cols(i)%dim
+                    if (mix_react_indices%cols(i)%col_1(p) == this%mix_conc_indices%cols(i)%col_1(j)) then
+                        this%mixing_ratios_R%cols(i)%col_1(j) = mixing_ratios_R_reord%cols(i)%col_1(p)
+                        exit
+                    end if
+                end do
+            end if
+        end do
+    end do
 
     close(unit)                                              !< Close the data file
 
