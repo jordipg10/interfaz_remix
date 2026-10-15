@@ -141,7 +141,9 @@ reactive-mixing iteration. The prompts (in order) are:
 8. Name of the file (inside the problem directory) that contains the aqueous
    component concentrations — either `u_tilde` (after one conservative-transport
    step) or, if you let the program do the mixing, the concentrations **prior to
-   mixing**.
+   mixing**. Its components must follow the component definitions (and species
+   order) written in the water-types file of step 6: regenerate it whenever the
+   chemical system changes.
 9. Whether the concentrations in that file are **prior to mixing** (`1`) or
    already **after conservative transport** (`0`).
    - If `1`, provide the name of the **mixing-ratios** file (inside the problem

@@ -106,7 +106,7 @@ New-Item -ItemType Directory -Force -Path obj, mod, bin | Out-Null
 #    `compile-discr`, `compile-chem`, `compile-main` tasks of
 #    .vscode/tasks.json, or call the `compile` task which does it all).
 cd obj
-gfortran -g -c -O0 -fcheck=all -fbacktrace -J ../mod ../src/<file>.f90
+gfortran -g -c -O3 -fcheck=all -fbacktrace -J ../mod ../src/<file>.f90
 # ... repeat for every source file in the correct dependency order ...
 
 # 3. Link (static — no runtime DLLs needed on the target machine)
@@ -129,8 +129,8 @@ From the repository root:
 ```bash
 sudo apt-get install -y gfortran liblapack-dev libblas-dev   # once
 chmod +x build.sh
-./build.sh                                # -> bin/interfaz_remix
-FFLAGS="-O2 -fbacktrace" ./build.sh       # optimised/release build
+./build.sh                                # -> bin/interfaz_remix (-O3 with runtime checks)
+FFLAGS="-O3 -fbacktrace" ./build.sh       # release build without runtime checks
 ```
 
 `build.sh` compiles every source in the correct module order (mirroring the
@@ -143,7 +143,7 @@ Windows PC, run it inside WSL (Ubuntu).
 mkdir -p obj mod bin
 
 cd obj
-gfortran -g -c -O0 -fcheck=all -fbacktrace -ffree-line-length-none \
+gfortran -g -c -O3 -fcheck=all -fbacktrace -ffree-line-length-none \
          -fno-range-check -J ../mod ../src/<file>.f90
 # ... repeat for every source file in the correct dependency order ...
 
@@ -168,7 +168,7 @@ chmod +x build.sh
 mkdir -p obj mod bin
 
 cd obj
-gfortran -g -c -O0 -fcheck=all -fbacktrace -ffree-line-length-none \
+gfortran -g -c -O3 -fcheck=all -fbacktrace -ffree-line-length-none \
          -fno-range-check -J ../mod ../src/<file>.f90
 # ... repeat for every source file in the correct dependency order ...
 

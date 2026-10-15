@@ -16,8 +16,8 @@
 #
 # Usage:
 #   chmod +x build.sh
-#   ./build.sh                                   # default (debug) build
-#   FFLAGS="-O2 -fbacktrace" ./build.sh          # optimised/release build
+#   ./build.sh                                   # default build (-O3 with runtime checks, as in tasks.json)
+#   FFLAGS="-O3 -fbacktrace" ./build.sh          # release build without runtime checks
 #   FC=gfortran-14 ./build.sh                    # pick a specific gfortran
 #
 # Output: bin/interfaz_remix
@@ -33,7 +33,7 @@ mkdir -p "$OBJ" "$MOD" "$BIN"
 
 FC="${FC:-gfortran}"
 # Default matches the flags the project is validated with. Override via env for release.
-FFLAGS="${FFLAGS:--g -O0 -fcheck=all -fbacktrace -ffree-line-length-none -fno-range-check}"
+FFLAGS="${FFLAGS:--g -O3 -fcheck=all -fbacktrace -ffree-line-length-none -fno-range-check}"
 
 # Ordered source list (base names, no .f90), mirroring .vscode/tasks.json.
 SRCS=(

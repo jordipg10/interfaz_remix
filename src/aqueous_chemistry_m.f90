@@ -7573,6 +7573,14 @@ end subroutine
         !> constants (logK_tilde/logK_star) are rebuilt here from the modified K.
         block
             call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap)
+            !> compute_speciation_alg_arrays may swap a primary and a secondary variable-activity species
+            !> (e.g. hco3- <-> o2(aq) when the natural secondaries give a singular Se_nc_2); the permutation
+            !> is recorded in reactive_zone%ind_var_act_species. Make this water's index arrays follow the
+            !> zone's column order (read_tar_wat_line does the same for the target waters), otherwise
+            !> comp_mat_aq, inv_Se_nc_2 and the mass-action law are applied to the wrong species and the
+            !> component definitions/concentrations reported for the water types (write_u_init,
+            !> write_conc_comp_wat_types, get_u_aq) are in a basis different from the solver's.
+            call this%set_ind_species_react_zone()
             !> Rebuild this water's per-reaction T-dependent logK FIRST (compute_logK_star consumes it
             !> via get_eq_csts_aq_chem = 10**logK), then its transformed constants logK_tilde/logK_star.
             call this%compute_logK_PHREEQC_aq_chem() !> rebuild this water's per-reaction logK at its own temperature

@@ -101,7 +101,10 @@ subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,fil
             if (.not.CV_flag) then
                 print *, "Target water index: ", tw_idx
                 print *, "No convergence speciating u_tilde before the reactive mixing iteration"
-                print *, "Try reducing the time step."
+                print *, "u_tilde(:,", j, ") = ", u_tilde(:,j)
+                print *, "This speciation does not depend on the time step. Check that the component rows of ", &
+                    trim(file_in), " follow the component definitions written in the water-types file (u_init), ", &
+                    "and that every species-equivalent component (single +1 coefficient) is strictly positive."
                 error stop
             end if
             conc_nc(:,j)=c_hat !< initial guess for the implicit Newton solver
@@ -233,7 +236,10 @@ subroutine interfaz_comps_arch_eq(this,path,num_aq_comps,file_in,Delta_t,file_ou
         if (.not.CV_flag) then
             print *, "Target water index: ", tw_idx
             print *, "No convergence in speciation after reactive mixing iteration"
-            print *, "Try reducing the time step"
+            print *, "u_tilde(:,", j, ") = ", u_tilde(:,j)
+            print *, "This speciation does not depend on the time step. Check that the component rows of ", &
+                trim(file_in), " follow the component definitions written in the water-types file (u_init), ", &
+                "and that every species-equivalent component (single +1 coefficient) is strictly positive."
             error stop
         end if
         end associate
@@ -363,7 +369,10 @@ subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,f
             if (.not.CV_flag) then
                 print *, "Target water index: ", tw_idx
                 print *, "No convergence speciating u_tilde before the reactive mixing iteration"
-                print *, "Try reducing the time step."
+                print *, "u_tilde(:,", j, ") = ", u_tilde(:,j)
+                print *, "This speciation does not depend on the time step. Check that the component columns of ", &
+                    trim(file_in), " follow the component definitions written in the water-types file (u_init), ", &
+                    "and that every species-equivalent component (single +1 coefficient) is strictly positive."
                 error stop
             end if
             conc_nc(:,j)=c_hat !< initial guess for the implicit Newton solver
@@ -497,7 +506,10 @@ subroutine interfaz_comps_arch_eq_T(this,path,num_aq_comps,file_in,Delta_t,file_
         if (.not.CV_flag) then
             print *, "Target water index: ", tw_idx
             print *, "No convergence in speciation after reactive mixing iteration"
-            print *, "Try reducing the time step"
+            print *, "u_tilde(:,", j, ") = ", u_tilde(:,j)
+            print *, "This speciation does not depend on the time step. Check that the component columns of ", &
+                trim(file_in), " follow the component definitions written in the water-types file (u_init), ", &
+                "and that every species-equivalent component (single +1 coefficient) is strictly positive."
             error stop
         end if
         end associate
