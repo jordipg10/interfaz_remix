@@ -4,7 +4,7 @@
 subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mixing_ratios_R,&
     mix_conc_indices,time_discr,theta_r)
     use chemistry_m, only: chemistry_c, write_out_step_vars, check_surf_compl_act_sum
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, &
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, write_celldbg_cell, &
         reactive_mixing_iter_EI_eq_anal_ideal, &
         compute_c_mix_by_zones_cons, compute_c_mix_global_cons, &
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, &
@@ -54,6 +54,7 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
     real(kind=8), allocatable :: lambdas_R(:)
 !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
     integer(kind=4) :: iunit_mb !< mass-balance output file unit
+    integer(kind=4) :: iunit_celldbg !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref !< reference number of variable-activity species
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
@@ -224,6 +225,8 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
     open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
     write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
     write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
+    !> Per-cell [CELL-DBG] trace file (bulk calcite cells 3/8 + interface cells 15/16/17)
+    open(newunit=iunit_celldbg, file=dir//cpu_root//'_cell_dbg.out', status='replace', action='write')
 
 !> -----------------------------------------------------------------------
 !> Initialize profiling accumulators
@@ -364,6 +367,10 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
             end if
             call cpu_time(cpu_prof_t1)
             cpu_eq_rates_total = cpu_eq_rates_total + (cpu_prof_t1 - cpu_prof_t0)
+            !> [CELL-DBG] intermediate results for bulk calcite cells 3/8 and interface cells 15/16/17
+            if (k<=10 .and. (this%num_target_waters<=10 .or. idx==3 .or. idx==8 .or. idx==15 .or. idx==16 .or. idx==17)) then
+                call write_celldbg_cell(this%waters(idx), iunit_celldbg, k, idx, n_v, c_hat_old, c_mix, c_hat)
+            end if
             !> Domain-integrated mass-balance contribution of this cell.
             !> Must use the SAME self reaction mixing ratio as compute_Re/p_solver (lambdas_R),
             !> otherwise the reaction term is reconstructed with a mismatched lambda and the
@@ -392,16 +399,18 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
             end if
             call cpu_time(cpu_prof_t1)
             cpu_solid_gas_total = cpu_solid_gas_total + (cpu_prof_t1 - cpu_prof_t0)
-            !> Accumulate reaction amounts
+            !> Accumulate reaction amounts: kinetic AND equilibrium (update_cum_rxn_amnt adds rxn_amnt_kin
+            !> and the rxn_amnt_eq that compute_Re set this step); the abs_cum_react_amnt output reports
+            !> cum_rxn_amnt_eq for the aqueous equilibrium reactions and the equilibrium minerals
             call cpu_time(cpu_prof_t0)
-            this%waters(idx)%cum_rxn_amnt_kin=this%waters(idx)%cum_rxn_amnt_kin+this%waters(idx)%rxn_amnt_kin
-            this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin=&
-                this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin+this%waters(idx)%solid_chemistry%rxn_amnt_kin
+            call this%waters(idx)%update_cum_rxn_amnt()
+            call this%waters(idx)%solid_chemistry%update_cum_rxn_amnt()
+            if (associated(this%waters(idx)%gas_chemistry)) call this%waters(idx)%gas_chemistry%update_cum_rxn_amnt()
             call cpu_time(cpu_prof_t1)
             cpu_cum_rxn_amnt_kin_total = cpu_cum_rxn_amnt_kin_total + (cpu_prof_t1 - cpu_prof_t0)
             deallocate(c_hat, r_tilde, c_hat_old, c_mix, conc_nc)
         end do
-        !> Verify the surface-complex site-balance invariants at every cell this time step
+        !> DEBUG: verify surface-complex activities sum to 1 at every cell this time step
         call check_surf_compl_act_sum(this, k, time)
         !> Domain-integrated mass balance for this time step (per variable-activity species)
         call this%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
@@ -410,8 +419,10 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
         !> Sum equilibrium reaction rates at interfaces if mix_by_zones_flag is set
         if (this%mix_by_zones_flag) then
             do i=1,num_non_can_vec
+                !print '(A,I0)', "[SUMEQ-DBG] Summing equilibrium reaction rates for non-canonical target water ", ind_non_can_vec(i)
                 call this%waters(this%tar_wat_indices(ind_non_can_vec(i)))%sum_eq_rxn_rates(this%zone_waters(&
                     this%tar_wat_indices(ind_non_can_vec(i)),:))
+                !print '(A,I0)', "[SUMEQ-DBG] Finished summing equilibrium reaction rates for non-canonical target water ", ind_non_can_vec(i)
             end do
         end if
         if (k==this%chem_out_options%time_steps(kk)) then
@@ -487,6 +498,7 @@ subroutine solve_reactive_mixing_ideal_cons(this,dir,root,mixing_ratios_conc,mix
 !> Close output file and clean up
     close(unit)
     close(iunit_mb)
+    close(iunit_celldbg)
     deallocate(mb_lhs, mb_transp, mb_react)
     deallocate(conc_comp)
     deallocate(lambdas_R)

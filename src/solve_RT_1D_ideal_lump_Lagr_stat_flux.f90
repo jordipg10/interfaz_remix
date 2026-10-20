@@ -46,12 +46,15 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
     use RT_m, only: RT_1D_transient_c, RT_c, move_particles_stat_flux_1D, &
         move_particles_stat_flux_EC_1D !< Import 1D reactive transport classes
     use chemistry_m, only: write_out_step_vars, reset_wat_indices_zones !< Shared per-output-step writer (conc/react_rate/vol_fract); post-displacement zone regrouping
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, & !< Import aqueous chemistry class
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, write_celldbg_cell, & !< Import aqueous chemistry class
         reactive_mixing_iter_EE_eq_kin_ideal, reactive_mixing_iter_EE_kin, & !< Euler explicit solvers with lumping
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, mixing_iter_comp_ideal, & !< Implicit solvers for kinetic-only and equilibrium-only systems
         compute_c_mix, compute_c_mix_global_lump, compute_c_mix_by_zones_lump, &
         reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, &
-        reactive_mixing_iter_EI_eq_anal_ideal !< Utility functions for mixing calculations
+        reactive_mixing_iter_EI_eq_anal_ideal, within_zone_dbg, within_zone_dbg_unit, &
+        within_zone_dbg_step, within_zone_dbg_cells, sim_num_time_steps !< Utility functions for mixing calculations
+    use kin_mineral_m, only: dbg_kin_mineral, dbg_kin_mineral_step, dbg_kin_mineral_max_step, open_kin_mineral_dbg, &
+        close_kin_mineral_dbg !< [RK-DBG]/[DRK-DBG]/[SAT-DBG] trace of the mineral kinetics (first target water, first dbg_kin_mineral_max_step steps)
     implicit none !< Enforce explicit variable declarations for type safety
 !> \name Arguments
 !> \{
@@ -135,6 +138,7 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
     REAL(KIND=8), allocatable :: lumped_lambdas(:) !< Lumped reaction mixing ratio per target water [-]
     !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
     integer(kind=4) :: iunit_mb                   !< mass-balance output file unit
+    integer(kind=4) :: iunit_celldbg              !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref                    !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref                    !< reference number of variable-activity species
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
@@ -345,6 +349,38 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
         open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
         write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
         write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
+        ! Per-cell [CELL-DBG] trace file (interface cells 15/16/17)
+        open(newunit=iunit_celldbg, file=dir//cpu_root//'_cell_dbg.out', status='replace', action='write')
+        !> [ZONE-DBG] per-cell zone-mixing trace (compute_c_mix_by_zones / mix_within_zone): open
+        !> once here so the two subroutines only write to it. Trace the same cells as CELL-DBG
+        !> (all cells if <=10, else interface cells 3/8/15/16/17), mapped to global water indices.
+        if (within_zone_dbg) then
+            open(newunit=within_zone_dbg_unit, file=dir//cpu_root//'_zone_mix_dbg.out', &
+                status='replace', action='write')
+            block
+                integer(kind=4) :: ic, ns
+                integer(kind=4) :: cand(5)
+                if (this%chemistry%num_target_waters<=10) then
+                    if (allocated(within_zone_dbg_cells)) deallocate(within_zone_dbg_cells)
+                    allocate(within_zone_dbg_cells(this%chemistry%num_target_waters))
+                    do ic=1,this%chemistry%num_target_waters
+                        within_zone_dbg_cells(ic)=this%chemistry%tar_wat_indices(ic)
+                    end do
+                else
+                    cand=[3,8,15,16,17]
+                    ns=count(cand<=this%chemistry%num_target_waters)
+                    if (allocated(within_zone_dbg_cells)) deallocate(within_zone_dbg_cells)
+                    allocate(within_zone_dbg_cells(ns))
+                    ns=0
+                    do ic=1,5
+                        if (cand(ic)<=this%chemistry%num_target_waters) then
+                            ns=ns+1
+                            within_zone_dbg_cells(ns)=this%chemistry%tar_wat_indices(cand(ic))
+                        end if
+                    end do
+                end if
+            end block
+        end if
         !> Write initial state (t=0) before the first time step, honouring chem_out_options%vars
         if (this%chemistry%chem_out_options%time_steps(1)==0) then
             call write_out_step_vars(this%chemistry, unit, 0d0)
@@ -365,7 +401,11 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
             this%chemistry%tar_wat_indices(1)]
         !> \section time_loop Main Time Loop
         !> Loop over all time steps to solve reactive transport
+        call open_kin_mineral_dbg(dir//cpu_root//'_kin_mineral_dbg.out') !< [RK-DBG]/[DRK-DBG] mineral kinetic rate/gradient trace file (first target water)
+        sim_num_time_steps = this%transport%time_discr%Num_time !< total number of time steps (gates the speciation failure prints)
         do k=1,this%transport%time_discr%Num_time !< Loop from time step 1 to final time step
+            within_zone_dbg_step = k !< [ZONE-DBG] current step for the zone-mixing trace
+            dbg_kin_mineral_step = k !< [RK-DBG]/[DRK-DBG] current step for the mineral kinetic trace
             call cpu_time(cpu_t0) !< Start CPU timer for this time step
             Delta_t=this%transport%time_discr%get_Delta_t(k) !< Get time step size for step k
             time=time+Delta_t !< Advance simulation time
@@ -417,6 +457,7 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
             !> Loop over all domain target waters to solve reactive transport at each location
             do i=1,num_non_can_vec !< Loop over target waters (spatial cells)
                 idx = ind_non_can_vec(i) !< Cache non-canonical vector index
+                dbg_kin_mineral = (idx==1 .and. k<=dbg_kin_mineral_max_step) !< [RK-DBG]/[DRK-DBG]/[SAT-DBG] trace the mineral kinetics of the first target water during the first time step(s) only
                 associate(tw => this%target_waters(idx)%aq_chem, &
                           spec_alg => this%target_waters(idx)%aq_chem%solid_chemistry%reactive_zone%speciation_alg)
                 !> \subsubsection extract_dims Extract Problem Dimensions
@@ -533,6 +574,10 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
                 call cpu_time(cpu_prof_t1)
                 cpu_cum_rxn_amnt_total = cpu_cum_rxn_amnt_total + (cpu_prof_t1 - cpu_prof_t0)
 
+                !> [CELL-DBG] intermediate results for bulk calcite cells 3/8 and interface cells 15/16/17
+                if (k<=10 .and. (this%chemistry%num_target_waters<=10 .or. idx==3 .or. idx==8 .or. idx==15 .or. idx==16 .or. idx==17)) then
+                    call write_celldbg_cell(tw, iunit_celldbg, k, idx, n_v, c_hat, c_mix, c_hat)
+                end if
                 
                 !> Domain-integrated mass-balance contribution of this cell
                 call tw%get_react_mix_mass_bal_terms(c_mix(1:n_v), c_hat(1:n_v), lumped_lambdas(idx), &
@@ -564,13 +609,16 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
                 deallocate(c_hat)
                 end associate !< End tw/spec_alg association
             end do !< End target waters spatial loop
+            dbg_kin_mineral = .false. !< [DRK-DBG] off outside the target-water loop
             !> Domain-integrated mass balance for this time step (per variable-activity species)
             call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
             !> Sum equilibrium reaction rates for non-canonical target waters if mixing by zones is enabled
             if (this%chemistry%mix_by_zones_flag) then
                 do i=1,num_non_can_vec
+                    !print '(A,I0)', "[SUMEQ-DBG] Summing equilibrium reaction rates for non-canonical target water ", ind_non_can_vec(i)
                     call this%target_waters(ind_non_can_vec(i))%aq_chem%sum_eq_rxn_rates(this%chemistry%zone_waters(&
                         ind_non_can_vec(i),:))
+                    !print '(A,I0)', "[SUMEQ-DBG] Finished summing equilibrium reaction rates for non-canonical target water ", ind_non_can_vec(i)
                 end do
             end if
             !> Write chemistry output honouring chem_out_options%vars (conc / react_rate / vol_fract)
@@ -592,6 +640,13 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
             !this%target_waters(this%chemistry%num_target_waters)%aq_chem%activities=&
             !    this%chemistry%wat_types(this%chemistry%num_wat_types)%activities !< Update downstream boundary concentrations
         end do !< End main time loop
+        call close_kin_mineral_dbg() !< [RK-DBG]/[DRK-DBG] close the mineral kinetic trace file and disarm the traces
+        !> Close the [ZONE-DBG] zone-mixing debug file
+        if (within_zone_dbg_unit/=-1) then
+            close(within_zone_dbg_unit)
+            within_zone_dbg_unit=-1
+        end if
+        if (allocated(within_zone_dbg_cells)) deallocate(within_zone_dbg_cells)
     
     call cpu_time(cpu_total_t1) !< Stop total subroutine CPU timer
     cpu_total_elapsed = cpu_total_t1 - cpu_total_t0
@@ -638,6 +693,7 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_1D(this,dir,root)
     !> Close output file
     close(unit)
     close(iunit_mb)
+    close(iunit_celldbg)
     deallocate(mb_lhs, mb_transp, mb_react)
     !> Deallocate pre-allocated buffers
     deallocate(conc_comp)

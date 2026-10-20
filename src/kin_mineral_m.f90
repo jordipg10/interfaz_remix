@@ -61,7 +61,7 @@ module kin_mineral_m
     !> - set_mineral_params: assign kinetic parameters
     !> - set_indices_aq_phase_min: link aqueous species to phase
     !> - compute_rk_mineral: calculate reaction rate [mol/L/T]
-    !> - compute_drk_dc_mineral: calculate Jacobian ∂r/∂c [1/T]
+    !> - compute_drk_dlogc_mineral: calculate Jacobian ∂r/∂log₁₀c [mol/L/T] (log form; ∂r/∂c = ∂r/∂log₁₀c/(ln10·c))
     !> - write_params: output parameters to file
     !> - write_reaction: output complete reaction info
     type, public, extends(kin_reaction_c) :: kin_mineral_c !< Kinetic mineral reaction extending base kinetic reaction class
@@ -85,12 +85,28 @@ module kin_mineral_m
         
         !> Computation methods
         procedure :: compute_rk_mineral !< Calculate mineral reaction rate r [mol/L/T]
-        procedure :: compute_drk_dc_mineral !< Calculate reaction rate Jacobian ∂r/∂c [1/T]
+        procedure :: compute_drk_dlogc_mineral !< Calculate reaction rate Jacobian ∂r/∂log₁₀c [mol/L/T] (log form, for the log-space Newton solvers)
         
         !> Output methods
         procedure :: write_params=>write_min_params !< Write kinetic parameters to file
         procedure :: write_reaction=>write_min_reaction !< Write complete reaction information
     end type
+
+    !> [RK-DBG]/[DRK-DBG]/[SAT-DBG] Debug traces of compute_rk_mineral (rate), compute_drk_dlogc_mineral (gradient)
+    !> and compute_saturation_kin_min (saturation index): inputs and every intermediate quantity, one block per
+    !> call, written to the <root>_kin_mineral_dbg.out file of the problem directory. The reaction object does
+    !> not know which water or time step it is evaluated for, so the reactive transport solver (see
+    !> solve_RT_1D_lump_Lagr_stat_flux) opens the file once before its time loop (open_kin_mineral_dbg), sets
+    !> dbg_kin_mineral_step each step, arms dbg_kin_mineral while it processes the target water to trace (the
+    !> FIRST one) during the first dbg_kin_mineral_max_step time steps of the simulation (default: the first
+    !> step only) and clears it otherwise, and closes the file afterwards (close_kin_mineral_dbg); the traced
+    !> procedures only test the switch and write. Default off: nothing is written unless a solver arms the
+    !> switch. dbg_kin_mineral_unit=-1 means "not open": the traces then fall back to standard output.
+    public :: open_kin_mineral_dbg, close_kin_mineral_dbg
+    logical, public :: dbg_kin_mineral = .false. !< .true. only while the first target water is being solved within the first dbg_kin_mineral_max_step steps
+    integer, public :: dbg_kin_mineral_unit = -1 !< output unit of the trace file (opened by the solver; -1 = not open, write to stdout)
+    integer, public :: dbg_kin_mineral_step = 0 !< current time step (set by the solver each step), written in each block header
+    integer, public :: dbg_kin_mineral_max_step = 1 !< trace only the first this-many time steps of the simulation (1 = first step only)
         
     interface
         !> \brief Computes mineral dissolution/precipitation reaction rate
@@ -127,23 +143,21 @@ module kin_mineral_m
             real(kind=8), intent(out) :: rk !< [mol/L/T] mineral reaction rate (>0 dissolution, <0 precipitation)
         end subroutine
                 
-        !> \brief Computes Jacobian of mineral reaction rate with respect to concentrations
-        !> \details Calculates ∂r/∂c_i for all aqueous species in the reaction, needed for implicit time integration
-        !>          and Newton-Raphson methods in reactive transport. Jacobian quantifies how reaction rate changes
-        !>          when species concentrations change.
+        !> \brief Computes the Jacobian of the mineral reaction rate with respect to the LOG10 of the concentrations
+        !> \details Calculates ∂r/∂log₁₀c_i for all aqueous species in the reaction, needed for the Newton
+        !>          iterations of the reactive mixing (log-space unknowns p = log₁₀c₁). The log form avoids the
+        !>          1/c_i factors of ∂r/∂c_i, which span as many orders of magnitude as the concentrations; the
+        !>          arithmetic Jacobian is ∂r/∂c_i = (∂r/∂log₁₀c_i)/(ln10·c_i). Activity coefficients are taken
+        !>          as constant (∂a_i/∂log₁₀c_i = ln10·a_i) and the saturation index is clamped at the
+        !>          supersaturation threshold exactly as in compute_rk_mineral.
         !>
         !> Mathematical formulation:
-        !> ∂r/∂c_i = ∂/∂c_i[k * A * exp(-Ea/(RT)) * f(Ω) * ∏(a_cat^n)]
-        !>
-        !> Chain rule components:
-        !> 1. ∂f(Ω)/∂c_i via ∂Ω/∂c_i (saturation state sensitivity)
-        !> 2. ∂(a_i)/∂c_i = γ_i + c_i*(∂γ_i/∂I)*(∂I/∂c_i) (activity coefficient effects)
-        !> 3. ∂(∏a_cat^n)/∂c_i for catalyzers (if catalyzer concentrations vary)
+        !> ∂r/∂log₁₀c_i = ln10 · A_s · exp(-Ea/(RT)) · [ -ν_i Σ_j k_j η_j θ_j P_j Ω^θ_j |Ω^θ_j-1|^(η_j-1) + ζ Σ_j k_j p_ji P_j |Ω^θ_j-1|^η_j ]
         !>
         !> Physical interpretation:
-        !> - Large |∂r/∂c_i| → rate very sensitive to species i (stiff system)
-        !> - ∂r/∂c_i > 0 → increasing c_i accelerates forward reaction
-        !> - ∂r/∂c_i < 0 → increasing c_i slows forward reaction
+        !> - Large |∂r/∂log₁₀c_i| → rate very sensitive to species i (stiff system)
+        !> - ∂r/∂log₁₀c_i > 0 → increasing c_i accelerates forward reaction
+        !> - ∂r/∂log₁₀c_i < 0 → increasing c_i slows forward reaction
         !>
         !> Used for:
         !> - Implicit time integration (Backward Euler, BDF)
@@ -152,23 +166,23 @@ module kin_mineral_m
         !>
         !> \param[in] this Kinetic mineral reaction object
         !> \param[in] conc_sp Concentrations of aqueous species in reaction, ordered as indices_aq_phase [M/L³]
-        !> \param[in] log_act_coeffs_sp Logarithmic activity coefficients log₁₀(γ) (unused: γ assumed constant) [-]
+        !> \param[in] log_act_coeffs_sp Logarithmic activity coefficients log₁₀(γ) (gradient assumes γ constant; used by the [DRK-DBG] trace) [-]
         !> \param[in] act_cat Activities of catalyzer species [-]
-        !> \param[in] saturation Saturation index Ω = IAP/K_eq [-]
+        !> \param[in] saturation Saturation index Ω = IAP/K_eq (unclamped) [-]
         !> \param[in] react_surf Reactive surface area [m²/L]
         !> \param[in] temp Temperature [K]
-        !> \param[out] drk_dc Jacobian vector ∂r/∂c [1/T] (must be pre-allocated)
-        subroutine compute_drk_dc_mineral(this,conc_sp,log_act_coeffs_sp,act_cat,saturation,react_surf,temp,drk_dc)
+        !> \param[out] drk_dlogc Jacobian vector ∂r/∂log₁₀c [mol/L/T] (must be pre-allocated)
+        subroutine compute_drk_dlogc_mineral(this,conc_sp,log_act_coeffs_sp,act_cat,saturation,react_surf,temp,drk_dlogc)
             import kin_mineral_c !< Import mineral reaction type from parent scope
             implicit none !< Enforce explicit variable declarations
             class(kin_mineral_c), intent(in) :: this !< Kinetic mineral reaction object with parameters
             real(kind=8), intent(in) :: conc_sp(:) !< [M/L³] concentrations of aqueous species in reaction (ordered as indices_aq_phase)
-            real(kind=8), intent(in) :: log_act_coeffs_sp(:) !< [-] log₁₀(γ) activity coefficients of aqueous species (unused)
+            real(kind=8), intent(in) :: log_act_coeffs_sp(:) !< [-] log₁₀(γ) activity coefficients of aqueous species (gradient assumes γ constant; used by the [DRK-DBG] trace)
             real(kind=8), intent(in) :: act_cat(:) !< [-] activities of catalyzer species (H⁺, OH⁻, ligands)
-            real(kind=8), intent(in) :: saturation !< [-] saturation index Ω = IAP/K_eq
+            real(kind=8), intent(in) :: saturation !< [-] saturation index Ω = IAP/K_eq (unclamped)
             real(kind=8), intent(in) :: react_surf !< [m²/L] reactive surface area
             real(kind=8), intent(in) :: temp !< [K] absolute temperature
-            real(kind=8), intent(out) :: drk_dc(:) !< [1/T] Jacobian ∂r/∂c_i (must be pre-allocated with size num_aq_species)
+            real(kind=8), intent(out) :: drk_dlogc(:) !< [mol/L/T] Jacobian ∂r/∂log₁₀c_i (must be pre-allocated with size num_aq_species)
         end subroutine
                 
     end interface
@@ -197,6 +211,42 @@ contains
         !> Copies rate constant, activation energy, surface area, and catalyzer parameters
         this%params=mineral_params !< Assign complete parameter structure
     end subroutine
+
+    !> \brief Opens the [RK-DBG]/[DRK-DBG] trace file of the mineral kinetic rate and gradient and writes its legend
+    !> \details Called by the reactive transport solver once before its time loop. Replaces any previous file.
+    !>          After this call dbg_kin_mineral_unit holds the unit the two traced subroutines write to.
+    !> \param[in] path Full path of the trace file (<dir><root>_kin_mineral_dbg.out)
+    subroutine open_kin_mineral_dbg(path)
+        implicit none
+        character(len=*), intent(in) :: path !< Full path of the trace file
+        if (dbg_kin_mineral_unit/=-1) close(dbg_kin_mineral_unit) !< a previous trace file left open
+        open(newunit=dbg_kin_mineral_unit, file=path, status='replace', action='write')
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG] Debug trace of the mineral kinetic reaction rate, of its gradient and of the saturation index'
+        write(dbg_kin_mineral_unit,'(A,I0,A)') '[KIN-MIN-DBG] One block per call, for the FIRST target water only (idx = 1), during the first ', &
+            dbg_kin_mineral_max_step, ' time step(s) of the simulation'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG] (dbg_kin_mineral_max_step, kin_mineral_m), at every evaluation (Newton iteration / line-search trial).'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]  [RK-DBG]  compute_rk_mineral     : r = zeta A_s exp(-Ea/RT) sum_j k_j P_j |Omega_e^theta_j - 1|^eta_j,  Omega_e = min(Omega, Omega_max)'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]  [DRK-DBG] compute_drk_dlogc_mineral : dr/dlog10c_l = ln10 A_s exp(-Ea/RT) [ -nu_l sum1 + sum2_l ]  (gamma constant; dr/dc_l = dr/dlog10c_l/(ln10 c_l))'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]      sum1   = sum_j k_j eta_j theta_j P_j Omega_e^theta_j |Omega_e^theta_j - 1|^(eta_j-1)   (0 when Omega is clamped)'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]      sum2_i = zeta sum_j k_j p_ji P_j |Omega_e^theta_j - 1|^eta_j   (catalysers only)'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]  [SAT-DBG] compute_saturation_kin_min : Omega = 10**logK(T) prod_i a_i^(-nu_i), one row per aqueous'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]      species of the reaction (aq. phase index, state index, nu, c, log gamma, a, a^(-nu)).'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]  P_j = prod_i act_cat_i^p_ji, Omega = Q/K (input), zeta = sign(Omega - 1), nu_l = stoichiometry'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]  Consistency checks of [DRK-DBG]: act_cat/act_sp(loc_cat) must be 1 (activities of the'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]  catalysers vs gamma*c of the same species) and Omega/IAP must equal 10**logK(T) of the reaction.'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG]  Block header: reaction name, time step, traced call counter (per subroutine, cumulative).'
+        write(dbg_kin_mineral_unit,'(A)') '[KIN-MIN-DBG] =================================================================='
+    end subroutine open_kin_mineral_dbg
+
+    !> \brief Closes the [RK-DBG]/[DRK-DBG] trace file (no-op if it is not open) and disarms the traces
+    subroutine close_kin_mineral_dbg()
+        implicit none
+        if (dbg_kin_mineral_unit/=-1) then
+            close(dbg_kin_mineral_unit)
+            dbg_kin_mineral_unit=-1
+        end if
+        dbg_kin_mineral=.false.
+    end subroutine close_kin_mineral_dbg
 
     !> \brief Sets the explicit time-scaling flag
     !> \details Enables or disables explicit time scaling of the mineral reaction rate and its

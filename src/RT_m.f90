@@ -1078,29 +1078,30 @@ module RT_m                                                                  !< 
                 !> the exiting parcel comes from the last cell: that is its old reactive zone
                 call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_attributes_dep_rz()
                 call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_attributes_dep_mz()
-                this%chemistry%waters(this%chemistry%bd_waters_indices(2))%concentrations=&
-                    this%chemistry%waters(this%chemistry%bd_waters_indices(2))%concentrations/2d0 + &
-                    this%target_waters(this%chemistry%num_target_waters)%aq_chem%concentrations/2d0
-                this%chemistry%waters(this%chemistry%bd_waters_indices(2))%activities=&
-                    this%chemistry%waters(this%chemistry%bd_waters_indices(2))%activities/2d0 + &
-                    this%target_waters(this%chemistry%num_target_waters)%aq_chem%activities/2d0
-                this%chemistry%waters(this%chemistry%bd_waters_indices(2))%volume=&
-                    2d0*this%chemistry%waters(this%chemistry%bd_waters_indices(2))%volume !> we set the volume of the first domain water to the double to account for the inflow boundary water
-                !> Chapuza para ultima target water
-                !this%target_waters(this%chemistry%num_target_waters)%concentrations=&
-                !    this%target_waters(this%chemistry%num_target_waters)%concentrations/2d0
-                !this%target_waters(this%chemistry%num_target_waters)%activities=&
-                !    this%target_waters(this%chemistry%num_target_waters)%activities/2d0
-                this%target_waters(this%chemistry%num_target_waters)%aq_chem%volume=&
-                    5d-1*this%target_waters(this%chemistry%num_target_waters)%aq_chem%volume !> we set the volume of the first domain water to the double to account for the inflow boundary water
-                !    this%transport%spatial_discr%final_point) !> Assign unique ID
+                
                 !call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_solid_chemistry(&
                 !    this%chemistry%target_solids(this%chemistry%num_target_solids)) !> Assign unique ID
                 !call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%set_indices_rk() !> we set the indices of the kinetic reactions to the new outflow boundary water
             else !> Dirichlet outflow BC
-                ! call this%target_waters(this%chemistry%num_target_waters)%aq_chem%copy_aq_chem(&
-                !     aq_chem_exit) !> Copy exit water
+                call this%target_waters(this%chemistry%num_target_waters)%aq_chem%copy_aqueous_attributes(&
+                    aq_chem_exit) !> Copy exit water
             end if
+            ! this%chemistry%waters(this%chemistry%bd_waters_indices(2))%concentrations=&
+            !     this%chemistry%waters(this%chemistry%bd_waters_indices(2))%concentrations/2d0 + &
+            !     this%target_waters(this%chemistry%num_target_waters)%aq_chem%concentrations/2d0
+            ! this%chemistry%waters(this%chemistry%bd_waters_indices(2))%activities=&
+            !     this%chemistry%waters(this%chemistry%bd_waters_indices(2))%activities/2d0 + &
+            !     this%target_waters(this%chemistry%num_target_waters)%aq_chem%activities/2d0
+            ! this%chemistry%waters(this%chemistry%bd_waters_indices(2))%volume=&
+            !     2d0*this%chemistry%waters(this%chemistry%bd_waters_indices(2))%volume !> we set the volume of the first domain water to the double to account for the inflow boundary water
+            !> Chapuza para ultima target water
+            ! this%target_waters(this%chemistry%num_target_waters)%concentrations=&
+            !    this%target_waters(this%chemistry%num_target_waters)%concentrations/2d0
+            ! this%target_waters(this%chemistry%num_target_waters)%activities=&
+            !    this%target_waters(this%chemistry%num_target_waters)%activities/2d0
+            ! this%target_waters(this%chemistry%num_target_waters)%aq_chem%volume=&
+            !     5d-1*this%target_waters(this%chemistry%num_target_waters)%aq_chem%volume !> we set the volume of the first domain water to the double to account for the inflow boundary water
+            !    this%transport%spatial_discr%final_point) !> Assign unique ID
             !else if (this%transport%BCs%labels(2) .eq. 1) then !> Dirichlet outflow BC
             !    call this%chemistry%waters(this%chemistry%bd_waters_indices(2))%copy_aq_chem(&
                     !this%target_waters(this%chemistry%num_target_waters)%aq_chem) !> Copy outflow BC particle
@@ -1228,7 +1229,7 @@ module RT_m                                                                  !< 
             !    this%target_waters(1)%aq_chem%activities=&
             !        this%target_waters(1)%aq_chem%activities*2d0
                 this%target_waters(1)%aq_chem%volume=&
-                    this%target_waters(1)%aq_chem%volume/2d0
+                    this%target_waters(2)%aq_chem%volume/2d0
             end if
             ! else
             !     call this%chemistry%waters(this%chemistry%tar_wat_indices(1))%copy_aq_chem(&
@@ -1360,6 +1361,9 @@ module RT_m                                                                  !< 
             character(len=*), intent(in) :: dir !> directory for output file
             character(len=*), intent(in) :: root !> root name for output file
             integer(kind=4) :: i !> loop index for domain waters
+            integer(kind=4) :: j,n_dom,n_node !> edge-centred Dirichlet rebuild: running new index, number of domain (interior-node) waters, number of nodes
+            integer(kind=4), allocatable :: new_of_old(:) !> edge-centred Dirichlet rebuild: new water index of each old water index
+            integer(kind=4), allocatable :: aux_wat_types(:) !> edge-centred Dirichlet rebuild: water type of each old water index
             real(kind=8), allocatable :: pos_inf(:) !> spatial position of the inflow boundary target water
             real(kind=8), allocatable :: pos_out(:) !> spatial position of the outflow boundary target water
             integer(kind=4), allocatable :: aux_tar_wat_ind(:) !> spatial position of the outflow boundary target water
@@ -1416,44 +1420,65 @@ module RT_m                                                                  !< 
                             call aux_wat(i)%copy_aq_chem(this%chemistry%waters(i))
                             call aux_wat_init(i)%copy_aq_chem(this%chemistry%waters_init(i))
                         end do
-                        call this%chemistry%allocate_waters(this%chemistry%num_waters+2) !< Expand water array by 1 to accommodate inflow water
-                        call this%chemistry%allocate_waters_init(this%chemistry%num_waters) !< Expand water array by 1 to accommodate inflow water
-                        call this%chemistry%waters(1)%copy_aq_chem(aux_wat(this%chemistry%bd_waters_indices(1))) !< Assign new index for inflow water
-                        call this%chemistry%waters(1)%set_id(this%chemistry%num_waters-1) !< Assign new index for inflow water
-                        call this%chemistry%waters_init(1)%copy_aq_chem(aux_wat_init(this%chemistry%bd_waters_indices(1))) !< Assign new index for inflow water
-                        call this%chemistry%waters(this%chemistry%num_waters)%copy_aq_chem(&
-                            aux_wat(this%chemistry%bd_waters_indices(2))) !< Assign new index for inflow water
-                        call this%chemistry%waters(this%chemistry%num_waters)%set_id(&
-                            this%chemistry%num_waters) !< Assign new index for inflow water
-                        call this%chemistry%waters_init(this%chemistry%num_waters)%copy_aq_chem(&
-                            aux_wat_init(this%chemistry%bd_waters_indices(2))) !< Assign new index for inflow water
-                        !call this%chemistry%waters_init()%copy_aq_chem(aux_wat_init(this%chemistry%bd_waters_indices(1))) !< Assign new index for inflow water
-                        !this%chemistry%waters(1)%concentrations=&
-                        !    this%chemistry%waters(1)%concentrations/2d0 !< Adjust concentrations for new inflow water
-                        !this%chemistry%waters(1)%activities=&
-                        !    this%chemistry%waters(1)%activities/2d0 !< Adjust activities for new inflow water
-                        do i=2,this%chemistry%num_waters-1 !< Loop over all waters to copy back data
-                            call this%chemistry%waters(i)%copy_aq_chem(aux_wat(i-1))
-                            call this%chemistry%waters_init(i)%copy_aq_chem(aux_wat_init(i-1))
+                        !> Rebuilt layout = the water-index convention of the 1D transport stencils (mix_conc_indices,
+                        !> which the 1D solvers use directly as chemistry water indices): targets 1..N in node order,
+                        !> inflow boundary water N+1, outflow boundary water N+2, then any recharge waters. Nodes 1
+                        !> and N (the Dirichlet nodes, which hold the boundary values) are NEW copies of the inflow
+                        !> and outflow boundary waters, nodes 2..N-1 are the domain waters of the input file, and the
+                        !> boundary waters themselves become the external waters N+1 and N+2 (objects distinct from
+                        !> the node copies; the external columns of the mixing ratios are 0 for the edge-centred
+                        !> Dirichlet scheme, whose boundary values enter through the node targets). new_of_old maps
+                        !> every old water index to its new position (the boundary waters to their external copies).
+                        n_dom=size(aux_tar_wat_ind) !< domain waters of the input file (interior nodes)
+                        n_node=n_dom+this%chemistry%num_bd_waters !< mesh nodes = new number of target waters
+                        allocate(new_of_old(this%chemistry%num_waters))
+                        new_of_old=0
+                        do i=1,n_dom
+                            new_of_old(aux_tar_wat_ind(i))=1+i !< domain water i -> node i+1
                         end do
-                        !do i=1,this%chemistry%num_target_waters !< Loop over all target waters to shift existing indices
-                        !    this%chemistry%tar_wat_indices(i+1)=&
-                        !        aux_tar_wat_ind(i)+1 !< Shift existing interior target water indices by number of boundary waters
-                        !end do
-                        do i=1,this%chemistry%num_target_waters-2 !< Loop over all target waters to update indices
-                            this%chemistry%tar_wat_indices(i)=&
-                                aux_tar_wat_ind(i) !< Shift existing interior target water indices by number of boundary waters
+                        new_of_old(this%chemistry%bd_waters_indices(1))=n_node+1 !< inflow boundary water -> external N+1
+                        new_of_old(this%chemistry%bd_waters_indices(2))=n_node+2 !< outflow boundary water -> external N+2
+                        j=n_node+2
+                        do i=1,this%chemistry%num_waters !< remaining waters (recharge): appended in their old order
+                            if (new_of_old(i)==0) then
+                                j=j+1
+                                new_of_old(i)=j
+                            end if
                         end do
-                        this%chemistry%tar_wat_indices(&
-                            this%chemistry%num_target_waters-1)=&
-                            this%chemistry%bd_waters_indices(this%chemistry%num_bd_waters)
-                        this%chemistry%bd_waters_indices(this%chemistry%num_bd_waters)=&
-                            this%chemistry%num_waters !< Update outflow boundary water index
-                        this%chemistry%tar_wat_indices(&
-                            this%chemistry%num_target_waters)=&
-                            this%chemistry%bd_waters_indices(this%chemistry%num_bd_waters)-1 !< Assign new index for boundary water
+                        if (allocated(this%chemistry%wat_type_indices)) aux_wat_types=this%chemistry%wat_type_indices
+                        call this%chemistry%allocate_waters(this%chemistry%num_waters+2) !< two node copies added
+                        call this%chemistry%allocate_waters_init(this%chemistry%num_waters)
+                        if (allocated(aux_wat_types)) then
+                            deallocate(this%chemistry%wat_type_indices)
+                            allocate(this%chemistry%wat_type_indices(this%chemistry%num_waters))
+                        end if
+                        do i=1,size(aux_wat) !< every old water to its new position
+                            call this%chemistry%waters(new_of_old(i))%copy_aq_chem(aux_wat(i))
+                            call this%chemistry%waters_init(new_of_old(i))%copy_aq_chem(aux_wat_init(i))
+                            if (allocated(aux_wat_types)) this%chemistry%wat_type_indices(new_of_old(i))=aux_wat_types(i)
+                        end do
+                        !> node copies of the boundary waters (new ids)
+                        call this%chemistry%waters(1)%copy_aq_chem(aux_wat(this%chemistry%bd_waters_indices(1)))
+                        call this%chemistry%waters(1)%set_id(this%chemistry%num_waters-1)
+                        call this%chemistry%waters_init(1)%copy_aq_chem(aux_wat_init(this%chemistry%bd_waters_indices(1)))
+                        call this%chemistry%waters(n_node)%copy_aq_chem(aux_wat(this%chemistry%bd_waters_indices(2)))
+                        call this%chemistry%waters(n_node)%set_id(this%chemistry%num_waters)
+                        call this%chemistry%waters_init(n_node)%copy_aq_chem(aux_wat_init(this%chemistry%bd_waters_indices(2)))
+                        if (allocated(aux_wat_types)) then
+                            this%chemistry%wat_type_indices(1)=aux_wat_types(this%chemistry%bd_waters_indices(1))
+                            this%chemistry%wat_type_indices(n_node)=aux_wat_types(this%chemistry%bd_waters_indices(2))
+                        end if
+                        !> indices in the new layout
+                        this%chemistry%tar_wat_indices=[(i, i=1,n_node)]
+                        this%chemistry%bd_waters_indices(1)=n_node+1
+                        this%chemistry%bd_waters_indices(2)=n_node+2
+                        do i=1,this%chemistry%num_rech_waters
+                            this%chemistry%rech_waters_indices(i)=new_of_old(this%chemistry%rech_waters_indices(i))
+                        end do
                         print *, "Updated target water indices: ", this%chemistry%tar_wat_indices
                         print *, "Updated boundary water indices: ", this%chemistry%bd_waters_indices
+                        deallocate(new_of_old)
+                        if (allocated(aux_wat_types)) deallocate(aux_wat_types)
                         deallocate(aux_wat) !< Deallocate auxiliary water array after use
                         deallocate(aux_tar_wat_ind) !< Deallocate auxiliary target water indices array after use
                     !end if
@@ -1576,6 +1601,12 @@ module RT_m                                                                  !< 
                     !> (target water, reactive zone). Sized here because num_target_waters is only final at this
                     !> point (the boundary waters may have just been added above).
                     call this%chemistry%set_zone_waters()
+                    !> The external (boundary/recharge) water indices and the grouping of the waters by reactive
+                    !> zone are derived from the water indices, which are final only now (the edge-centred
+                    !> Dirichlet case above rebuilds the waters array and shifts/updates the boundary indices):
+                    !> (re)compute both here, after the rebuild, rather than in read_chemistry.
+                    call this%chemistry%set_ext_waters_indices()
+                    call this%chemistry%set_wat_indices_zones()
                     !deallocate(pos_inf) !< Deallocate inflow position array after use
                     !deallocate(pos_out) !< Deallocate outflow position array after use
                     !> Write initial aqueous concentrations to file (rows=targets, columns=species in natural order)

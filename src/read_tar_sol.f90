@@ -405,24 +405,39 @@
         end if
     end do
     num_int=0 !> initialize the number of interfaces
+    write(0,'(A,I0)') ' [IFACE-DBG] mineral-zone interface scan, num_target_solids=', this%num_target_solids
     if (this%chem_syst%num_minerals > 0) then
         do i=2,this%num_target_solids-1
             is_interface = .true. 
             num_int=num_int+1 
             ind_min_left=this%target_solids(i-1)%mineral_zone%ind_min_chem_syst
-            associate(mz_right => this%target_solids(i+1)%mineral_zone)
+            associate(mz_left => this%target_solids(i-1)%mineral_zone, mz_right => this%target_solids(i+1)%mineral_zone, &
+                cs => this%target_solids(i)%reactive_zone%chem_syst)
+            write(0,'(A,I0,A,I0,A,I0,A,I0,A,I0)') ' [IFACE-DBG] solid i=', i, ' left i-1 min_zone id=', mz_left%id, &
+                ' n_min=', mz_left%num_minerals, ' | right i+1 min_zone id=', mz_right%id, ' n_min=', mz_right%num_minerals
+            write(0,'(A,*(1X,A))') ' [IFACE-DBG]   left  minerals =', (trim(cs%minerals(ind_min_left(j))%mineral%name), &
+                j=1,size(ind_min_left))
+            write(0,'(A,*(1X,A))') ' [IFACE-DBG]   right minerals =', (trim(cs%minerals(mz_right%ind_min_chem_syst(j))%mineral%name), &
+                j=1,mz_right%num_minerals)
             do j=1,mz_right%num_minerals
                 if (any(ind_min_left==mz_right%ind_min_chem_syst(j))) then
                     is_interface = .false.
                     num_int=num_int-1
+                    write(0,'(A,A,A,I0,A)') ' [IFACE-DBG]   shared mineral: ', &
+                        trim(cs%minerals(mz_right%ind_min_chem_syst(j))%mineral%name), ' (chem_syst index ', &
+                        mz_right%ind_min_chem_syst(j), ')'
                     exit
                 end if
             end do
+            write(0,'(A,I0,A,L1)') ' [IFACE-DBG]   -> solid i=', i, ' is_interface=', is_interface
             end associate
             call this%target_solids(i)%set_is_interface(is_interface)
         end do
+    else
+        write(0,'(A)') ' [IFACE-DBG] no minerals in the chemical system, skipping interface scan'
     end if
     call this%set_num_interfaces(num_int) !> set the total number of interfaces found
+    write(0,'(A,I0)') ' [IFACE-DBG] total number of interfaces found=', num_int
     do i=1,this%num_target_solids
         call this%target_solids_init(i)%copy_solid_chemistry(this%target_solids(i)) !> we assign the initial target solids to the target solids
     end do

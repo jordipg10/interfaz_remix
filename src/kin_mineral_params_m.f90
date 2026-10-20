@@ -80,7 +80,7 @@ module kin_mineral_params_m
         !> ----------------------------------------------------------------
         !> Catalytic effects
         !> ----------------------------------------------------------------
-        integer(kind=4) :: num_cat !> Number of catalyser species [-]
+        integer(kind=4) :: num_cat=0 !> Number of catalyser species [-]
             !> Catalysers are aqueous species that affect reaction rate
             !> Common catalysers: H⁺, OH⁻, Al³⁺, Fe²⁺, organic ligands
         
@@ -110,7 +110,7 @@ module kin_mineral_params_m
             !> Typically η = 1 (linear rate dependence)
             !> Rate term: (1 - Ω^θ)^η where Ω = IAP/K_eq
         
-        real(kind=8) :: supersat_threshold !> Supersaturation threshold Ω_max [-]
+        real(kind=8) :: supersat_threshold=1d1 !> Supersaturation threshold Ω_max [-]
             !> Maximum allowed saturation index for precipitation
             !> If Ω > supersat_threshold, precipitation rate may be limited or set to zero
             !> Prevents unrealistic precipitation rates at high supersaturation

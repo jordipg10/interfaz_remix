@@ -18,13 +18,14 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_1D(this, dir, root)
     use RT_m, only: RT_1D_transient_c, move_particles_stat_flux_1D, move_particles_stat_flux_EC_1D
     use chemistry_m, only: write_out_step_vars, reset_wat_indices_zones !< Shared per-output-step writer (conc/react_rate/vol_fract); post-displacement zone regrouping
     use aqueous_chemistry_m, only: &
-        aqueous_chemistry_c, &
+        aqueous_chemistry_c, write_celldbg_cell, &
         reactive_mixing_iter_EI_eq_anal_ideal, &
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, &
         compute_c_mix_global_cons, compute_c_mix_by_zones_cons, &
         compute_r_tilde_impl_opt1_idx, compute_r_tilde_impl_opt2_idx, &
         compute_r_tilde_impl_opt3_idx, compute_r_tilde_impl_opt4_idx, &
-        reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, add_limited_increment
+        reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, add_limited_increment, &
+        within_zone_dbg, within_zone_dbg_unit, within_zone_dbg_step, within_zone_dbg_cells, sim_num_time_steps
     use arrays_m, only: int_array_c
     implicit none
 
@@ -56,8 +57,10 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_1D(this, dir, root)
     real(kind=8), allocatable :: conc_nc(:), r_tilde(:)
     ! Domain-integrated reactive-mixing mass balance (per variable-activity species)
     integer(kind=4) :: iunit_mb                   !< mass-balance output file unit
+    integer(kind=4) :: iunit_celldbg              !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref                    !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref                    !< reference number of variable-activity species
+    integer(kind=4) :: celldbg_sel(10), n_celldbg_sel, isel !< [CELL-DBG] 10 equispaced target waters
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
     real(kind=8), allocatable :: mb_lhs_c(:), mb_transp_c(:), mb_react_c(:) !< per-cell terms
     ! Procedure pointers
@@ -116,14 +119,10 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_1D(this, dir, root)
                 error stop "rk average option not implemented yet"
             end if
         else if (n_eq > 0) then
-            ! Equilibrium-only reactions
-            ! int_method 1 (explicit), 2 (implicit) and 3 (Crank-Nicolson) share this solver: the
-            ! scheme enters only through theta_r (r_tilde/c_hat), not the algebraic equilibrium speciation.
-            if (this%transport%time_discr%int_method_chem >= 1 .and. this%transport%time_discr%int_method_chem <= 3) then
-                p_solver => reactive_mixing_iter_EI_eq_anal_ideal
-            else
-                error stop "Integration method for equilibrium-only reactions not implemented yet"
-            end if
+            ! Equilibrium-only reactions: the solver does not depend on the reactions integration method
+            ! (Euler/RKF45); the scheme enters only through theta_r (r_tilde/c_hat), not the algebraic
+            ! equilibrium speciation.
+            p_solver => reactive_mixing_iter_EI_eq_anal_ideal
         else
             ! Kinetic-only reactions
             if (this%chemistry%rk_avg_opt == 1) then
@@ -194,6 +193,30 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_1D(this, dir, root)
         open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
         write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
         write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
+        ! Per-cell [CELL-DBG] trace file (10 target waters equispaced along the mesh)
+        open(newunit=iunit_celldbg, file=dir//cpu_root//'_cell_dbg.out', status='replace', action='write')
+        ! [CELL-DBG] pick up to 10 target waters equispaced along the mesh (endpoints included)
+        n_celldbg_sel = min(10, this%chemistry%num_target_waters)
+        do isel = 1, n_celldbg_sel
+            if (n_celldbg_sel == 1) then
+                celldbg_sel(isel) = 1
+            else
+                celldbg_sel(isel) = nint(1d0 + dble(isel-1)*dble(this%chemistry%num_target_waters-1)/dble(n_celldbg_sel-1))
+            end if
+        end do
+
+        ! [ZONE-DBG] per-cell zone-mixing trace (compute_c_mix_by_zones / mix_within_zone): trace
+        ! the same cells as CELL-DBG, mapping the target-water index to the global water index.
+        if (within_zone_dbg) then
+            open(newunit=within_zone_dbg_unit, file=dir//cpu_root//'_zone_mix_dbg.out', &
+                 status='replace', action='write')
+            if (allocated(within_zone_dbg_cells)) deallocate(within_zone_dbg_cells)
+            allocate(within_zone_dbg_cells(n_celldbg_sel))
+            do isel = 1, n_celldbg_sel
+                within_zone_dbg_cells(isel) = this%chemistry%tar_wat_indices(celldbg_sel(isel))
+            end do
+        end if
+
         ! Initialise allocation tracking for inner loop
         prev_n_v = -1
         prev_n_p = -1
@@ -228,7 +251,9 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_1D(this, dir, root)
         !====================================================================
         ! Main time loop
         !====================================================================
+        sim_num_time_steps = this%transport%time_discr%Num_time ! total number of time steps (gates the speciation failure prints)
         do k = 1, this%transport%time_discr%Num_time
+            within_zone_dbg_step = k   ! [ZONE-DBG] current step for the zone-mixing trace
             Delta_t = this%transport%time_discr%get_Delta_t(k)
             time = time + Delta_t
 
@@ -362,6 +387,11 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_1D(this, dir, root)
                 call cpu_time(cpu_prof_t1)
                 cpu_eq_rates_total = cpu_eq_rates_total + (cpu_prof_t1 - cpu_prof_t0)
 
+                ! [CELL-DBG] intermediate results for 10 target waters equispaced along the mesh
+                if (k<=10 .and. any(celldbg_sel(1:n_celldbg_sel)==idx)) then
+                    call write_celldbg_cell(aq, iunit_celldbg, k, idx, n_v, c_hat_old, c_mix, c_hat)
+                end if
+
                 ! Domain-integrated mass-balance contribution of this cell
                 call aq%get_react_mix_mass_bal_terms(c_mix(1:n_v), c_hat(1:n_v), lambda_R, &
                     Delta_t, this%transport%time_discr%theta_r, mb_lhs_c, mb_transp_c, mb_react_c)
@@ -400,8 +430,10 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_1D(this, dir, root)
             !> Sum equilibrium reaction rates at interfaces if mix_by_zones_flag is set
             if (this%chemistry%mix_by_zones_flag) then
                 do i=1,num_non_can_vec
+                    !print '(A,I0)', "[SUMEQ-DBG] Summing equilibrium reaction rates for non-canonical target water ", ind_non_can_vec(i)
                     call this%target_waters(ind_non_can_vec(i))%aq_chem%sum_eq_rxn_rates(this%chemistry%zone_waters(&
                         ind_non_can_vec(i),:))
+                    !print '(A,I0)', "[SUMEQ-DBG] Finished summing equilibrium reaction rates for non-canonical target water ", ind_non_can_vec(i)
                 end do
             end if
             if (k == this%chemistry%chem_out_options%time_steps(kk)) then
@@ -417,6 +449,12 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_1D(this, dir, root)
         if (allocated(c_hat_old)) deallocate(c_hat_old)
         close(out_unit)
         close(iunit_mb)
+        close(iunit_celldbg)
+        if (within_zone_dbg_unit/=-1) then       ! [ZONE-DBG] close the zone-mixing trace file
+            close(within_zone_dbg_unit)
+            within_zone_dbg_unit=-1
+        end if
+        if (allocated(within_zone_dbg_cells)) deallocate(within_zone_dbg_cells)
         deallocate(mb_lhs, mb_transp, mb_react)
 
         ! --- Write the CPU profiling report (tagged filename) ---

@@ -22,13 +22,16 @@
 !> where m is the number of kinetic reactions and n is the number of aqueous species.
 !>
 !> \param[in] this Aqueous chemistry object containing solid chemistry, reactive zone, chemical system, and kinetic reaction data
-!> \param[out] drk_dc Jacobian matrix: ∂rₖ/∂c (must be already allocated with dimensions num_kin_reactions × num_aq_species) [T⁻¹]
+!> \param[out] drk_dlogc Jacobian matrix in LOG form: ∂rₖ/∂log₁₀c = ln10·c·∂rₖ/∂c (must be already allocated with dimensions
+!>             num_kin_reactions × num_species, columns in chem_syst order) [mol/(L·T)]. Same convention as compute_rk_Jac_rk_anal,
+!>             the routine actually used by the Newton solvers; this one is kept for the Jacobian alone.
 
-subroutine compute_Jacobian_rk_anal(this,drk_dc)
+subroutine compute_Jacobian_rk_anal(this,drk_dlogc)
     use aqueous_chemistry_m, only: aqueous_chemistry_c !> Import aqueous chemistry class containing all kinetic reaction information
     implicit none !> Enforce explicit variable declarations
     class(aqueous_chemistry_c), intent(in) :: this !> Aqueous chemistry object containing solid chemistry, reactive zone, chemical system, and kinetic reactions [-]
-    real(kind=8), intent(out) :: drk_dc(:,:) !> Jacobian matrix: ∂rₖ/∂c (must be already allocated, dimensions: num_kin_reactions × num_aq_species) [T⁻¹]
+    real(kind=8), intent(out) :: drk_dlogc(:,:) !> Jacobian matrix in log form: ∂rₖ/∂log₁₀c (must be already allocated, dimensions: num_kin_reactions × num_species) [mol/(L·T)]
+    real(kind=8), parameter :: ln10 = log(1d1) !> ln(10): ∂r/∂log₁₀c_j = ln10·c_j·∂r/∂c_j
     
     integer(kind=4) :: i !> Loop counter for kinetic reactions of each type [-]
     integer(kind=4) :: k !> Loop counter (not used in current implementation) [-]
@@ -47,12 +50,15 @@ subroutine compute_Jacobian_rk_anal(this,drk_dc)
     real(kind=8), allocatable :: react_surfaces(:) !> Reactive surfaces of the mineral zone on the molality basis [m² mineral/kg H₂O] (compute_react_surfaces_per_kg_water)
     real(kind=8) :: saturation !> Saturation index for mineral kinetic reactions: Ω = Q/K_eq [-]
 
-    drk_dc=0d0 !> Initialize Jacobian matrix to zero (default for species not participating in reactions)
+    drk_dlogc=0d0 !> Initialize Jacobian matrix to zero (default for species not participating in reactions)
     num_kin=0 !> Initialize counter for total number of kinetic reactions processed
 !> Linear kinetic reactions: first-order or pseudo-first-order reactions
     do i=1,this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts !> Loop over all linear kinetic reactions in chemical system
         num_kin=num_kin+1 !> Increment total kinetic reaction counter
-        call this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%compute_drk_dc_lin(drk_dc(num_kin,:)) !> Compute gradient for i-th linear kinetic reaction: ∂rₖ/∂c (typically sparse, only non-zero for reactants/products)
+        call this%solid_chemistry%reactive_zone%chem_syst%lin_kin_reacts(i)%compute_drk_dc_lin(drk_dlogc(num_kin,:)) !> Compute gradient for i-th linear kinetic reaction: ∂rₖ/∂c (typically sparse, only non-zero for reactants/products)
+        !> log form: ∂rₖ/∂log₁₀c_j = ln10·c_j·∂rₖ/∂c_j (columns j in chem_syst order are the aqueous phase indices of the aqueous species)
+        drk_dlogc(num_kin,1:this%aq_phase%num_species)=ln10*drk_dlogc(num_kin,1:this%aq_phase%num_species)*&
+            this%concentrations(this%indices_aq_species(1:this%aq_phase%num_species))
     end do !> End loop over linear kinetic reactions
     !num_kin=num_kin+this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts !> Commented: Alternative way to increment counter after loop
 !> Mineral kinetic reactions: dissolution/precipitation reactions with TST-based rate laws
@@ -62,8 +68,8 @@ subroutine compute_Jacobian_rk_anal(this,drk_dc)
         !indices=this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(i)%indices_aq_phase !> Commented: Extract indices of aqueous species in reaction
         allocate(drk_dc_loc(this%indices_rk%cols(num_kin)%dim)) !> Allocate local gradient vector with dimension = number of species participating in this reaction
         saturation=this%compute_saturation_kin_min(this%solid_chemistry%mineral_zone%ind_min_chem_syst(i)) !> Compute saturation index Ω = Q/K_eq for i-th kinetic mineral
-        call this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(& !> Call mineral kinetic reaction gradient computation
-            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%compute_drk_dc_mineral(this%concentrations(& !> Pass concentrations of aqueous species participating in reaction
+        call this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(& !> Call mineral kinetic reaction gradient computation (log form)
+            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%compute_drk_dlogc_mineral(this%concentrations(& !> Pass concentrations of aqueous species participating in reaction
             this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(& !> Extract species indices for this mineral reaction
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase)),& !> Map to aqueous phase indices
             this%log_act_coeffs(this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(& !> Pass log₁₀(activity coefficients) of aqueous species
@@ -71,8 +77,8 @@ subroutine compute_Jacobian_rk_anal(this,drk_dc)
             this%activities(this%indices_aq_species(& !> Pass activities of catalyser species (H⁺, OH⁻, etc.)
             this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(&
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%cat_indices)),saturation,& !> Include saturation index for TST rate law
-            react_surfaces(i),this%solid_chemistry%temp,drk_dc_loc) !> Pass reactive surface area and temperature, receive gradient in drk_dc_loc
-        drk_dc(num_kin,this%indices_rk%cols(num_kin)%col_1)=drk_dc_loc !> Store local gradient in full Jacobian at appropriate columns (temporary workaround for sparse storage)
+            react_surfaces(i),this%solid_chemistry%temp,drk_dc_loc) !> Pass reactive surface area and temperature, receive ∂rₖ/∂log₁₀c in drk_dc_loc
+        drk_dlogc(num_kin,this%indices_rk%cols(num_kin)%col_1)=drk_dc_loc !> Store local gradient in full Jacobian at appropriate columns (temporary workaround for sparse storage)
         deallocate(drk_dc_loc) !> Deallocate local gradient vector before next iteration
     end do !> End loop over mineral kinetic reactions
     !num_kin=num_kin+this%solid_chemistry%mineral_zone%num_minerals_kin !> Commented: Alternative way to increment counter after loop
@@ -83,7 +89,9 @@ subroutine compute_Jacobian_rk_anal(this,drk_dc)
         call this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%compute_drk_dc_Monod(this%concentrations(& !> Call Monod kinetics gradient computation
             this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%indices_aq_phase)),& !> Pass concentrations of species in Monod rate law (inhibitors, acceptor, donor)
             this%rxn_rate_kin(num_kin-this%solid_chemistry%mineral_zone%num_minerals_kin),drk_dc_loc) !> Pass current reaction rate (offset by number of mineral reactions) and receive gradient
-        drk_dc(num_kin,this%indices_rk%cols(num_kin)%col_1)=drk_dc_loc !> Store local gradient in full Jacobian at appropriate columns (temporary workaround for sparse storage)
+        !> log form: ∂rₖ/∂log₁₀c_j = ln10·c_j·∂rₖ/∂c_j (the k-th entry refers to the k-th aqueous species of the reaction)
+        drk_dlogc(num_kin,this%indices_rk%cols(num_kin)%col_1)=ln10*drk_dc_loc*this%concentrations(this%indices_aq_species(&
+            this%solid_chemistry%reactive_zone%chem_syst%redox_kin_reacts(i)%indices_aq_phase)) !> Store local gradient in full Jacobian at appropriate columns (temporary workaround for sparse storage)
         deallocate(drk_dc_loc) !> Deallocate local gradient vector before next iteration
     end do !> End loop over redox kinetic reactions
 end subroutine

@@ -2,6 +2,9 @@
 !> We assume the chemical system has equilibrium and kinetic reactions
 !> We assume all primary species are aqueous
 !! We DO NOT apply lumping in this subroutine
+!! NOTE: legacy arithmetic form (dfk/dc), not called by the current Newton solvers, which assemble their Jacobian in
+!! log-space from the log-form kinetic Jacobian of compute_rk_Jac_rk_anal (compute_dfk_dp_EI(_ideal)). The drk_dc
+!! argument here is still the ARITHMETIC Jacobian d r_k/d c; do not feed it the drk_dlogc of compute_rk_Jac_rk_anal.
 subroutine compute_dfk_dc_EI_ideal(this,drk_dc,Delta_t,theta,mix_ratio_r,dfk_dc)
     use aqueous_chemistry_m, only: aqueous_chemistry_c
     use arrays_m, only: id_matrix
@@ -23,21 +26,7 @@ subroutine compute_dfk_dc_EI_ideal(this,drk_dc,Delta_t,theta,mix_ratio_r,dfk_dc)
     real(kind=8), allocatable :: drk_dc2v(:,:) !> Jacobian kinetic reaction rates - secondary variable activity concentrations
     real(kind=8), allocatable :: d_log_gamma_d_I(:) !> derivative of log_10 activity coefficients of variable activity species with respect to ionic activity
     real(kind=8), allocatable :: out_prod(:,:) !> Outer product between d_log_gamma_d_I and squared charges of variable activity species
-!> Pre-process
-    !allocate(dc2v_dc1(this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions,&
-    !    this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species))
 !> Process
-    !> First we compute d_log_gamma_d_I
-        !call this%compute_d_log_gamma_d_I_aq_chem(d_log_gamma_d_I)
-    !> Outer product
-        !out_prod=outer_prod_vec(d_log_gamma_d_I,this%solid_chemistry%reactive_zone%chem_syst%z2(1:this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species))
-    !> Jacobian of secondary variable activity concentrations
-        !call this%compute_dc2v_dc1_ideal(c1,c2v,dc2v_dc1)
-    !> We separate primary and secondary variable activity species in Jacobian of kinetic reaction rates     
-        !drk_dc1=drk_dc(:,1:this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)
-        !drk_dc2v=drk_dc(:,this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species+1:&
-        !    this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species)
-    !print *, this%solid_chemistry%reactive_zone%U_SkT_prod
     !> We compute Jacobian of Newton residual
         dfk_dc=id_matrix(this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species)-Delta_t*mix_ratio_r*&
             theta*matmul(this%solid_chemistry%reactive_zone%U_SkT_prod,drk_dc)

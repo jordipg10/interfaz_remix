@@ -37,7 +37,7 @@ subroutine read_chemistry(this,root,path_pb,path_DB)
     !> Read computation options
     call this%read_comp_opts(path_pb,root,unit_comp_opts)
     !> Read convergence parameters
-    call this%CV_params%read_params_iter_methods(path_pb,root)
+    call this%CV_params%read_CV_params(path_pb,root)
     !> Read chemical data depending on the selected option (we impose CHEPROO here)
     read_opt=1 !> CHEPROO-based (chapuza)
     call this%set_read_opt(read_opt) !> set reading option (chapuza)
@@ -50,14 +50,15 @@ subroutine read_chemistry(this,root,path_pb,path_DB)
     else
         error stop "This data input option is not implemented yet"
     end if
-    !> Populate, per reactive zone (column j = zone id), the target waters
-    !> whose reactive zone matches this%reactive_zones(j)
-    !> Assign each reactive zone its canonical id (position in reactive_zones) BEFORE linking,
-    !> so set_wat_indices_zones is called with the reactive-zone ids already set.
+    !> Assign each reactive zone its canonical id (position in reactive_zones) here, so that
+    !> set_wat_indices_zones can match the waters to the zones by id. The grouping of the waters
+    !> by reactive zone (wat_indices_zones) is NOT built here: set_target_waters (RT_m) may still
+    !> rebuild the waters array (edge-centred Dirichlet case: the boundary waters are appended to
+    !> the target waters and every water index shifts), so it is built at the end of
+    !> set_target_waters, once the water indices are final.
     do i=1,this%num_reactive_zones
         this%reactive_zones(i)%id=i
     end do
-    call this%set_wat_indices_zones() !> link waters to their respective reactive zones
     ! call this%wat_indices_zones%allocate_array(this%num_reactive_zones)
     ! do i=1,this%num_reactive_zones
     !     call this%set_wat_indices_zones(i,twiz_loc)
@@ -66,4 +67,5 @@ subroutine read_chemistry(this,root,path_pb,path_DB)
     ! end do
     !> Read output options
      call this%chem_out_options%read_chem_out_options(path_pb,root,this%chem_syst,this%num_waters,this%num_rech_waters)
+    write(0,'(A)') ' MARK E: read_chem_out_options done (read_chemistry returning)'
 end subroutine

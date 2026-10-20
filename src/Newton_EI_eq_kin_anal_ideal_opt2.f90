@@ -48,30 +48,37 @@
 !> species \f$\mathbf{c}_1\f$ via the mass action law (ideal solution), so the system has \f$n_p\f$
 !> unknowns.
 !>
-!> **Log-Space Jacobian Transformation:**
+!> **Log-Space Jacobian:**
 !>
-!> Defining \f$ p_j = \log_{10}(c_{1,j}) \f$, the Newton system is solved for \f$ \Delta\mathbf{p} \f$:
+!> Defining \f$ p_j = \log_{10}(c_{1,j}) \f$, the Newton system is solved for \f$ \Delta\mathbf{p} \f$. Its
+!> Jacobian is assembled DIRECTLY in log space by `compute_dfk_dp_EI_ideal`,
 !> \f[
-!>   \frac{\partial \mathbf{f}_k}{\partial p_j} = \ln(10)\,c_{1,j}\,\frac{\partial \mathbf{f}_k}{\partial c_{1,j}},
-!>   \qquad
-!>   \frac{\partial \mathbf{f}_k}{\partial \mathbf{c}_1}
-!>     = \mathbf{U}_1 + \mathbf{U}_2\,\frac{\partial \mathbf{c}_{2,v}}{\partial \mathbf{c}_1}
+!>   \frac{\partial \mathbf{f}_k}{\partial p_j}
+!>     = \ln 10\,\Bigl[\mathbf{U}_1(:,j)\,c_{1,j} + \mathbf{U}_2\,(\mathbf{c}_{2,v}\circ\mathbf{S}^*_{e,1}(:,j))\Bigr]
 !>       - \Delta t\,\theta\,\lambda_r\,(\mathbf{U}\mathbf{S}_k^T)^{\mathrm{new}}
-!>         \frac{\partial \mathbf{r}_k}{\partial \mathbf{c}_1}
+!>         \Bigl[\frac{\partial \mathbf{r}_k}{\partial \log_{10} c_{1,j}}
+!>         + \frac{\partial \mathbf{r}_k}{\partial \log_{10} \mathbf{c}_{2,v}}\,\mathbf{S}^*_{e,1}(:,j)\Bigr]
 !> \f]
-!> (the arithmetic Jacobian is assembled by `compute_dfk_dc1_EI_ideal`). This cancels the
-!> \f$ 1/c_1 \f$ singularity in \f$ \partial c_2/\partial c_1 \f$ and the update
+!> from the log-form kinetic Jacobian \f$\partial\mathbf{r}_k/\partial\log_{10}\mathbf{c}\f$ of
+!> `compute_rk_Jac_rk_anal` (\f$\partial\log_{10}\mathbf{c}_{2,v}/\partial\log_{10}\mathbf{c}_1 =
+!> \mathbf{S}^*_{e,1}\f$ for an ideal solution). No \f$1/c\f$ factor is ever formed (they would span as many
+!> orders of magnitude as the concentrations), and the update
 !> \f$ c_{1,j}^{\mathrm{new}} = 10^{p_j + \alpha\,\Delta p_j} \f$ keeps every concentration positive.
 !>
 !> **Globalisation — Armijo backtracking line search:**
 !>
-!> The column-equilibrated log-space Newton system \f$\mathbf{J}\,\Delta\mathbf{p} = -\mathbf{f}_k\f$ is
-!> solved with LAPACK `dgesv`. The step length \f$\alpha\f$ along \f$\Delta\mathbf{p}\f$ is chosen by
-!> backtracking (\f$\alpha = 1, 1/2, 1/4, \ldots\f$) on \f$\phi(\alpha)=\tfrac12\|\mathbf{f}_k(\mathbf{p}+
-!> \alpha\Delta\mathbf{p})\|_2^2\f$ until the Armijo condition \f$\phi(\alpha)\le\phi(0)+c\,\alpha\,\phi'(0)\f$,
-!> \f$c=10^{-4}\f$, holds, with \f$\phi'(0)=\mathbf{f}_k^T\mathbf{J}\Delta\mathbf{p}\f$. Before the line
-!> search \f$\Delta\mathbf{p}\f$ is scaled uniformly so that \f$\|\Delta\mathbf{p}\|_\infty \le\f$ `max_dp`
-!> = 10 (ten orders of magnitude) and \f$\phi'(0)\f$ is re-evaluated for the scaled direction;
+!> The log-space Newton system \f$\mathbf{J}\,\Delta\mathbf{p} = -\mathbf{f}_k\f$ is equilibrated by rows
+!> (infinity norm of each row) and then by columns (infinity norm of each row-scaled column) and solved
+!> with LAPACK `dgesv`; the Newton direction is unchanged in exact arithmetic, only the conditioning seen
+!> by the LU factorisation improves (species with totals of 1e-1 and 1e-9 pivot alike). The step length
+!> \f$\alpha\f$ along \f$\Delta\mathbf{p}\f$ is chosen by backtracking (\f$\alpha = 1, 1/2, 1/4, \ldots\f$) on
+!> \f$\phi(\alpha)=\tfrac12\|\mathbf{f}_k(\mathbf{p}+\alpha\Delta\mathbf{p})\|_2^2\f$ until the Armijo
+!> condition \f$\phi(\alpha)\le\phi(0)+c\,\alpha\,\phi'(0)\f$, \f$c=10^{-4}\f$, holds, with
+!> \f$\phi'(0)=\mathbf{f}_k^T\mathbf{J}\Delta\mathbf{p}\f$. Before the line search \f$\Delta\mathbf{p}\f$ is
+!> scaled uniformly so that \f$\|\Delta\mathbf{p}\|_\infty \le\f$ `max_dp` = 2 (two orders of magnitude,
+!> i.e. a factor 100 in concentration per iteration, PHREEQC's default step size: a looser cap lets the
+!> Jacobian be evaluated at absurd iterates where the kinetic term explodes) and \f$\phi'(0)\f$ is
+!> re-evaluated for the scaled direction;
 !> \f$\alpha\f$ is halved at most `max_LS_tries` \f$-1 = 9\f$ times. If the solve fails,
 !> \f$\Delta\mathbf{p}\f$ is not a descent direction (\f$\phi'(0)\ge 0\f$) or its line search fails,
 !> the steepest-descent direction \f$-\mathbf{J}^T\mathbf{f}_k\f$ is tried once instead. If no step is
@@ -132,7 +139,7 @@
 !> \warning A diagnostic line is printed to stdout on the max-iteration failure exit.
 !>
 !> \sa Newton_EI_eq_ideal, compute_c_nc_from_u_Newton_ideal
-!> \sa aqueous_chemistry_c::compute_rk_Jac_rk_anal, aqueous_chemistry_c::compute_dfk_dc1_EI_ideal
+!> \sa aqueous_chemistry_c::compute_rk_Jac_rk_anal, aqueous_chemistry_c::compute_dfk_dp_EI_ideal
 !>
 !> \author Jordi
 !> \ingroup chemistry
@@ -155,8 +162,7 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
     real(kind=8), allocatable :: rk_best(:)         !< Kinetic rates at the best iterate (frozen kinetic source of the re-speciation fallback) (n_kin) [1/T]
     real(kind=8), allocatable :: rk_old(:)          !< Kinetic reaction rates from the previous time step \f$\mathbf{r}_k^{\mathrm{old}}\f$ (n_kin) [1/T]
     real(kind=8), allocatable :: rk_avg(:)          !< Mean rates \f$\bar{\mathbf{r}}_k = \theta\,\mathbf{r}_k + (1-\theta)\,\mathbf{r}_k^{\mathrm{old}}\f$ stored at convergence (n_kin) [1/T]
-    real(kind=8), allocatable :: drk_dc(:,:)        !< Jacobian \f$\partial\mathbf{r}_k/\partial\mathbf{c}\f$ (n_kin x n_species, chem_syst order) [1/(T C)]
-    real(kind=8), allocatable :: dfk_dc1(:,:)       !< Arithmetic Jacobian \f$\partial\mathbf{f}_k/\partial\mathbf{c}_1\f$ (n_p x n_p) [-]
+    real(kind=8), allocatable :: drk_dlogc(:,:)     !< Log-form Jacobian \f$\partial\mathbf{r}_k/\partial\log_{10}\mathbf{c}\f$ (n_kin x n_species, chem_syst order) [1/T]
 !> Local variables — residual and concentrations
     real(kind=8), allocatable :: fk(:)              !< Newton residual \f$\mathbf{f}_k\f$ (n_p) [C]
     real(kind=8), allocatable :: fk_trial(:)        !< Trial residual for the line search (n_p) [C]
@@ -167,13 +173,14 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
 !> Local variables — log-space Newton system
     real(kind=8), allocatable :: log_c1(:)          !< \f$p_j = \log_{10}(c_{1,j})\f$ (n_p) [-]
     real(kind=8), allocatable :: Delta_p(:)         !< Search direction in log-space: Newton step or steepest descent \f$-\mathbf{J}^T\mathbf{f}_k\f$ (n_p) [-]
-    real(kind=8), allocatable :: dfk_dp(:,:)        !< Log-space Jacobian \f$\partial\mathbf{f}_k/\partial\mathbf{p}\f$ (n_p x n_p) [-]
-    real(kind=8), allocatable :: dfk_dp_eq(:,:)     !< Column-equilibrated copy of the log-space Jacobian (overwritten by dgesv) (n_p x n_p) [-]
-    real(kind=8), allocatable :: col_scale(:)       !< Column scaling factors of the Jacobian equilibration (n_p) [-]
+    real(kind=8), allocatable :: dfk_dp(:,:)        !< Log-space Jacobian \f$\partial\mathbf{f}_k/\partial\mathbf{p}\f$ (n_p x n_p), assembled directly by compute_dfk_dp_EI_ideal [-]
+    real(kind=8), allocatable :: dfk_dp_eq(:,:)     !< Row- and column-equilibrated copy of the log-space Jacobian (overwritten by dgesv) (n_p x n_p) [-]
+    real(kind=8), allocatable :: row_scale(:)       !< Row scaling factors of the Jacobian equilibration (infinity norm of each row) (n_p) [-]
+    real(kind=8), allocatable :: col_scale(:)       !< Column scaling factors of the Jacobian equilibration (infinity norm of each row-scaled column) (n_p) [-]
     integer(kind=4), allocatable :: ipiv_dgesv(:)   !< Pivot indices of LAPACK dgesv (n_p)
     integer(kind=4) :: info_dgesv                   !< Return code of LAPACK dgesv (0 = success)
     real(kind=8), parameter :: ln10 = log(10d0)     !< \f$\ln(10)\f$ [-]
-    real(kind=8), parameter :: max_dp = 10d0        !< Maximum allowed \f$|\Delta p_j|\f$ per iteration (10 orders of magnitude) [-]
+    real(kind=8), parameter :: max_dp = 2d0         !< Maximum allowed \f$|\Delta p_j|\f$ per iteration: 2 orders of magnitude (a factor 100 in concentration per Newton step, PHREEQC's default step size); keeps the Jacobian from being evaluated at absurd iterates [-]
     real(kind=8) :: scale_factor                    !< \f$\|\Delta\mathbf{p}\|_\infty\f$ before bounding [-]
 !> Local variables — search direction and line search
     integer(kind=4) :: i_dir                        !< Direction attempt counter (Newton, then steepest descent) [-]
@@ -232,12 +239,12 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
         this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
     comp_mat=this%solid_chemistry%reactive_zone%speciation_alg%comp_mat
     U_SkT_new=this%solid_chemistry%reactive_zone%U_SkT_prod
-    allocate(dfk_dc1(n_p,n_p),drk_dc(n_kin,this%solid_chemistry%reactive_zone%speciation_alg%num_species))
+    allocate(drk_dlogc(n_kin,this%solid_chemistry%reactive_zone%speciation_alg%num_species))
     allocate(rk_new(n_kin),rk_trial(n_kin),rk_best(n_kin),rk_avg(n_kin))
     allocate(fk(n_p),fk_trial(n_p),conc_nc_best(n_v),conc_nc_save(n_v),u_fix(n_p))
-    allocate(dfk_dp(n_p,n_p),dfk_dp_eq(n_p,n_p),Delta_p(n_p),log_c1(n_p),Uc(n_p),col_scale(n_p),ipiv_dgesv(n_p))
-    drk_dc=0d0
-    dfk_dc1=0d0
+    allocate(dfk_dp(n_p,n_p),dfk_dp_eq(n_p,n_p),Delta_p(n_p),log_c1(n_p),Uc(n_p),row_scale(n_p),col_scale(n_p),ipiv_dgesv(n_p))
+    drk_dlogc=0d0
+    dfk_dp=0d0
     rk_best=0d0
     n_stag=0
     fk_norm_prev=huge(1d0)
@@ -277,8 +284,8 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
             call this%set_conc_prim_species(conc_nc(1:n_p))
             call this%compute_c2v_from_c1_ideal(conc_nc(1:n_p),log_gamma_var_act,conc_nc(n_p+1:))
             call this%set_act_aq_species()
-            drk_dc=0d0
-            call this%compute_rk_Jac_rk_anal(rk_new,drk_dc)
+            drk_dlogc=0d0
+            call this%compute_rk_Jac_rk_anal(rk_new,drk_dlogc)
             Uc=matmul(comp_mat,conc_nc)
             fk=Uc-u_hat-dt_theta_mr_new*matmul(U_SkT_new,rk_new)
         end if
@@ -304,27 +311,39 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
             call this%compute_contrib_rxn_amnt_kin(mix_ratio_r)
             exit newton_loop
         end if
-    !> \subsection newton_ei_jacobian Jacobian assembly and log-space transformation
-    !> drk_dc is passed in full chem_syst order: the callee permutes its columns through
-    !> reactive_zone%ind_var_act_species, whose values can exceed n_v in multi-zone setups
-        call this%compute_dfk_dc1_EI_ideal(conc_nc(1:n_p),conc_nc(n_p+1:),drk_dc,Delta_t,theta,mix_ratio_r,dfk_dc1)
+    !> \subsection newton_ei_jacobian Jacobian assembly, directly in log-space
+    !> drk_dlogc (d r_k / d log10 c, compute_rk_Jac_rk_anal) is passed in full chem_syst order: the callee
+    !> permutes its columns through reactive_zone%ind_var_act_species, whose values can exceed n_v in
+    !> multi-zone setups, and assembles dfk/dp = ln10 [U_1 c_1 + U_2 dc_2v/dp] - Dt theta lambda_r (U S_k^T)
+    !> [d r_k/d log10 c_1 + d r_k/d log10 c_2v Se*_1] without forming any 1/c factor
+        call this%compute_dfk_dp_EI_ideal(conc_nc(1:n_p),conc_nc(n_p+1:),drk_dlogc,Delta_t,theta,mix_ratio_r,dfk_dp)
         do ii=1,n_p
             log_c1(ii)=log10(max(conc_nc(ii),tiny(1d0)))
-            dfk_dp(:,ii)=ln10*conc_nc(ii)*dfk_dc1(:,ii)
         end do
     !> \subsection newton_ei_step Newton direction and Armijo backtracking line search in log-space
-    !> (same scheme as Newton_EI_eq_ideal: Newton step on the column-equilibrated system, steepest
+    !> (same scheme as Newton_EI_eq_ideal: Newton step on the equilibrated system, steepest
     !> descent -J^T f when the solve fails, the direction is not a descent direction or its line
     !> search fails; no step accepted -> stagnation)
+    !> Equilibration of the linear system J Delta_p = -f: rows first (each row divided by its infinity
+    !> norm, so that components with totals of 1e-1 and 1e-9 weigh alike in the pivoting), then columns
+    !> (each column of the row-scaled matrix divided by its infinity norm). With R = diag(1/row_scale),
+    !> C = diag(1/col_scale): (R J C) y = -R f, Delta_p = C y. The Newton direction is unchanged in exact
+    !> arithmetic; only the conditioning seen by dgesv improves. The merit function phi = 0.5 |f|^2 and
+    !> its slope are evaluated with the unscaled J and f.
         conc_nc_save=conc_nc
         step_accepted=.false.
         dfk_dp_eq=dfk_dp
+        do ii=1,n_p
+            row_scale(ii)=maxval(abs(dfk_dp_eq(ii,:)))
+            if (row_scale(ii)<tiny(1d0)) row_scale(ii)=1d0
+            dfk_dp_eq(ii,:)=dfk_dp_eq(ii,:)/row_scale(ii)
+        end do
         do ii=1,n_p
             col_scale(ii)=maxval(abs(dfk_dp_eq(:,ii)))
             if (col_scale(ii)<tiny(1d0)) col_scale(ii)=1d0
             dfk_dp_eq(:,ii)=dfk_dp_eq(:,ii)/col_scale(ii)
         end do
-        Delta_p=-fk
+        Delta_p=-fk/row_scale
         call dgesv(n_p,1,dfk_dp_eq,n_p,ipiv_dgesv,Delta_p,n_p,info_dgesv)
         sing_flag=(info_dgesv/=0)
         if (.not. sing_flag) then
@@ -353,8 +372,8 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
                 call this%set_conc_prim_species(conc_nc(1:n_p))
                 call this%compute_c2v_from_c1_ideal(conc_nc(1:n_p),log_gamma_var_act,conc_nc(n_p+1:))
                 call this%set_act_aq_species()
-                drk_dc=0d0
-                call this%compute_rk_Jac_rk_anal(rk_trial,drk_dc)
+                drk_dlogc=0d0
+                call this%compute_rk_Jac_rk_anal(rk_trial,drk_dlogc)
                 fk_trial=matmul(comp_mat,conc_nc)-u_hat-dt_theta_mr_new*matmul(U_SkT_new,rk_trial)
                 phi_trial=5d-1*dot_product(fk_trial,fk_trial)
                 if (phi_trial<=phi0+c_armijo*alpha*dphi0) then
@@ -375,8 +394,8 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
             call this%set_conc_prim_species(conc_nc(1:n_p))
             call this%compute_c2v_from_c1_ideal(conc_nc(1:n_p),log_gamma_var_act,conc_nc(n_p+1:))
             call this%set_act_aq_species()
-            drk_dc=0d0
-            call this%compute_rk_Jac_rk_anal(rk_new,drk_dc)
+            drk_dlogc=0d0
+            call this%compute_rk_Jac_rk_anal(rk_new,drk_dlogc)
         end if
     !> \subsection newton_ei_stag Stagnation detection and re-speciation fallback
     !> A rejected step counts as full stagnation at once: the state is unchanged, so every following
@@ -402,8 +421,8 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
 !> -----------------------------------------------------------------------
 !> \section newton_ei_postproc Post-processing: deallocation
 !> -----------------------------------------------------------------------
-    deallocate(fk,fk_trial,dfk_dc1,drk_dc,rk_old,rk_new,rk_trial,rk_best,rk_avg,conc_nc_best,conc_nc_save,u_fix)
-    deallocate(dfk_dp,dfk_dp_eq,Delta_p,log_c1,ipiv_dgesv,Uc,col_scale,comp_mat,U_SkT_new,log_gamma_var_act)
+    deallocate(fk,fk_trial,drk_dlogc,rk_old,rk_new,rk_trial,rk_best,rk_avg,conc_nc_best,conc_nc_save,u_fix)
+    deallocate(dfk_dp,dfk_dp_eq,Delta_p,log_c1,ipiv_dgesv,Uc,row_scale,col_scale,comp_mat,U_SkT_new,log_gamma_var_act)
 
 contains
 

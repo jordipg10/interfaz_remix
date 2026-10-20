@@ -88,6 +88,7 @@ subroutine solve_RT_ideal_lump_Lagr_trans_flux_1D(this,dir,root)
     integer(kind=4) :: num_lump !> Number of lumpings performed in current reactive mixing iteration [-]
     integer(kind=4) :: j_mix !> loop index for mixing waters
     integer(kind=4) :: num_mix_loc !> number of mixing waters
+    real(kind=8) :: lambda_L !> lumped lambda of the target water: sum of its CONCENTRATION mixing ratios (same definition in every lumped solver), evaluated per step because the transient flux updates the mixing ratios
     real(kind=8), allocatable :: conc_old_mix(:,:) !> conc_old from each mixing water
     integer(kind=4), allocatable :: ind_aq_sp_mix(:,:) !> indices_aq_species from each mixing water
     procedure(reactive_mixing_iter_EE_eq_kin_ideal), pointer :: p_solver=>null() !> Procedure pointer to reactive mixing solver (selected based on problem type)
@@ -137,21 +138,14 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
 !> - Reaction rate averaging option
 !**************************************************************************************************
     if (this%chemistry%chem_syst%num_kin_reacts>0 .and. this%chemistry%chem_syst%speciation_alg%num_eq_reactions>0) then !> Case: Both equilibrium and kinetic reactions present
-        if (this%transport%time_discr%int_method_chem==1) then !> Explicit Euler method
-            theta=0d0 !> Set time weighting to 0 (explicit) [-]
+        theta=this%transport%time_discr%theta_r !> Reactions time weighting factor read from the time discretisation file [-]
+        if (theta==0d0) then !> Explicit Euler method
             !p_solver=>reactive_mixing_iter_EE_eq_kin_ideal_lump !> Point to explicit Euler solver with equilibrium and kinetic reactions
             compute_r_tilde=>compute_r_tilde_impl_opt1 !> Point to explicit kinetic rate computation
             mix_ind=1 !> Start mixing from index 1 (include all waters) [-]
             !mix_waters_indices=>this%transport%mix_conc_indices
     else if (this%chemistry%Jac_opt==1) then !> Implicit/Crank-Nicolson with analytical Jacobian
             mix_ind=2 !> Start mixing from index 2 (exclude one water for implicit schemes) [-]
-            if (this%transport%time_discr%int_method_chem==2) then !> Implicit Euler method
-                theta=1d0 !> Set time weighting to 1 (fully implicit) [-]
-            else if (this%transport%time_discr%int_method_chem==3) then !> Crank-Nicolson method
-                theta=5d-1 !> Set time weighting to 0.5 (Crank-Nicolson) [-]
-            else !> Unsupported integration method
-                error stop "Integration method for chemical reactions not implemented yet"
-            end if
             if (this%chemistry%rk_avg_opt==1) then !> Reaction rate averaging option 1
                 !p_solver=>reactive_mixing_iter_EI_eq_kin_anal_ideal_opt1 !> Option 1 not implemented
             else if (this%chemistry%rk_avg_opt==2) then !> Reaction rate averaging option 2
@@ -213,18 +207,11 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
     else if (this%chemistry%chem_syst%speciation_alg%num_eq_reactions>0) then !> Case: Only equilibrium reactions (no kinetics)
         !p_solver=>mixing_iter_comp_ideal !> Point to equilibrium-only solver with lumped WMA
     else !> Case: Only kinetic reactions (no equilibrium)
-        if (this%transport%time_discr%int_method_chem==1) then !> Explicit Euler method for kinetic reactions only
-            theta=0d0 !> Set time weighting to 0 (explicit) [-]
+        theta=this%transport%time_discr%theta_r !> Reactions time weighting factor read from the time discretisation file [-]
+        if (theta==0d0) then !> Explicit Euler method for kinetic reactions only
             p_solver=>reactive_mixing_iter_EE_kin !> Point to explicit Euler solver for kinetic reactions only
             mix_ind=1 !> Start mixing from index 1 (include all waters) [-]
     else if (this%chemistry%Jac_opt==1) then !> Implicit/Crank-Nicolson with analytical Jacobian for kinetic reactions
-            if (this%transport%time_discr%int_method_chem==2) then !> Implicit Euler method
-                theta=1d0 !> Set time weighting to 1 (fully implicit) [-]
-            else if (this%transport%time_discr%int_method_chem==3) then !> Crank-Nicolson method
-                theta=5d-1 !> Set time weighting to 0.5 (Crank-Nicolson) [-]
-            else !> Unsupported integration method
-                error stop "Integration method for chemical reactions not implemented yet"
-            end if
             if (this%chemistry%rk_avg_opt==1) then !> Reaction rate averaging option 1
                 !p_solver=>reactive_mixing_iter_EI_kin_anal_ideal_opt1 !> Option 1 not implemented
             else if (this%chemistry%rk_avg_opt==2) then !> Reaction rate averaging option 2
@@ -440,9 +427,10 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
                     !end do
                     
 !> \subsection Chemical Reaction Step
-!> \brief Solve chemical reactions for mixed water
+!> \brief Solve chemical reactions for mixed water (lumped lambda = sum of the concentration mixing ratios of this target water)
+                          lambda_L=sum(this%transport%mixing_ratios_conc%cols(ind_non_can_vec(i))%col_1)
                           call p_solver(this%chemistry%waters(this%chemistry%tar_wat_indices(i)),waters_old_old(&
-                                this%chemistry%tar_wat_indices(i))%get_c1(),c_hat,this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(1),&
+                                this%chemistry%tar_wat_indices(i))%get_c1(),c_hat,lambda_L,&
                                 Delta_t,theta,conc_nc,conc_comp) !> Solve reactive mixing iteration: equilibrium speciation + kinetic reactions → new concentrations [M/L³]
                                 
 !> \subsection Update Derived Quantities
@@ -458,7 +446,7 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
                         )%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0) then !> Equilibrium reactions present (kinetic term handled inside, zero if none)
                         call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%compute_Re(&
                             c_hat(1:n_v),Delta_t,&
-                            this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(1),&
+                            lambda_L,&
                             this%transport%time_discr%theta_r) !> Compute equilibrium reaction rates using lumped WMA [mol/T]
                     end if
                     !> Commented out alternative equilibrium rate computation
@@ -473,7 +461,7 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
                             i))%solid_chemistry%compute_mass_bal_mins(Delta_t) !> Compute mass balance for minerals over time step
                         call this%chemistry%waters(this%chemistry%tar_wat_indices(&
                             i))%solid_chemistry%compute_conc_minerals_iter(Delta_t,&
-                            this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(1)) !> Update mineral concentrations from mass balance [M/L³]
+                            lambda_L) !> Update mineral concentrations from mass balance [M/L³]
                     end if
                     
 !> \subsection Gas Phase Update
@@ -500,7 +488,7 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
                         this%chemistry%waters(this%chemistry%tar_wat_indices(i))%solid_chemistry%rxn_amnt_kin
                 !> Domain-integrated mass-balance contribution of this cell
                     call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%get_react_mix_mass_bal_terms( &
-                        c_hat(1:n_v), c_hat(1:n_v), this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(1), &
+                        c_hat(1:n_v), c_hat(1:n_v), lambda_L, &
                         Delta_t, theta, mb_lhs_c, mb_transp_c, mb_react_c)
                     if (size(mb_lhs_c) == n_v_ref) then
                         mb_lhs = mb_lhs + mb_lhs_c

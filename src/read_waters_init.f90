@@ -248,6 +248,8 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
     ind_rech=0 !> initialize counter for recharge waters processed
     ind_bd=0   !> initialize counter for boundary waters processed
     ind_dom=0  !> initialize counter for domain (internal) waters processed
+    num_wat_bd=0   !> defined even if the file has no WATERS block (used by the consistency check below)
+    num_wat_rech=0 !> idem
 
     unit=57 !> set file unit number (arbitrary choice, must not conflict with other units)
     open(unit, file=root//'_tar_wat.dat', status='old', action='read') !> open target waters file for reading
@@ -334,18 +336,38 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                         !> ordering: target (domain) waters first, then boundary, then recharge.
                         !> The category is inferred from the first index of the range (each range is
                         !> assumed to lie entirely within a single category).
+                        !> A range that crosses into the next category (e.g. "17-31" with 29 domain
+                        !> waters and 2 boundary waters) would be written beyond the end of the index
+                        !> array and would leave the boundary/recharge indices unset (=0), which later
+                        !> dereferences waters(0): reject it here with a diagnostic instead.
                         if (first_wat<=this%num_target_waters) then !> TARGET WATER (internal)
+                            if (last_wat>this%num_target_waters .or. ind_dom+int_wat_size>this%num_target_waters) then
+                                write(0,'(A,I0,A,I0,A,I0,A)') "read_waters_init: water interval ", first_wat, "-", last_wat, &
+                                    " crosses from the domain waters (1-", this%num_target_waters, ") into the boundary/recharge waters"
+                                error stop "read_waters_init: the domain waters must be listed first, then the boundary waters, then the recharge waters"
+                            end if
                             do i=1,int_wat_size !> loop over all waters in range
                                 this%tar_wat_indices(ind_dom+i)=first_wat+i-1 !> store target water index
                             end do
                             ind_dom=ind_dom+int_wat_size !> increment domain water counter by range size
                             flag=.false. !> set flag to false for domain waters
                         else if (first_wat<=this%num_target_waters+num_wat_bd) then !> BOUNDARY WATER
+                            if (last_wat>this%num_target_waters+num_wat_bd .or. ind_bd+int_wat_size>num_wat_bd) then
+                                write(0,'(A,I0,A,I0,A,I0,A,I0,A)') "read_waters_init: water interval ", first_wat, "-", last_wat, &
+                                    " crosses from the boundary waters (", this%num_target_waters+1, "-", &
+                                    this%num_target_waters+num_wat_bd, ") into the recharge waters"
+                                error stop "read_waters_init: the domain waters must be listed first, then the boundary waters, then the recharge waters"
+                            end if
                             do i=1,int_wat_size !> loop over all waters in range
                                 this%bd_waters_indices(ind_bd+i)=first_wat+i-1 !> store boundary water index
                             end do
                             ind_bd=ind_bd+int_wat_size !> increment boundary water counter by range size
                         else !> RECHARGE WATER (infiltration/precipitation)
+                            if (ind_rech+int_wat_size>num_wat_rech) then
+                                write(0,'(A,I0,A,I0,A,I0)') "read_waters_init: water interval ", first_wat, "-", last_wat, &
+                                    " lists more recharge waters than declared: ", num_wat_rech
+                                error stop "read_waters_init: more recharge waters listed than declared"
+                            end if
                             do i=1,int_wat_size !> loop over all waters in range
                                 this%rech_waters_indices(ind_rech+i)=first_wat+i-1 !> store recharge water index
                             end do
@@ -519,13 +541,16 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
                         !> ordering: target (domain) waters first, then boundary, then recharge.
                         else if (tar_wat_ind<=this%num_target_waters) then !> DOMAIN WATER (internal/mobile)
                             ind_dom=ind_dom+1 !> increment domain water counter
+                            if (ind_dom>this%num_target_waters) error stop "read_waters_init: more domain waters listed than declared (duplicate water index?)"
                             this%tar_wat_indices(ind_dom)=tar_wat_ind !> store domain water index
                             flag=.false. !> set flag to false for domain waters
                         else if (tar_wat_ind<=this%num_target_waters+num_wat_bd) then !> BOUNDARY WATER (Dirichlet BC)
                             ind_bd=ind_bd+1 !> increment boundary water counter
+                            if (ind_bd>num_wat_bd) error stop "read_waters_init: more boundary waters listed than declared (duplicate water index?)"
                             this%bd_waters_indices(ind_bd)=tar_wat_ind !> store boundary water index
                         else !> RECHARGE WATER (infiltration/precipitation)
                             ind_rech=ind_rech+1 !> increment recharge water counter
+                            if (ind_rech>num_wat_rech) error stop "read_waters_init: more recharge waters listed than declared (duplicate water index?)"
                             this%rech_waters_indices(ind_rech)=tar_wat_ind !> store recharge water index
                         end if
                         
@@ -886,6 +911,15 @@ subroutine read_waters_init(this,root,nsrz,ngrz)
     !end if
     !call this%write_aq_comps_init(root) !> (commented) write aqueous components of initial target waters
     
+    !> Every declared water must have been listed in its category: otherwise the unset entries of
+    !> bd_waters_indices/rech_waters_indices (=0) propagate to ext_waters_indices and the first
+    !> waters(ext_waters_indices(j)) access segfaults (waters(0)).
+    if (ind_dom/=this%num_target_waters .or. ind_bd/=num_wat_bd .or. ind_rech/=num_wat_rech) then
+        write(0,'(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A)') "read_waters_init: listed/declared waters: domain ", ind_dom, "/", &
+            this%num_target_waters, ", boundary ", ind_bd, "/", num_wat_bd, ", recharge ", ind_rech, "/", num_wat_rech, &
+            " (the waters file must list the domain waters first, then the boundary waters, then the recharge waters)"
+        error stop "read_waters_init: listed waters inconsistent with the declared numbers of domain, boundary and recharge waters"
+    end if
     call this%allocate_ext_waters_indices(num_wat_bd+num_wat_rech) !> allocate external waters (boundary + recharge)
     call this%set_ext_waters_indices() !> compute external waters array from boundary and recharge arrays
     this%tar_wat_indices_init=this%tar_wat_indices !> store initial target water indices

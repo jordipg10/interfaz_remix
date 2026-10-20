@@ -12,9 +12,15 @@
 !>   - Dimensionless time step computation for non-dimensional analysis
 !>   - File I/O for time discretization parameters
 !>
-!>   Integration Methods (int_method):
+!>   Integration Methods (int_method_tpt):
 !>   - 1: Euler explicit (theta_t = 0)
 !>   - 2: Euler implicit (theta_t > 0)
+!>
+!>   Integration Methods (int_method_chem):
+!>   - 1: Euler explicit (theta_r = 0)
+!>   - 2: Euler implicit (theta_r > 0)
+!>   - 3: Runge-Kutta-Fehlberg 4(5)
+!>   In the input file this is given as a flag: 0 = Euler (explicit/implicit from theta_r), 1 = RKF45 (theta_r forced to 1).
 !>
 !>   Class Hierarchy:
 !>   ```
@@ -49,7 +55,7 @@ module time_discr_m
     !>   - Final_time_D: Dimensionless final time [-]
     !>   - Num_time: Number of time steps [-]
     !>   - int_method_tpt: Transport integration method (1=explicit, 2=implicit)
-    !>   - int_method_chem: Reactions integration method (1=explicit, 2=implicit)
+    !>   - int_method_chem: Reactions integration method (1=Euler explicit, 2=Euler implicit, 3=RKF45)
     !>
     !>   Implemented Procedures:
     !>   - set_Final_time: Set final simulation time
@@ -77,14 +83,14 @@ module time_discr_m
         real(kind=8) :: Final_time_D    !< Dimensionless final time = t_f / t_c [-]
         integer(kind=4) :: Num_time     !< Number of time steps [-]
         integer(kind=4) :: int_method_tpt   !< Transport integration method: 1=Euler explicit (theta_t=0), 2=Euler implicit (theta_t>0)
-        integer(kind=4) :: int_method_chem  !< Reactions integration method: 1=Euler explicit (theta_r=0), 2=Euler implicit (theta_r>0)
+        integer(kind=4) :: int_method_chem !< Reactions integration method: 1=Euler explicit (theta_r=0), 2=Euler implicit (theta_r>0, Newton solver), 3=Runge-Kutta-Fehlberg 4(5)
     contains
         procedure :: set_theta_t                           !< Set time integration weighting factor for transport
         procedure :: set_theta_r                           !< Set time integration weighting factor for reactions
         procedure :: set_Final_time                          !< Set final time value
         procedure :: set_Num_time                            !< Set number of time steps
         procedure :: set_int_method_tpt                      !< Set transport integration method
-        procedure :: set_int_method_chem                     !< Set reactions integration method
+        procedure :: set_int_method_chem                     !< Set reactions integration method (Euler explicit / Euler implicit / RKF45)
         procedure :: compute_Final_time                      !< Compute final time from steps
         procedure :: compute_Final_time_D                    !< Compute dimensionless final time
         procedure :: compute_Num_time                        !< Compute number of steps
@@ -350,24 +356,25 @@ module time_discr_m
         
         !> \brief Set reactions time integration method
         !> \param[in,out] this       Time discretization object to modify
-        !> \param[in]     int_method Reactions integration method ID (1=explicit, 2=implicit)
+        !> \param[in]     int_method Reactions integration method ID (1=Euler explicit, 2=Euler implicit, 3=RKF45)
         !> \details 
         !>   Sets the numerical integration method for chemical reactions:
-        !>   - 1: Euler Explicit (theta_r = 0)
-        !>   - 2: Euler Implicit (theta_r > 0)
+        !>   - 1: Euler explicit (theta_r = 0)
+        !>   - 2: Euler implicit (theta_r > 0, Newton solver)
+        !>   - 3: Runge-Kutta-Fehlberg 4(5) adaptive
         !>
-        !>   Validates that int_method ∈ [1,2].
+        !>   Validates that int_method ∈ [1,3].
         !>
         !>   Example:
         !>   \code{.f90}
-        !>   call time_discr%set_int_method_chem(2)  ! Euler implicit
+        !>   call time_discr%set_int_method_chem(3)  ! RKF45
         !>   \endcode
         subroutine set_int_method_chem(this,int_method)
             implicit none
             class(time_discr_c) :: this                     !< Time discretization object (modified)
             integer(kind=4), intent(in) :: int_method       !< Reactions integration method ID
             
-            if (int_method > 2 .or. int_method < 1) error stop "Reactions integration method must be 1 (explicit) or 2 (implicit)"  !< Validate range [1,2]
+            if (int_method > 3 .or. int_method < 1) error stop "Reactions integration method must be 1 (Euler explicit), 2 (Euler implicit) or 3 (RKF45)"  !< Validate range [1,3]
             this%int_method_chem = int_method               !< Assign method to object member
         end subroutine
         
@@ -500,15 +507,23 @@ module time_discr_m
         !> \details 
         !>   Reads uniform time stepping parameters from formatted text file.
         !>   
-        !>   Expected file format (3 lines):
+        !>   Expected file format after the 'TIME DISCRETISATION' label (5 lines):
         !>   ```
-        !>   int_method    ! Line 1: Integration method (1-4)
-        !>   Delta_t       ! Line 2: Time step size [T]
-        !>   Num_time      ! Line 3: Number of time steps
+        !>   int_flag_chem ! Line 1: Reactions integration method flag (0: Euler, 1: RKF45)
+        !>   theta_t       ! Line 2: Transport time weighting factor
+        !>   theta_r       ! Line 3: Reactions time weighting factor
+        !>   Delta_t       ! Line 4: Time step size [T]
+        !>   Num_time      ! Line 5: Number of time steps
         !>   ```
         !>
+        !>   The flag on line 1 is mapped to int_method_chem as follows:
+        !>   - 0 and theta_r = 0 -> int_method_chem = 1 (Euler explicit)
+        !>   - 0 and theta_r > 0 -> int_method_chem = 2 (Euler implicit)
+        !>   - 1                 -> int_method_chem = 3 (RKF45); theta_r is forced to 1 regardless of line 3
+        !>
         !>   Validation performed:
-        !>   - int_method ∈ [1,4]
+        !>   - int_flag_chem ∈ {0,1}
+        !>   - theta_t ∈ [0,1]
         !>   - Delta_t > 0
         !>   - Num_time > 0
         !>
@@ -532,20 +547,28 @@ module time_discr_m
             character(len=100) :: label                 !< Temporary string for reading lines
             integer :: i                                !< I/O status variable
             real(kind=8) :: theta_t_read, theta_r_read  !< Values read from file
+            integer(kind=4) :: int_flag_chem_read       !< Reactions integration method flag read from file (0: Euler, 1: RKF45)
 
             open(unit=1, file=filename, status='old', action='read')  !< Open file for reading
             do
                 read(1,*) label                               !< Read line
                 if (trim(label)=='TIME DISCRETISATION') then
+                    read(1,*) int_flag_chem_read                !< Read reactions time integration method flag (0: Euler, 1: RKF45)
+                    if (int_flag_chem_read/=0 .and. int_flag_chem_read/=1) then
+                        error stop "Reactions integration method flag must be 0 (Euler) or 1 (RKF45)"
+                    end if
+
                     read(1,*) theta_t_read                      !< Read time weighting factor for transport
                     call this%set_theta_t(theta_t_read)
                     
                     read(1,*) theta_r_read                      !< Read time weighting factor for reactions
+                    if (int_flag_chem_read==1) then
+                        theta_r_read=1d0                        !< RKF45: the RK mean rate carries the whole kinetic term (weight 1, no previous-step rate), theta_r forced to 1 regardless of the input
+                    end if
                     call this%set_theta_r(theta_r_read)
                     
-                    !> Derive the transport int_method from theta_t and the reactions int_method_chem
-                    !> from theta_r, each as a binary explicit/implicit flag: theta=0 -> explicit (1),
-                    !> any theta>0 -> implicit (2). No Crank-Nicolson / fully-implicit distinction.
+                    !> Derive the transport int_method from theta_t as a binary explicit/implicit flag:
+                    !> theta_t=0 -> explicit (1), any theta_t>0 -> implicit (2).
                     if (theta_t_read==0d0) then
                         call this%set_int_method_tpt(1)         !< transport Euler explicit (theta_t=0)
                     else if (theta_t_read>0d0 .and. theta_t_read<=1d0) then
@@ -553,7 +576,12 @@ module time_discr_m
                     else
                         error stop "Theta must be between 0 and 1"
                     end if
-                    if (theta_r_read==0d0) then
+
+                    !> Derive the reactions int_method from the flag and theta_r:
+                    !> flag=1 -> RKF45 (3); flag=0 -> Euler explicit (1) if theta_r=0, Euler implicit (2) if theta_r>0.
+                    if (int_flag_chem_read==1) then
+                        call this%set_int_method_chem(3)        !< reactions Runge-Kutta-Fehlberg 4(5)
+                    else if (theta_r_read==0d0) then
                         call this%set_int_method_chem(1)        !< reactions Euler explicit (theta_r=0)
                     else
                         call this%set_int_method_chem(2)        !< reactions Euler implicit (theta_r>0)
@@ -891,9 +919,9 @@ module time_discr_m
                     else
                         error stop "Integration method not implemented"
                     end if
-                    !> Store the reactions integration method as a binary flag from theta_r; leave the
-                    !> transport int_method untouched (they are now separate attributes).
-                    if (this%theta_r==0d0) then
+                    !> The WMA file only sets theta_r; the reactions are integrated with the Euler method:
+                    !> explicit (1) if theta_r=0, implicit (2) otherwise. The transport int_method is left untouched.
+                    if (int_method_chem_reacts == 1) then
                         call this%set_int_method_chem(1)
                     else
                         call this%set_int_method_chem(2)

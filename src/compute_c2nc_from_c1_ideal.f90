@@ -55,4 +55,5 @@ subroutine compute_c2v_from_c1_ideal(this,c1,log_act_coeffs,c2v)
         log_act_coeffs(n_p+1:) !> Subtract log₁₀ of activity coefficients for non-component secondary species (0 for ideal solution) [-]
     c2v=10**log_c2v !> Compute secondary non-component variable activity species concentrations by taking antilog: c₂nc = 10^(log₁₀(c₂nc)) [C]
     call this%set_conc_sec_var_act_species(c2v) !> Store computed secondary non-component variable activity species concentrations in the chemistry object [C]
+    call this%compute_salinity() !> Compute the salinity of the solution based on updated concentrations [C]
  end subroutine !> End of compute_c2v_from_c1_ideal subroutine

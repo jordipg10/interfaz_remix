@@ -95,6 +95,9 @@ subroutine read_master25(this,path,unit)
     !> @var name Name of current species being read
     !> @var filename Complete path and filename of database file
     character(len=256) :: str,name,filename
+    !> @var line Whole database record of a mineral, re-parsed internally to pick up an OPTIONAL trailing molecular
+    !>      weight [g/mol] after the log K (absent in the original master25: the value after the name is the molar volume)
+    character(len=2048) :: line
     !> @var species_names Array of species names participating in reaction
     character(len=256), allocatable :: species_names(:)
         
@@ -478,7 +481,7 @@ subroutine read_master25(this,path,unit)
                 !> Read reaction data: complex name, number of reactants, reactant stoichiometry and names, log K, ion size, valence
                 read(unit,*,iostat=int_var) species_names(this%eq_reacts(ind_reacts)%num_species), &
                     num_reactants, (stoich_coeffs(j), species_names(j),j=1,num_reactants),&
-                    log_K, aq_species%params_act_coeff%ion_size_param, valence!, mol_weight
+                    log_K, aq_species%params_act_coeff%ion_size_param, valence
                 !> Set stoichiometric coefficients for the reaction
                 call this%eq_reacts(ind_reacts)%set_stoichiometry(stoich_coeffs)
                 !> Set species names for the reaction
@@ -545,19 +548,28 @@ subroutine read_master25(this,path,unit)
             call is_int_in_1D_array(counter_mins,react_indices(this%num_redox_eq_reacts+num_aq_compl+1:this%num_redox_eq_reacts+ &
             num_aq_compl+num_mins),min_flag,ind_reacts)
             if ((min_flag .eqv. .true.) .AND. (ind_reacts>this%num_minerals_kin)) then !> If equilibrium mineral
+                min_ind=ind_reacts !> position of the mineral in this%minerals (kinetic minerals first)
                 !> Offset reaction index to account for redox, complexes, and kinetic minerals
                 ind_reacts=ind_reacts+this%num_redox_eq_reacts+num_aq_compl-this%num_minerals_kin
                 !> Allocate arrays for stoichiometry and species names
                 allocate(stoich_coeffs(this%eq_reacts(ind_reacts)%num_species),&
                     species_names(this%eq_reacts(ind_reacts)%num_species))
                 !> Read reaction data: mineral name, molar volume, number of reactants, reactant stoichiometry and names, log K
-                read(unit,*,iostat=int_var) species_names(this%eq_reacts(ind_reacts)%num_species), &
+                !> and, OPTIONALLY, the molecular weight [g/mol] (not in the original master25; the record is read into a buffer and
+                !> parsed twice: with the trailing value, then without it when it is absent or a comment follows the log K)
+                read(unit,'(A)',iostat=int_var) line
+                read(line,*,iostat=int_var) species_names(this%eq_reacts(ind_reacts)%num_species), &
                     mol_vol, num_reactants, (stoich_coeffs(j), species_names(j), j=1,num_reactants),&
-                    log_K
-                ! Legacy code for direct reading into reaction (commented out)
-                ! read(unit,*,iostat=int_var) name, mol_vol, num_reactants, ((this%eq_reacts(ind_reacts)%stoichiometry(j), &
-
-                ! this%eq_reacts(ind_reacts)%species(j)%name), j=1,num_reactants), log_K
+                    log_K, mol_weight
+                if (int_var/=0) then !> no molecular weight on this line
+                    mol_weight=0d0
+                    read(line,*,iostat=int_var) species_names(this%eq_reacts(ind_reacts)%num_species), &
+                        mol_vol, num_reactants, (stoich_coeffs(j), species_names(j), j=1,num_reactants),&
+                        log_K
+                else
+                    print *, 'Molecular weight read successfully: ', mol_weight, ' g/mol', ' for mineral ', &
+                        trim(species_names(this%eq_reacts(ind_reacts)%num_species))
+                end if
                 !> Set stoichiometric coefficients for the reaction
                 call this%eq_reacts(ind_reacts)%set_stoichiometry(stoich_coeffs)
                 !> Set species names for the reaction
@@ -568,6 +580,9 @@ subroutine read_master25(this,path,unit)
                 !> Set product mineral name on the species in the chemical system via species_ind
                 sp_ind_chem_syst=this%eq_reacts(ind_reacts)%species_ind(this%eq_reacts(ind_reacts)%num_species)
                 call this%species(sp_ind_chem_syst)%set_name(species_names(this%eq_reacts(ind_reacts)%num_species))
+                !> Molecular weight [kg/mol] on the mineral and on its chemical-system species (0 when not in the database)
+                call this%minerals(min_ind)%mineral%set_molecular_weight(mol_weight*1d-3)
+                call this%species(sp_ind_chem_syst)%set_molecular_weight(mol_weight*1d-3)
                 !> Set stoichiometry to -1 for product
                 this%eq_reacts(ind_reacts)%stoichiometry(this%eq_reacts(ind_reacts)%num_species)=-1d0
                 !> Change sign of all stoichiometry coefficients (convention)
@@ -584,13 +599,23 @@ subroutine read_master25(this,path,unit)
                 !> Deallocate temporary arrays
                 deallocate(stoich_coeffs,species_names)
             else if  (min_flag.eqv..true.) then !> If kinetic mineral
+                min_ind=ind_reacts !> kinetic minerals come first in this%minerals: the kinetic reaction index is the mineral's position
                 !> Allocate arrays for stoichiometry and species names
                 allocate(stoich_coeffs(this%min_kin_reacts(ind_reacts)%num_species),&
                     species_names(this%min_kin_reacts(ind_reacts)%num_species))
                 !> Read reaction data: mineral name, molar volume, number of reactants, reactant stoichiometry and names, log K
-                read(unit,*,iostat=int_var) species_names(this%min_kin_reacts(ind_reacts)%num_species), &
+                !> and, OPTIONALLY, the molecular weight [g/mol] (not in the original master25; the record is read into a buffer and
+                !> parsed twice: with the trailing value, then without it when it is absent or a comment follows the log K)
+                read(unit,'(A)',iostat=int_var) line
+                read(line,*,iostat=int_var) species_names(this%min_kin_reacts(ind_reacts)%num_species), &
                     mol_vol, num_reactants, (stoich_coeffs(j), species_names(j), j=1,num_reactants),&
-                    log_K
+                    log_K, mol_weight
+                if (int_var/=0) then !> no molecular weight on this line
+                    mol_weight=0d0
+                    read(line,*,iostat=int_var) species_names(this%min_kin_reacts(ind_reacts)%num_species), &
+                        mol_vol, num_reactants, (stoich_coeffs(j), species_names(j), j=1,num_reactants),&
+                        log_K
+                end if
                 ! Legacy code for direct reading into reaction (commented out)
                 ! read(unit,*,iostat=int_var) name, mol_vol, num_reactants, ((this%min_kin_reacts(ind_reacts)%stoichiometry(j), &
 
@@ -607,6 +632,9 @@ subroutine read_master25(this,path,unit)
                 !> Set product mineral name on the species in the chemical system via species_ind
                 sp_ind_chem_syst=this%min_kin_reacts(ind_reacts)%species_ind(this%min_kin_reacts(ind_reacts)%num_species)
                 call this%species(sp_ind_chem_syst)%set_name(species_names(this%min_kin_reacts(ind_reacts)%num_species))
+                !> Molecular weight [kg/mol] on the mineral and on its chemical-system species (0 when not in the database)
+                call this%minerals(min_ind)%mineral%set_molecular_weight(mol_weight*1d-3)
+                call this%species(sp_ind_chem_syst)%set_molecular_weight(mol_weight*1d-3)
                 !> Set stoichiometry to -1 for product
                 this%min_kin_reacts(ind_reacts)%stoichiometry(this%min_kin_reacts(ind_reacts)%num_species)=-1d0
                 !> Change sign of all stoichiometry coefficients (convention)
@@ -801,6 +829,14 @@ subroutine read_master25(this,path,unit)
     end if
     !> Close database file
     close(unit)
+    !> The molecular weight of each mineral is needed to write its cumulative reaction amount in kg (optional
+    !> trailing value of its database line, after the log K): report the minerals of the chemical system without one
+    do i=1,this%num_minerals
+        if (this%minerals(i)%mineral%molecular_weight<=0d0) then
+            write(*,'(A,A,A)') 'read_master25: no molecular weight for mineral ', trim(this%minerals(i)%name), &
+                ' in master25_modif.dat (add it in g/mol after the log K): its cumulative reaction amount is written as 0 kg'
+        end if
+    end do
     !> Legacy code for rearranging species (commented out)
     !call this%rearrange_species()
     !> Legacy code for computing ionic strength squared (commented out)

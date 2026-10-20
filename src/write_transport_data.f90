@@ -39,12 +39,15 @@ subroutine write_transport_data(this,unit)
         num_cells=this%transport%spatial_discr%Num_targets-this%transport%spatial_discr%targets_flag !> number of cells
         if (this%transport%time_discr%int_method_chem == 1) then
             write(unit,"(2x,'Integration method chemical reactions:',10x,'Euler explicit',/)")
-        !else if (this%transport%time_discr%int_method_tpt == 2) then
-        !>    write(unit,"(2x,'Integration method:',10x,'Euler semi-implicit',/)")
         else if (this%transport%time_discr%int_method_chem == 2) then
-            write(unit,"(2x,'Integration method chemical reactions:',10x,'Euler fully implicit',/)")
-        !else if (this%transport%time_discr%int_method_tpt.eqv.4) then
-        !>    write(unit,"(2x,'Integration method chemical reactions:',10x,'Crank-Nicolson',/)")
+            if (this%transport%time_discr%theta_r == 1d0) then
+                write(unit,"(2x,'Integration method chemical reactions:',10x,'Euler fully implicit',/)")
+            else
+                write(unit,"(2x,'Integration method chemical reactions:',10x,'Euler implicit theta-method, theta_r =',ES12.4,/)") &
+                    this%transport%time_discr%theta_r
+            end if
+        else if (this%transport%time_discr%int_method_chem == 3) then
+            write(unit,"(2x,'Integration method chemical reactions:',10x,'Runge-Kutta-Fehlberg 4(5)',/)")
         else
             error stop "Integration method not implemented yet for RT"
         end if

@@ -66,8 +66,18 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
             call this%read_init_bd_wat_types_CHEPROO(unit_loc_chem_file)
         else if (label=='INITIAL MINERAL ZONES') then
             call this%read_init_min_zones_CHEPROO(unit_loc_chem_file,nmrz)
+            write(0,'(A,I0)') ' [RCC-DBG] min_zones done nmrz=',nmrz
+            block; real(kind=8),allocatable::hpq(:); integer::ihpq
+                do ihpq=1,200; allocate(hpq(1024*ihpq)); hpq=1d0; deallocate(hpq); end do
+                write(0,'(A)') ' [HPC] post read_init_min_zones'
+            end block
         else if (label=='INITIAL SURFACE ADSORPTION ZONES') then
             call this%read_init_cat_exch_zones_CHEPROO(unit_loc_chem_file,ndrz)
+            write(0,'(A,I0)') ' [RCC-DBG] cat_exch done ndrz=',ndrz
+            block; real(kind=8),allocatable::hpq(:); integer::ihpq
+                do ihpq=1,200; allocate(hpq(1024*ihpq)); hpq=1d0; deallocate(hpq); end do
+                write(0,'(A)') ' [HPC] post read_init_cat_exch'
+            end block
         else if (label=='INITIAL AND BOUNDARY GAS ZONES') then
             call this%read_gas_zones_CHEPROO(unit_loc_chem_file,ngrz)
         else
@@ -75,6 +85,7 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
         end if
     end do
     close(unit_loc_chem_file)
+    write(0,'(A)') ' [RCC-DBG] read loop done (pre materials block)'
     !do i=1,size(init_cat_exch_zones)
     !    call init_cat_exch_zones(i)%set_reactive_zone(this%reactive_zones(size(init_gas_zones)+1))
     !end do
@@ -168,6 +179,12 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
 
 !> total number of solid reactive zones
     nsrz=nmrz+ndrz
+    write(0,'(A)') ' [RCC-DBG] materials block done'
+    block; real(kind=8),allocatable::hpq(:); integer::ihpq
+        do ihpq=1,200; allocate(hpq(1024*ihpq)); hpq=1d0; deallocate(hpq); end do
+        write(0,'(A)') ' [HPC] post materials block'
+    end block
+    write(0,'(A,I0,A,I0,A,I0)') ' MARK A: sections read. nmrz=',nmrz,' ndrz=',ndrz,' nsrz=',nsrz
 !!> Chapuza
 !    do i=1,size(reactive_zones)
 !        call reactive_zones(i)%set_num_solids()
@@ -218,12 +235,23 @@ subroutine read_chemistry_CHEPROO(this,root,path_pb,path_DB,unit_chem_syst_file,
             call this%target_solids_dummy(i)%set_reactive_zone(this%react_zones_dummy(i))
         end do
     end if
+    write(0,'(A,I0)') ' MARK B: target solids done. ngrz=',ngrz
+    block; real(kind=8),allocatable::hpq(:); integer::ihpq
+        do ihpq=1,200; allocate(hpq(1024*ihpq)); hpq=1d0; deallocate(hpq); end do
+        write(0,'(A)') ' [HPC] post read_tar_sol'
+    end block
 !> Target gases
     if (ngrz>0) then
         call this%read_tar_gas(path_pb//root,ngrz)
     end if
+    write(0,'(A)') ' MARK C: target gases done. calling read_waters_init'
 !> Target waters
     call this%read_waters_init(path_pb//root,nsrz,ngrz)
+    write(0,'(A)') ' MARK D: read_waters_init done (read_chemistry_CHEPROO returning)'
+    block; real(kind=8),allocatable::hpq(:); integer::ihpq
+        do ihpq=1,200; allocate(hpq(1024*ihpq)); hpq=1d0; deallocate(hpq); end do
+        write(0,'(A)') ' [HPC] post read_waters_init'
+    end block
 !> The zone waters and zone solids (one per target water and reactive zone) are allocated and linked by
 !> set_zone_waters, called from set_target_waters (RT_m): num_target_waters is only final there (with
 !> edge-centred targets and Dirichlet BCs the boundary waters are added to the target waters), and the

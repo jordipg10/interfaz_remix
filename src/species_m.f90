@@ -41,7 +41,7 @@ module species_m
         character(len=256)  :: name              !< Element name (including oxidation state if applicable)
         integer(kind=4)     :: valence=0         !< Oxidation state (default 0 for neutral)
         real(kind=8)        :: molecular_weight=0d0  !< Molecular weight [kg/mol]
-        real(kind=8)        :: mol_vol=0d0       !< Molar volume [dm³/mol] (= L/mol)
+        real(kind=8)        :: mol_vol=0d0       !< Molar volume [dm³/mol]
     contains
         procedure :: set_name            !< Set element name
         procedure :: set_valence         !< Set oxidation state

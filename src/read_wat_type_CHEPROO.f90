@@ -258,6 +258,7 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
             m=1 !> counter for gas constraints
             j=1 !> counter for mineral constraints
             n=this%solid_chemistry%reactive_zone%chem_syst%num_aq_eq_reacts !> counter for equilibrium reactions in reactive zone
+            write(0,'(A,I0)') ' [RWT-DBG] start icon loop num_cstr=', num_cstr
             allocate(n_icons(4)) !> allocate icon count array (one element per icon type 1-4)
             n_icons=0 !> initialize all icon counts to zero !> number of each icon option
             gas_flag=0 !> initialize gas flag - chapuza
@@ -476,6 +477,7 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
             !> SECTION 4: Update chemistry counters and setup zones
             !> ================================================================
             call this%solid_chemistry%reactive_zone%cat_exch_zone%compute_num_surf_compl() !> compute number of surface complexes
+            write(0,'(A,3(1X,I0))') ' [RWT-DBG] after icon loop ll,n,nmin=', ll, n, this%solid_chemistry%reactive_zone%num_minerals
             call this%solid_chemistry%reactive_zone%gas_phase%compute_num_species_phase() !> compute number of gas species
             !call this%solid_chemistry%reactive_zone%rearrange_ind_non_flow_species() !> rearrange non-flowing species array
             call this%solid_chemistry%reactive_zone%set_num_solids() !> set total number of solid species
@@ -504,8 +506,10 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
                 call this%solid_chemistry%reactive_zone%allocate_ind_non_flow_species()
                 call this%solid_chemistry%reactive_zone%set_ind_non_flow_species()
             end if
+            write(0,'(A,I0)') ' [RWT-DBG] after ind_non_flow nnf=', this%solid_chemistry%reactive_zone%num_non_flow_species
             !call this%solid_chemistry%reactive_zone%set_ind_eq_reacts() !> set indices of heterogeneous equilibrium reactions
             call this%solid_chemistry%compute_num_solids_solid_chem() !> compute total number of solids in solid chemistry
+            write(0,'(A)') ' [RWT-DBG] after compute_num_solids_solid_chem'
             
             !> Setup mineral zone if associated
             if (associated(this%solid_chemistry%mineral_zone)) then
@@ -553,6 +557,9 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
     else
         call this%set_spec_alg_aq_chem(flag_comp,flag_surf,flag_Se,swap) !> auto-discover eq reactions (exchange/mixed/aqueous cases)
     end if
+    write(0,'(A,L1,A,I0,A,L1)') ' [WT-DBG] B: after set_spec_alg flag_surf=', flag_surf, &
+        ' nsolids_sc=', this%solid_chemistry%num_solids, &
+        ' alloc_conc=', allocated(this%solid_chemistry%concentrations)
     
     !> Build this water's per-reaction temperature-dependent equilibrium constants (logK)
     !> now that the speciation algebra (num_eq_reactions, ind_eq_reacts) is established and
@@ -629,7 +636,9 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
             !> Surface chemistry branch
             if (Jac_opt==1) then !> if analytical Jacobian
                 !> Initialize concentrations with analytical Jacobian and cation exchange
+                write(0,'(A)') ' [WT-DBG] pre initialise_conc_anal_exch'
                 call this%initialise_conc_anal_exch(icons,n_icons,indices_constrains,ctots,niter,CV_flag)
+                write(0,'(A)') ' [WT-DBG] post initialise_conc_anal_exch'
             else !> incremental Jacobian with surface chemistry not implemented
                 error stop "Initialisation subroutine not implemented yet"
             end if
@@ -661,7 +670,12 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
             !> We compute activities of aqueous species
             call this%compute_activities_aq() !> compute activities from concentrations (ideal: activity = concentration)
             !> We get concentrations of primary species
+            write(0,'(A,4(1X,I0),1X,L1)') ' [WT-DBG] Branch2 nsurf,nsolids_rz,nsolids_sc,nmin_mz,alloc_conc=', &
+                this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl, &
+                this%solid_chemistry%reactive_zone%num_solids, this%solid_chemistry%num_solids, &
+                this%solid_chemistry%mineral_zone%num_minerals, allocated(this%solid_chemistry%concentrations)
             c1=this%get_c1() !> get array of primary species concentrations
+            write(0,'(A,I0)') ' [WT-DBG] B2 got c1 size=', size(c1)
             !> We set initial guess for concentrations of surface complexes
             allocate(act_ads_cats_ig(this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats))
                 !> allocate array for adsorbed cation activities initial guess
@@ -674,6 +688,9 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
             last_exch_react=this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions-&
                 this%solid_chemistry%reactive_zone%gas_phase%num_gases_eq
             first_exch_react=last_exch_react-this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats+1
+            write(0,'(A,3(1X,I0),A,L1,A,I0)') ' [WT-DBG] B2 pre surf nec,fer,ler=', &
+                this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats, first_exch_react, last_exch_react, &
+                ' logKalloc=', allocated(this%logK), ' ecisize=', size(this%solid_chemistry%reactive_zone%cat_exch_zone%exch_cat_indices)
             !> Solve for surface species concentrations
             if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_exch_cats==2) then !> if exactly 2 exchange cations
                 !> Analytical solution for 2-cation exchange system
@@ -721,8 +738,15 @@ subroutine read_wat_type_CHEPROO(this,n_p_aq,num_cstr,num_gas_zones,model,Jac_op
         call this%compute_c2_from_c1_Picard(c1,c2_ig,c2_init,niter,CV_flag) !> iterate until convergence
         if (.not. CV_flag) error stop "read_wat_type_CHEPROO: Picard speciation of the water type did not converge (activity coefficient fixed point diverged)"
     end if
+    write(0,'(A)') ' [WT-DBG] pre compute_pH'
     call this%compute_pH()
+    write(0,'(A)') ' [WT-DBG] post compute_pH'
     call this%compute_salinity()
+    write(0,'(A)') ' [WT-DBG] end read_wat_type (post compute_salinity)'
+    block; real(kind=8),allocatable::hpp(:); integer::ihpp
+        do ihpp=1,200; allocate(hpp(1024*ihpp)); hpp=1d0; deallocate(hpp); end do
+        write(0,'(A)') ' [HPB] end read_wat_type heap OK'
+    end block
 
     !> Debug: print computed concentrations
     !print *, '[DEBUG read_wat_type_CHEPROO] Aqueous species concentrations:'

@@ -1,4 +1,4 @@
-﻿!> \file Newton_EI_kin_anal_ideal_opt2.f90
+!> \file Newton_EI_kin_anal_ideal_opt2.f90
 !> \brief Newton method for WMA reactive mixing iteration with Euler implicit kinetic reactions.
 !> Designed for kinetic-only chemical systems (no equilibrium reactions), assuming ideal solution.
 !> Analytical Jacobians are used for efficiency, and option 2 is applied for averaging kinetic rates.
@@ -73,8 +73,7 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
     logical, intent(out) :: CV_flag                 !< Convergence flag: .FALSE. = not converged, .TRUE. = converged
 !> Local variables -- kinetic rates and Jacobians
     real(kind=8), allocatable :: rk_new(:)          !< New kinetic reaction rates (n_kin) [1/T]
-    real(kind=8), allocatable :: drk_dc(:,:)        !< Jacobian drk/dc (n_kin x n_species) [1/(T*C)]
-    real(kind=8), allocatable :: dfk_dc(:,:)        !< Jacobian of residual w.r.t. concentrations (n_p x n_p) [-]
+    real(kind=8), allocatable :: drk_dlogc(:,:)     !< Log-form Jacobian drk/dlog10 c (n_kin x n_species, chem_syst order) [1/T]
     real(kind=8), allocatable :: rk_old(:)          !< Kinetic reaction rates from previous time step (n_kin) [1/T]
     real(kind=8), allocatable :: rk_avg(:)          !< Weighted average rates (n_kin) [1/T]
 !> Local variables -- concentrations and residual
@@ -84,10 +83,10 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
 !> Local variables -- log-space Newton system
     real(kind=8), allocatable :: log_c(:)           !< Log10 of concentrations (n_p) [-]
     real(kind=8), allocatable :: Delta_p(:)         !< Newton step in log-space (n_p) [-]
-    real(kind=8), allocatable :: dfk_dp(:,:)        !< Log-space Jacobian (n_p x n_p) [-]
+    real(kind=8), allocatable :: dfk_dp(:,:)        !< Log-space Jacobian (n_p x n_p), assembled directly from drk_dlogc [-]
     real(kind=8), allocatable :: dfk_dp_LM(:,:)     !< LM-damped log-space Jacobian (n_p x n_p) [-]
     real(kind=8), parameter :: ln10 = log(10d0)     !< ln(10) ~ 2.302585 [-]
-    real(kind=8), parameter :: max_dp = 10d0        !< Maximum allowed |Delta_p| per iteration [-]
+    real(kind=8), parameter :: max_dp = 2d0         !< Maximum allowed |Delta_p| per iteration: 2 orders of magnitude (factor 100 in concentration, PHREEQC's default step size) [-]
     real(kind=8) :: scale_factor                    !< Uniform scaling factor for Delta_p [-]
 !> Local variables -- Levenberg-Marquardt and line search
     real(kind=8) :: lambda_LM                       !< LM damping parameter [-]
@@ -118,6 +117,7 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
     integer(kind=4) :: n_p                          !< Number of primary species (= n_v for kinetic-only) [-]
     integer(kind=4) :: i                            !< Loop index [-]
     logical :: sing_flag                            !< Singularity flag for dgesv
+    integer(kind=4), save :: dbg_calls = 0          !< Persistent call counter for diagnostics
     integer(kind=4), allocatable :: ipiv_dgesv(:)   !< Pivot array for LAPACK dgesv (n_p)
     integer(kind=4) :: info_dgesv                   !< Return code from dgesv
     real(kind=8) :: c_norm                          !< ||c||_inf [C]
@@ -152,15 +152,18 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
         this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts
     !> Cache S_k^T product (U=I for kinetic-only, so U*S_k^T = S_k^T)
     SkT_new=this%solid_chemistry%reactive_zone%U_SkT_prod
+    !> First-call diagnostics
+    if (dbg_calls == 0) then
+        continue
+    end if
     !> Allocate persistent work arrays
-    allocate(dfk_dc(n_p,n_p),&
-        drk_dc(n_kin,this%solid_chemistry%reactive_zone%speciation_alg%num_species),&
+    allocate(drk_dlogc(n_kin,this%solid_chemistry%reactive_zone%speciation_alg%num_species),&
         rk_new(n_kin),fk(n_p),conc_nc_best(n_p))
     allocate(dfk_dp(n_p,n_p), dfk_dp_LM(n_p,n_p), Delta_p(n_p), log_c(n_p))
     allocate(rk_trial(n_kin), fk_trial(n_p))
     allocate(ipiv_dgesv(n_p))
-    drk_dc=0d0
-    dfk_dc=0d0
+    drk_dlogc=0d0
+    dfk_dp=0d0
     lambda_LM=1d-3
     n_stag=0
     fk_norm_prev=huge(1d0)
@@ -228,8 +231,8 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
         else
             call this%set_conc_prim_species(conc_nc(1:n_p))
             call this%set_act_aq_species()
-            drk_dc=0d0
-            call this%compute_rk_Jac_rk_anal(rk_new,drk_dc)
+            drk_dlogc=0d0
+            call this%compute_rk_Jac_rk_anal(rk_new,drk_dlogc)
         end if
     !> Weighted average of kinetic reaction rates
         ! rk_avg=theta*rk_new+(1d0-theta)*rk_old
@@ -260,17 +263,13 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
             call this%compute_contrib_rxn_amnt_kin(mix_ratio_r)
             exit newton_loop
         else
-        !> Jacobian assembly for kinetic-only (U=I, no dc2/dc1 chain rule)
-        !> dfk/dc = I - Dt*theta*lambda_r^new * S_k^T * (drk/dc)
-            dfk_dc = -dt_theta_mr_new * matmul(SkT_new, drk_dc(:,1:n_p))
-            do i = 1, n_p
-                dfk_dc(i,i) = 1d0 + dfk_dc(i,i)
-            end do
-            !> Transform to log-space Jacobian:
-            !> (dfk/dp)_{:,j} = ln(10) * c_j * (dfk/dc_j)
+        !> Jacobian assembly for kinetic-only (U=I, no dc2/dc1 chain rule), directly in log-space:
+        !> dfk/dp = ln10 diag(c) - Dt*theta*lambda_r^new * S_k^T * (drk/dlog10 c), with drk/dlog10 c the
+        !> log-form kinetic Jacobian of compute_rk_Jac_rk_anal (no 1/c factor is ever formed)
+            dfk_dp = -dt_theta_mr_new * matmul(SkT_new, drk_dlogc(:,1:n_p))
             do i = 1, n_p
                 log_c(i) = log10(max(conc_nc(i), tiny(1d0)))
-                dfk_dp(:,i) = ln10 * conc_nc(i) * dfk_dc(:,i)
+                dfk_dp(i,i) = dfk_dp(i,i) + ln10 * conc_nc(i)
             end do
         !> Levenberg-Marquardt with backtracking line search in log-space
             conc_nc_save = conc_nc
@@ -314,8 +313,8 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
                     call this%set_conc_prim_species(conc_nc(1:n_p))
                     !> No secondary species to compute (kinetic-only)
                     call this%set_act_aq_species()
-                    drk_dc = 0d0
-                    call this%compute_rk_Jac_rk_anal(rk_trial, drk_dc)
+                    drk_dlogc = 0d0
+                    call this%compute_rk_Jac_rk_anal(rk_trial, drk_dlogc)
                     !> Evaluate trial residual (U=I)
                     fk_trial = conc_nc - c_hat - &
                         dt_theta_mr_new*matmul(SkT_new, rk_trial)
@@ -394,7 +393,8 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
             predictor_damp = max(predictor_damp * predictor_shrink, predictor_damp_min)
         end if
     end if
-    deallocate(fk,dfk_dc,drk_dc,rk_old,rk_new,conc_nc_best)
+    dbg_calls = dbg_calls + 1
+    deallocate(fk,drk_dlogc,rk_old,rk_new,conc_nc_best)
     deallocate(dfk_dp,dfk_dp_LM,Delta_p,log_c,rk_trial,fk_trial,ipiv_dgesv)
     deallocate(SkT_new,SkT_new_rk_old)
 end subroutine Newton_EI_kin_anal_ideal_opt2

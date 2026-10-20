@@ -74,7 +74,7 @@ subroutine compute_rxn_rate_kin(this,rk_new)
         !deallocate(drk_dc_loc) !> Commented: would free gradient array
     end do !> End Monod redox kinetic reactions loop
 !> We compute mineral kinetic reaction rates
-    call this%compute_react_surfaces_per_kg_water(react_surfaces) !> Convert reactive surfaces from m2/L water to m2/kg H2O (molality basis)
+    !call this%compute_react_surfaces_per_kg_water(react_surfaces) !> Convert reactive surfaces from m2/L water to m2/kg H2O (molality basis)
     do i=1,this%solid_chemistry%mineral_zone%num_minerals_kin !> Loop over all kinetic minerals in the mineral zone (dissolution/precipitation reactions)
         !num_rk=num_rk+1 !> Commented: would increment counter inside loop (counter updated after loop instead)
         !indices=this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(& !> Commented: would get aqueous species indices for this mineral reaction
@@ -85,7 +85,21 @@ subroutine compute_rxn_rate_kin(this,rk_new)
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%compute_rk_mineral(& !> Access mineral reaction via chemical system index
             this%activities(this%indices_aq_species(this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(& !> Pass activities of catalyser species (species affecting rate) [M/L³]
             this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%cat_indices)),saturation,& !> Pass saturation index Ω [-]
-            react_surfaces(i),this%solid_chemistry%temp,this%solid_chemistry%rxn_rate_kin(i)) !> Pass reactive surface area [L²] and temperature [K], store rate in solid_chemistry%rxn_rate_kin(i) [M/(L³·T)]
+            this%solid_chemistry%react_surfaces(i),this%solid_chemistry%temp,this%solid_chemistry%rxn_rate_kin(i)) !> Pass reactive surface area [L²] and temperature [K], store rate in solid_chemistry%rxn_rate_kin(i) [M/(L³·T)]
+        !> Optional explicit time scaling of the mineral reaction rate (time_scaling attribute of kin_mineral_c), as in
+        !> compute_rk_Jac_rk_anal: r_s = r * a_L * t^(-m), with a_L the activity of the last aqueous species of the
+        !> reaction, t the current time and m the exponent of the time scaling (params%m)
+        if (this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+            this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%time_scaling) then
+            this%solid_chemistry%rxn_rate_kin(i)=this%solid_chemistry%rxn_rate_kin(i)*this%activities(this%indices_aq_species(&
+                this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+                this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%indices_aq_phase(&
+                this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+                this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%num_aq_rk)))*&
+                this%solid_chemistry%time**(&
+                -this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(&
+                this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%params%m)
+        end if
         rk_new(num_rk+i)=this%solid_chemistry%rxn_rate_kin(i) !> Copy mineral reaction rate to output array at position num_rk+i (workaround: chapuza) [M/(L³·T)]
         !call this%solid_chemistry%mineral_zone%chem_syst%min_kin_reacts(& !> Commented: would compute mineral rate gradient
         !    this%solid_chemistry%mineral_zone%ind_min_chem_syst(i))%compute_drk_dc_mineral(& !> Commented: would call gradient computation

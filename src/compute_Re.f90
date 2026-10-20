@@ -324,6 +324,20 @@ subroutine compute_Re(this,cv_hat,Delta_t,lambda_r,theta_r)
             deallocate(A, rhs) !> weights(1:m) are kept for the mass balance check (rows/weights of the accepted fit)
         end if
     end if
+    !> [COMPRE-DBG] one-shot diagnostic for the exchange Re investigation
+    block
+        logical, save :: compre_dbg_done=.false.
+        if ((.not. compre_dbg_done) .and. n_exch>0) then
+            compre_dbg_done=.true.
+            print '(A)', "[COMPRE-DBG] === compute_Re (first exchange cell) ==="
+            print '(A,I0,A,I0,A,I0,A,I0,A,I0)', "[COMPRE-DBG] n_p=", n_p, " n_pp=", n_pp, " n_eq=", n_eq, &
+                " n_v=", n_v, " n_exch=", n_exch
+            print '(A,L1,A,ES12.4)', "[COMPRE-DBG] use_fallback=", use_fallback, " lambda_r=", lambda_r
+            print '(A,ES12.4,A,ES12.4)', "[COMPRE-DBG] zero_tol=", zero_tol, " noise_tol=", noise_tol
+            print '(A,*(ES12.4))', "[COMPRE-DBG] contrib_rxn_amnt_eq(1:n_v)=", this%contrib_rxn_amnt_eq(1:n_v)
+            print '(A,*(ES12.4))', "[COMPRE-DBG] Re=", Re
+        end if
+    end block
 !> Post-process: distribute Re to appropriate reaction categories using cached indices
     !> Constant activity minerals: Re indices [1 : n_min_cst]
     this%solid_chemistry%rxn_amnt_eq(1:n_min_cst) = Re(1:n_min_cst) !> Assign equilibrium amounts for pure-phase minerals (unit activity) [M/L³]

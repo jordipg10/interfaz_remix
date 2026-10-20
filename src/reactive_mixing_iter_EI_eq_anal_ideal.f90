@@ -26,8 +26,10 @@
 !>   c_{1,j}^{(0)} = (1 + \mu)\,c_{1,j}^{(k)} - \mu\,c_{1,j}^{(k-1)}
 !> \f]
 !> clamped to \f$ c_{1,j}^{(k)} \f$ if the extrapolation would go negative. A concentration floor is
-!> applied to every guess: if \f$ c_{1,j}^{(0)} < \max(10^{-20},\,10^{-4}\hat{c}_j) \f$ while
-!> \f$ \hat{c}_j > 10^{-20} \f$, the mixed value \f$ \hat{c}_j \f$ is used instead.
+!> applied to every guess: if \f$ c_{1,j}^{(0)} < \max(10^{-20},\,10^{-8}\hat{c}_j) \f$ while
+!> \f$ \hat{c}_j > 10^{-20} \f$, the mixed value \f$ \hat{c}_j \f$ is used instead (`rel_floor`; it only
+!> replaces guesses that are negligible against the mixed value, not legitimate low concentrations of a
+!> parcel that mixes with much richer waters).
 !>
 !> \param[in,out] this Aqueous chemistry object at current time step; on exit its variable activity
 !>                     concentrations, aqueous activities and pH are those of the solution
@@ -73,6 +75,7 @@ subroutine reactive_mixing_iter_EI_eq_anal_ideal(this,c1_old,c_hat,mix_ratio_r,D
     integer(kind=4) :: j_sp                            !< Loop index over primary species for concentration floor [-]
     real(kind=8) :: mu                                 !< Newton initialisation parameter \f$ \mu \in [0,1] \f$ [-]
     real(kind=8), parameter :: conc_floor = 1d-20      !< Concentration floor: threshold below which a species is considered effectively zero [-]
+    real(kind=8), parameter :: rel_floor = 1d-8        !< Relative floor of the initial guess: a guess below rel_floor * c_hat is replaced by the mixed value [-]
     logical :: CV_flag                                 !< Convergence flag from Newton solver: .true. if converged [-]
     logical :: use_downstream                          !< Next attempt uses the downstream-water initial guess [-]
     logical :: c_hat_tried                             !< Whether the c_hat-based initial guess has been attempted as a last resort [-]
@@ -108,9 +111,9 @@ subroutine reactive_mixing_iter_EI_eq_anal_ideal(this,c1_old,c_hat,mix_ratio_r,D
             exit try_loop                                                    !< Leave with CV_flag = .false.
         end if                                                               !< End initial guess selection
         !> Floor near-zero species: replace with mixed values when the guess is negligible
-        !> (absolute floor conc_floor and relative floor 1e-4 * c_hat)
+        !> (absolute floor conc_floor and relative floor rel_floor * c_hat)
         do j_sp=1,n_p                                                        !< Loop over each primary species
-            if (conc_nc(j_sp) < max(conc_floor, c_hat(j_sp)*1d-4) .and. &    !< Initial guess below absolute or relative floor?
+            if (conc_nc(j_sp) < max(conc_floor, c_hat(j_sp)*rel_floor) .and. & !< Initial guess below absolute or relative floor?
                 c_hat(j_sp) > conc_floor) then                                !< Mixed value is not negligible?
                 conc_nc(j_sp)=c_hat(j_sp)                                     !< Use mixed concentration as initial guess
             end if                                                            !< End floor check

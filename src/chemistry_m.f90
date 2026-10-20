@@ -27,17 +27,14 @@ module chemistry_m
     use spatial_discr_m, only: spatial_discr_c !< Import 1D spatial discretization
     use time_discr_m, only: time_discr_c !< Import time discretization classes
     use vectors_m, only: inf_norm_vec_int, inf_norm_vec_real !< Import vector norm functions
-    use params_iter_methods_m, only: params_iter_methods_s !< Import convergence parameters structure
+    use CV_params_m, only: CV_params_s !< Import convergence parameters structure
     use arrays_m, only: int_array_c, real_array_c !< Import sparse matrix class
     implicit none !< Require explicit declaration of all variables
     private !< Make all entities private by default
     public :: chemistry_c !< Make chemistry class public
     public :: write_out_step_vars !< Shared per-output-step writer honouring chem_out_options%vars
-    public :: check_surf_compl_act_sum !< Per-step surface-complex site-balance check (error stop on violation)
+    public :: check_surf_compl_act_sum !< DEBUG: per-step/per-cell surface-complex activity sum check
     public :: reset_wat_indices_zones !< Rebuild wat_indices_zones when the reactive-zone set/membership changed
-    public :: interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch !< External interface subroutines for reactive mixing iterations
-    public :: interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T !< Transposed-input variants (rows: targets, columns: components)
-    public :: interfaz_comps_arch_eq_kin_mix !< Conservative + reactive mixing variant (reads concentrations prior to mixing and the mixing ratios)
     !> @brief Main chemistry class - central coordinator for all chemical processes
     !> @details This class manages the complete chemical system including:
     !>          - Water types and target waters at spatial locations
@@ -62,7 +59,7 @@ module chemistry_m
         !> @name Core Chemical System
         !> @{
         type(chem_system_c) :: chem_syst                                       !< Complete chemical system: species, reactions, thermodynamic data, matrices
-        type(params_iter_methods_s) :: CV_params                                         !< Convergence parameters for iterative solvers
+        type(CV_params_s) :: CV_params                                         !< Convergence parameters for iterative solvers
         type(chem_out_options_s) :: chem_out_options                           !< Chemistry output options and control variables
         !> @}
         
@@ -170,7 +167,6 @@ module chemistry_m
         !> @name Query and Retrieval Methods
         !> @{
         procedure :: get_num_aq_comps_chem_syst       !< Get number of aqueous components in chemical system
-        procedure :: get_num_aq_comps_tar_wat         !< Get number of aqueous components in a domain (target) water
         procedure :: get_num_wat_types                !< Get number of water types
         procedure :: get_conc_comp_wat_types          !< Get component concentrations of water types
         procedure :: get_num_aq_var_act_species       !< Get number of aqueous variable activity species
@@ -214,7 +210,6 @@ module chemistry_m
         procedure :: read_tar_gas                     !< Read target gas definitions
         procedure :: read_init_min_zones_CHEPROO      !< Read initial mineral zones (CHEPROO format)
         procedure :: read_chemistry                   !< Read complete chemistry setup
-        procedure :: read_chemistry_interface         !< Read chemistry setup for the reactive-mixing interface executable (optional CV_params, no comp/out options)
         procedure :: read_chemistry_CHEPROO           !< Read chemistry data in CHEPROO format
         procedure :: read_init_bd_wat_types_CHEPROO   !< Read initial boundary water types (CHEPROO)
         procedure :: read_init_cat_exch_zones_CHEPROO !< Read initial cation exchange zones (CHEPROO)
@@ -466,24 +461,6 @@ module chemistry_m
             character(len=*), intent(in) :: root          !< Root name for input/output files
             character(len=*), intent(in) :: path_pb       !< Path to problem directory
             character(len=*), intent(in) :: path_DB       !< Path to database files
-        end subroutine
-
-    !> @brief Read chemistry setup for the reactive-mixing interface executable
-    !> @details Same CHEPROO reading and reactive-zone linking as read_chemistry, but the
-    !>          convergence parameters file is optional (type defaults otherwise) and the
-    !>          computation / output options files are not read (the interface writes its own output).
-    !> @param[in,out] this Chemistry object to initialize
-    !> @param[in] root Root name for input/output files
-    !> @param[in] path_pb Path to problem directory
-    !> @param[in] path_DB Path to database files
-    !> @param[in] num_tar Number of target (domain) waters expected from the mesh
-        subroutine read_chemistry_interface(this,root,path_pb,path_DB,num_tar)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object to initialize
-            character(len=*), intent(in) :: root          !< Root name for input/output files
-            character(len=*), intent(in) :: path_pb       !< Path to problem directory
-            character(len=*), intent(in) :: path_DB       !< Path to database files
-            integer(kind=4), intent(in) :: num_tar        !< Expected number of target (domain) waters from the mesh
         end subroutine
                 
     !> @brief Read reactive zones in Lagrangian formulation from file
@@ -827,89 +804,22 @@ module chemistry_m
             integer(kind=4), intent(out) :: ngrz          !< Number of gas reactive zones
         end subroutine
         
-    !> @brief Interface for component concentrations (equilibrium + kinetic reactions) via file I/O
+    !> @brief Interface for component concentrations via file I/O
     !> @details Reads aqueous component concentrations from a file after conservative transport,
-    !>          solves the coupled equilibrium+kinetic step implicitly per target water
-    !>          (theta=1 backward Euler, lumped kinetic mixing ratio; the initial state has zero
-    !>          kinetic rates, so no previous-step term exists) with an explicit-Euler
-    !>          fallback for non-converging cells, and writes the resulting concentrations and
-    !>          end-of-step kinetic reaction rates to the output file.
-        subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,file_out)
+    !>          performs reactive chemistry step, and writes updated concentrations to output file.
+    !> @param[in,out] this Chemistry object
+    !> @param[in] path Path for input and output files
+    !> @param[in] num_aq_comps Number of aqueous components to process
+    !> @param[in] file_in Input filename with post-transport concentrations
+    !> @param[in] Delta_t Time step size for reactive chemistry
+    !> @param[in] file_out Output filename for post-reaction concentrations
+        subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
             import chemistry_c
             class(chemistry_c) :: this                    !< Chemistry object
             character(len=*), intent(in) :: path          !< Path for input and output files
             integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
             character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
             real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for component concentrations (equilibrium reactions only) via file I/O
-    !> @details Reads aqueous component concentrations from a file after conservative transport,
-    !>          performs reactive chemistry step (eq only, no kinetics), and writes updated concentrations to output file.
-        subroutine interfaz_comps_arch_eq(this,path,num_aq_comps,file_in,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
-            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
-            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for component concentrations (equilibrium + kinetic reactions) via file I/O - transposed input
-    !> @details Same as interfaz_comps_arch_eq_kin (implicit theta=1 backward-Euler solve with
-    !>          explicit-Euler fallback, writes end-of-step kinetic reaction rates) but file_in has
-    !>          rows=targets and columns=components.
-        subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
-            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations (rows: targets, columns: components)
-            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for component concentrations (equilibrium reactions only) via file I/O - transposed input
-    !> @details Same as interfaz_comps_arch_eq but file_in has rows=targets and columns=components.
-        subroutine interfaz_comps_arch_eq_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
-            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations (rows: targets, columns: components)
-            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for component concentrations (equilibrium + optional kinetic) with internal conservative mixing
-    !> @details Reads aqueous component concentrations PRIOR to mixing and the mixing ratios, performs the
-    !>          conservative mixing internally and then the reactive chemistry step, and writes the updated
-    !>          concentrations to the output file. file_in has rows=components and columns=waters; file_mix
-    !>          stores the mixing ratios in row-major order (rows=target waters, columns=waters) and its
-    !>          column ordering must match file_in.
-        subroutine interfaz_comps_arch_eq_kin_mix(this,path,num_aq_comps,file_in,file_mix,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
-            character(len=*), intent(in) :: file_in       !< Input filename with concentrations PRIOR to mixing (rows: components, columns: waters)
-            character(len=*), intent(in) :: file_mix      !< Input filename with mixing ratios in row-major order (rows: target waters, columns: waters)
-            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for aqueous species concentrations via file I/O (no equilibrium reactions)
-    !> @details Reads aqueous species concentrations from a file after conservative transport,
-    !>          performs reactive chemistry step (kinetic only), and writes updated concentrations to output file.
-        subroutine interfaz_esp_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous species
-            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
-            real(kind=8), intent(in) :: Delta_t           !< Time step
             character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
         end subroutine
         
@@ -1002,7 +912,7 @@ module chemistry_m
             mix_conc_indices, mixing_ratios_conc, &
             mixing_ratios_R, &
             lumped_lambdas, &
-            conc_comp, iunit_mb, &
+            conc_comp, iunit_mb, iunit_celldbg, &
             p_solver, p_mixer)
             import chemistry_c                            !< Import chemistry class definition
             import real_array_c                           !< Import real array container type
@@ -1028,6 +938,7 @@ module chemistry_m
             real(kind=8), intent(in) :: lumped_lambdas(:) !< Lumped eigenvalues for spatial lumping
             real(kind=8), intent(inout) :: conc_comp(:)   !< Component concentrations (updated in place)
             integer(kind=4), intent(in) :: iunit_mb       !< Mass-balance output file unit (already open)
+            integer(kind=4), intent(in) :: iunit_celldbg  !< Per-cell [CELL-DBG] trace file unit (already open)
             procedure(reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2) :: p_solver !< Procedure pointer to equilibrium-kinetic solver
             procedure(compute_c_mix_by_zones_lump), pointer, intent(in) :: p_mixer
         end subroutine
@@ -1057,6 +968,11 @@ module chemistry_m
             class(chemistry_c) :: this                    !< Chemistry object instance
             logical, intent(in) :: mix_by_zones_flag      !< Mixing control flag
             this%mix_by_zones_flag=mix_by_zones_flag      !< Assign input flag to object attribute
+            if (mix_by_zones_flag) then
+                write(0,'(A)') ' [MIX-DBG] mixing BY REACTIVE ZONES (compute_c_mix_by_zones_*)'
+            else
+                write(0,'(A)') ' [MIX-DBG] mixing DIRECTLY over all waters, regardless of reactive zone (compute_c_mix_global_*)'
+            end if
         end subroutine
         
         !> @brief Set reaction rate averaging method
@@ -1887,6 +1803,17 @@ module chemistry_m
             !> indices_aq_species before indexing this water's concentrations (get_c1's reduced
             !> primary ordering differs and is shorter once minerals eliminate aqueous species).
             call aq%compute_activities_aq()
+            block
+                integer(kind=4) :: dbg_naq
+                dbg_naq = size(aq%solid_chemistry%reactive_zone%chem_syst%aq_phase%aq_species)
+                write(0,'(A,7(1X,I0),1X,L1)') ' [SCE-DBG] nsc,nsol,nec,oc,naqsp,sizeIAS,sizeconc,csassoc=', &
+                    aq%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl, &
+                    aq%solid_chemistry%num_solids, nec, oc, dbg_naq, size(aq%indices_aq_species), &
+                    size(aq%concentrations), associated(aq%solid_chemistry%reactive_zone%chem_syst)
+                write(0,'(A,*(1X,I0))') ' [SCE-DBG] exch_cat_indices=', &
+                    aq%solid_chemistry%reactive_zone%cat_exch_zone%exch_cat_indices
+                write(0,'(A,2(1X,I0),1X,I0)') ' [SCE-DBG] fer,ler,sizelogK=', fer, ler, size(aq%logK)
+            end block
             if (nec==2) then
                 !> Two exchange cations: closed-form binary solution.
                 call aq%solid_chemistry%compute_conc_surf_ideal_bin( &
@@ -2041,33 +1968,6 @@ module chemistry_m
         class(chemistry_c) :: this                        !< Chemistry object instance
         integer(kind=4) :: num_aq_comps                   !< Number of aqueous components in chemical system
         num_aq_comps=this%chem_syst%speciation_alg%num_aq_prim_species !< Retrieve count from chemical system's speciation algorithm object
-        end function
-        
-        !> @brief Get the number of aqueous components in a domain (target) water
-        !> @details Retrieves the number of primary aqueous species (components) from the
-        !> speciation algebra of the reactive zone of a domain water, which may differ from the
-        !> chemical system's count when constant-activity minerals eliminate components.
-        !> @param[in] this Chemistry object
-        !> @param[in] ind_tw Optional index into `tar_wat_indices` selecting the target water (default: first)
-        !> @return num_aq_comps Number of aqueous components in the selected target water
-        function get_num_aq_comps_tar_wat(this,ind_tw) result(num_aq_comps)
-        implicit none                                     !< Require explicit variable declarations
-        class(chemistry_c), intent(in) :: this            !< Chemistry object instance
-        integer(kind=4), intent(in), optional :: ind_tw   !< Optional index into tar_wat_indices
-        integer(kind=4) :: num_aq_comps                   !< Number of aqueous components in the target water
-        integer(kind=4) :: idx                            !< Resolved position in tar_wat_indices
-        if (present(ind_tw)) then                         !< Validate caller-provided index
-            if (ind_tw<1 .or. ind_tw>size(this%tar_wat_indices)) then
-                error stop "get_num_aq_comps_tar_wat: ind_tw out of range"
-            end if
-            idx=ind_tw                                    !< Use caller-provided index
-        else
-            if (.not. allocated(this%tar_wat_indices) .or. size(this%tar_wat_indices)<1) then
-                error stop "get_num_aq_comps_tar_wat: no target waters available"
-            end if
-            idx=1                                         !< Default to the first target water
-        end if
-        num_aq_comps=this%waters(this%tar_wat_indices(idx))%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species !< Retrieve count from the local reactive zone's speciation algorithm
         end function
         
         !> @brief Get number of aqueous variable activity species in a target water
@@ -2974,6 +2874,8 @@ module chemistry_m
         !> @brief Writes one time step of the domain-integrated reactive-mixing mass balance (per variable-activity species).
         !> @details idx_ref is the reference target water (homogeneous domain: it supplies the species names/flags).
         !> For each species: LHS (storage), RHS = transport + reaction, residual = LHS - RHS (all already summed over cells).
+        !> A residual above mb_tol*max(1,|LHS|,|RHS|) is a hard failure (error stop) after printing the offending species
+        !> and its LHS/transport/reaction split: a violated balance means the reactive-mixing step is wrong, not a warning.
         subroutine write_react_mix_mass_bal_dom(this,idx_ref,iunit,time,n_v,lhs,transp,react)
             class(chemistry_c), intent(in) :: this !< Chemistry object instance
             integer(kind=4), intent(in) :: idx_ref !< reference target-water index (species names/flags)
@@ -3007,7 +2909,7 @@ module chemistry_m
                             " (|LHS|=",abs(lhs(j)),")"
                         write(*,"(A,I0,A,ES15.5,A,ES15.5,A,ES15.5)") "   [MB-SPLIT] j=",j," lhs=",lhs(j), &
                             " transp=",transp(j)," react=",react(j)
-                        write(*,"(A)") "Reactive-mixing mass balance violated (residual exceeds tolerance)"
+                        error stop "Reactive-mixing mass balance violated (residual exceeds tolerance)"
                     end if
                 end if
             end do
@@ -3240,6 +3142,7 @@ module chemistry_m
             logical, save :: header_written = .false.  !< file title/description written once (first call of the run)
             real(kind=8) :: val, coeff
             real(kind=8), allocatable :: rowvals(:), conc_nc(:), conc_comp(:)
+            real(kind=8), allocatable :: rct_fact(:) !< abs_cum_react_amnt: factor of each column (mineral molecular weight [kg/mol] for the mineral columns, 1 for the rest, written in mol)
             character(len=256), allocatable :: rct_names(:), vf_names(:), ref_names(:), wat_names(:), vas_names(:)
             character(len=1024) :: comb_line
             character(len=1024), allocatable :: comb_lines(:)
@@ -3286,7 +3189,7 @@ module chemistry_m
                 write(unit,"(2x,'  conc_hat   : aqueous variable-activity species concentrations of the mixed waters entering the Newton speciation (mix + previous-step reaction terms of all mixing waters + current-step reaction terms of the mixing waters except the water itself), then all component concentrations U*c_hat (target waters only, t>0)')")
                 write(unit,"(2x,'  react_rate : equilibrium/kinetic reaction rates (target waters only)')")
                 write(unit,"(2x,'  min-to-pore : mineral-to-pore volume ratios V_min/V_pore (target waters only)')")
-                write(unit,"(2x,'  abs_cum_react_amnt : absolute cumulative reaction amounts (target waters only)')")
+                write(unit,"(2x,'  abs_cum_react_amnt : absolute cumulative reaction amounts (target waters only); mineral columns in kg (amount in mol times the molecular weight of the mineral, 0 if the database gives none), the other columns in mol')")
                 if (chem%chem_syst%aq_phase%ind_prot/=0) then
                     write(unit,"(2x,'  pH        : pH of the solution (all output waters)')")
                 end if
@@ -3807,6 +3710,10 @@ module chemistry_m
             !! zones can have DIFFERENT minerals (e.g. calcite zone vs anhydrite zone), so a fixed local
             !! offset silently mislabels/mixes amounts across zones. Each water maps its own local eq/kin mineral amount 
             !! into the correct global column via ind_mins_chem_syst/ind_min_chem_syst.
+            !! Units: the mineral columns are written in kg (reaction amount [mol] times the mineral's molecular weight
+            !! [kg/mol], an optional trailing value of its database line; 0 kg when the database gives none), the aqueous
+            !! equilibrium and the linear/redox kinetic columns in mol (master25 carries no molecular weight for the
+            !! aqueous complexes); each column header carries its unit.
             if (has_rxn_amnt .and. associated(chem%waters(ridx)%solid_chemistry)) then
                 associate(rw => chem%waters(ridx), rz => chem%waters(ridx)%solid_chemistry%reactive_zone, &
                           cs => chem%waters(ridx)%solid_chemistry%reactive_zone%chem_syst)
@@ -3818,22 +3725,25 @@ module chemistry_m
                 n_redox = cs%num_redox_kin_reacts
                 nrct = nre+nm+n_lin+n_redox
                 if (nrct>0) then
-                    allocate(rct_names(nrct))
+                    allocate(rct_names(nrct),rct_fact(nrct))
+                    rct_fact=1d0 !< mol
                     do j=1,nre
                         if (n_aq_prim+j<=n_v) then
-                            rct_names(j) = rw%aq_phase%aq_species(rw%indices_aq_phase(rw%ind_var_act_species(n_aq_prim+j)))%name
+                            rct_names(j) = trim(rw%aq_phase%aq_species(rw%indices_aq_phase(rw%ind_var_act_species(n_aq_prim+j)))%name)//&
+                                ' [mol]'
                         else
-                            rct_names(j) = cs%eq_reacts(j)%name
+                            rct_names(j) = trim(cs%eq_reacts(j)%name)//' [mol]'
                         end if
                     end do
                     do j=1,nm
-                        rct_names(nre+j) = strip_trailing2(chem%chem_syst%minerals(j)%name)
+                        rct_names(nre+j) = trim(strip_trailing2(chem%chem_syst%minerals(j)%name))//' [kg]'
+                        rct_fact(nre+j) = chem%chem_syst%minerals(j)%mineral%molecular_weight !< kg/mol (0 if not in the database)
                     end do
                     do j=1,n_lin
-                        rct_names(nre+nm+j) = cs%lin_kin_reacts(j)%name
+                        rct_names(nre+nm+j) = trim(cs%lin_kin_reacts(j)%name)//' [mol]'
                     end do
                     do j=1,n_redox
-                        rct_names(nre+nm+n_lin+j) = cs%redox_kin_reacts(j)%name
+                        rct_names(nre+nm+n_lin+j) = trim(cs%redox_kin_reacts(j)%name)//' [mol]'
                     end do
                 end if
                 end associate
@@ -3881,12 +3791,12 @@ module chemistry_m
                         end associate
                         write(unit,"(I18)", advance='no') idx
                         do j=1,nrct
-                            write(unit,"(ES26.16)", advance='no') rowvals(j)
+                            write(unit,"(ES26.16)", advance='no') rowvals(j)*rct_fact(j) !< mineral columns: mol -> kg
                         end do
                         write(unit,*)
                     end do
                     deallocate(rowvals)
-                    deallocate(rct_names)
+                    deallocate(rct_names,rct_fact)
                 end if
             end if
 
@@ -4094,6 +4004,7 @@ module chemistry_m
                 character(len=1024), allocatable :: zcomb(:)
                 real(kind=8), allocatable :: zconc_nc(:), zconc_comp(:)
                 real(kind=8) :: zval
+                logical :: hat_ok !< conc_hat of the zone water is laid out like its ind_var_act_species ([aq prim | aq sec])
 
                 !> current-step zone waters (lambda_c>0) of the requested output waters, matched by the global
                 !> target-water index stored on each zone water (all built zone waters of a row share it)
@@ -4204,13 +4115,26 @@ module chemistry_m
                     do r=1,nsel
                         associate(zr => chem%zone_waters(sel_i(r),sel_z(r)), w => chem%zone_waters(sel_i(r),sel_z(r))%aq_chem)
                         write(zunit,"(I18,I14,ES26.16)", advance='no') zr%tar_wat_idx, zr%zone_id, zr%lambda_c
+                        !> conc_hat and ind_var_act_species share the [aq prim | aq sec var act] layout of the zone's
+                        !> aqueous variable-activity species (both sized num_aq_var_act_species), so position jj of
+                        !> one names the species of position jj of the other. Anything else is a bug upstream
+                        !> (mix_within_zone_core writes conc_hat in exactly this layout): refuse to print a
+                        !> misaligned row instead of silently writing zeros.
+                        hat_ok=.false.
+                        if (allocated(w%conc_hat)) hat_ok=(size(w%conc_hat)==size(w%ind_var_act_species))
+                        if (allocated(w%conc_hat) .and. .not. hat_ok) then
+                            print '(A,I0,A,I0,A,I0,A,I0)', "[ZONE-WATERS] ERROR: target water ", zr%tar_wat_idx, &
+                                " zone ", zr%zone_id, ": size(conc_hat)=", size(w%conc_hat), &
+                                " /= size(ind_var_act_species)=", size(w%ind_var_act_species)
+                            error stop "[ZONE-WATERS] zone water conc_hat not laid out like its aqueous variable-activity species"
+                        end if
                         do jr2=1,n_ref_z
                             zval = 0d0
-                            if (allocated(w%conc_hat)) then
+                            if (hat_ok) then
                                 do jj=1,size(w%ind_var_act_species)
                                     if (trim(w%aq_phase%aq_species(w%indices_aq_phase(w%ind_var_act_species(jj)))%name)== &
                                         trim(znames(jr2))) then
-                                        if (jj<=size(w%conc_hat)) zval = w%conc_hat(jj)
+                                        zval = w%conc_hat(jj)
                                         exit
                                     end if
                                 end do
@@ -4340,14 +4264,15 @@ module chemistry_m
         !>          equivalents Sum(z_i*c_i) = CEC. Both are recomputed from the CURRENT solid
         !>          concentrations (the stored activities array is not resynced by the reactive
         !>          step) and enforced (error stop if either deviates beyond a relative
-        !>          tolerance).
+        !>          tolerance). A per-step [SURF-DBG] line reports the worst deviations.
         subroutine check_surf_compl_act_sum(chem, k, time)
             class(chemistry_c), intent(in) :: chem   !< Chemistry object (target waters + solids)
             integer(kind=4), intent(in) :: k         !< Time step index
             real(kind=8), intent(in) :: time         !< Simulation time
-            integer(kind=4) :: i, nsc, nex, ns, off, ic, z
-            real(kind=8) :: equiv_sum, act_sum, cec, dev_act, dev_cec
+            integer(kind=4) :: i, nsc, nex, ns, off, ic, z, ncheck, worst_act, worst_cec
+            real(kind=8) :: equiv_sum, act_sum, cec, dev_act, dev_cec, max_dev_act, max_dev_cec
             real(kind=8), parameter :: tol = 1d-6    !< relative tolerance for the site-balance invariants
+            ncheck = 0; max_dev_act = 0d0; max_dev_cec = 0d0; worst_act = 0; worst_cec = 0
             do i=1,chem%num_target_waters
                 if (.not. associated(chem%waters(i)%solid_chemistry)) cycle
                 if (.not. associated(chem%waters(i)%solid_chemistry%reactive_zone)) cycle
@@ -4372,14 +4297,22 @@ module chemistry_m
                 if (cec>0d0) act_sum = equiv_sum/cec
                 dev_act = abs(act_sum - 1d0)                                !< |Sum(activities) - 1|
                 dev_cec = abs(equiv_sum - cec)/max(abs(cec),1d-30)         !< |Sum(equivalents) - CEC| (relative)
+                if (dev_act>max_dev_act) then; max_dev_act = dev_act; worst_act = i; end if
+                if (dev_cec>max_dev_cec) then; max_dev_cec = dev_cec; worst_cec = i; end if
+                ncheck = ncheck + 1
                 if (dev_act>tol .or. dev_cec>tol) then
-                    write(*,'(A,I6,A,ES13.5,A,I6,A,ES13.5,A,ES13.5,A,ES13.5)') &
-                        ' Surface-complex site balance violated at step ', k, ' (t=', time, ') target water ', i, &
-                        ': sum(act)=', act_sum, ' sum(equiv)=', equiv_sum, ' CEC=', cec
+                    write(*,'(A,I6,A,I6,A,ES13.5,A,ES13.5,A,ES13.5)') &
+                        ' [SURF-DBG] VIOLATION step ', k, ' target water ', i, &
+                        ' sum(act)=', act_sum, ' sum(equiv)=', equiv_sum, ' CEC=', cec
                     error stop "Surface-complex site balance violated: sum(activities)/=1 or sum(equivalents)/=CEC"
                 end if
                 end associate
             end do
+            if (ncheck>0) then
+                write(*,'(A,I6,A,ES13.5,A,I6,A,ES12.4,A,ES12.4)') &
+                    ' [SURF-DBG] step ', k, ' t=', time, ' exch cells=', ncheck, &
+                    ' max|sum(act)-1|=', max_dev_act, ' max|sum(equiv)-CEC|/CEC=', max_dev_cec
+            end if
         end subroutine check_surf_compl_act_sum
 
         !> @brief Relink target waters to reactive zones if the zone set or membership changed

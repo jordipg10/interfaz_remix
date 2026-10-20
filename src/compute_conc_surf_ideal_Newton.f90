@@ -113,6 +113,7 @@ subroutine compute_conc_surf_ideal_Newton(this,conc_cats,act_ads_cats_ig,niter,C
 !    end do
 !> Process: Newton-Raphson iteration in logarithmic variables for ion exchange equilibrium
     act_ads_cats=act_ads_cats_ig !> Initialize current adsorbed cation activities with initial guess
+    write(0,'(A,I0,A,L1)') ' [CSN-DBG] enter n_ads_cats=', n_ads_cats, ' cs_assoc=', associated(this%reactive_zone%chem_syst)
     !log_act_ads_cats=log(act_ads_cats) !> Commented: Initialize logarithm of activities (not actively used)
     niter=0 !> Initialize Newton iteration counter to zero
     CV_flag=.false. !> Initialize convergence flag to FALSE (not converged yet)
@@ -164,6 +165,9 @@ subroutine compute_conc_surf_ideal_Newton(this,conc_cats,act_ads_cats_ig,niter,C
         act_ads_cats=act_ads_cats+lambda_damp*Delta_act_ads_cats !> a^(n+1) = a^(n) + λ·Δa (damped to satisfy 0<a and Σa<1)
     end do !> End Newton iteration loop
 !> Post-processing
+    write(0,'(A,I0)') ' [CSN-DBG] converged niter=', niter
     call this%set_act_surf_compl(act_ads_cats) !> Store final adsorbed cation activities in solid chemistry object
+    write(0,'(A)') ' [CSN-DBG] after set_act_surf_compl'
     call this%compute_conc_surf_compl() !> Compute surface complex concentrations from activities (convert site fractions to concentrations)
+    write(0,'(A)') ' [CSN-DBG] after compute_conc_surf_compl'
  end subroutine

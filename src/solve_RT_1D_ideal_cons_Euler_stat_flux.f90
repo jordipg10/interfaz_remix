@@ -43,7 +43,7 @@
 subroutine solve_RT_ideal_cons_Euler_stat_flux_1D(this,dir,root)
     use RT_m, only: RT_1D_transient_c, RT_1D_stat_c, RT_c !< Import 1D reactive transport classes
     use chemistry_m, only: write_out_step_vars !< Shared per-output-step writer (conc/react_rate/vol_fract)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, & !< Import aqueous chemistry class
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, write_celldbg_cell, & !< Import aqueous chemistry class
         reactive_mixing_iter_EE_eq_kin_ideal, reactive_mixing_iter_EE_kin, & !< Euler explicit solvers with lumping
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, mixing_iter_comp_ideal, & !< Implicit solvers for kinetic-only and equilibrium-only systems
         compute_r_tilde_impl_opt1_idx, compute_r_tilde_impl_opt2_idx, compute_c_mix_by_zones_cons, compute_c_mix_global_cons, &
@@ -109,6 +109,7 @@ subroutine solve_RT_ideal_cons_Euler_stat_flux_1D(this,dir,root)
     REAL(KIND=8), allocatable :: r_tilde(:) !< Variable activity species concentrations (solution vector) [mol/L]
     !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
     integer(kind=4) :: iunit_mb                   !< mass-balance output file unit
+    integer(kind=4) :: iunit_celldbg              !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref                    !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref                    !< reference number of variable-activity species
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
@@ -296,6 +297,8 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
         open(newunit=iunit_mb, file=dir//root//'_Euler_consistent_mass_balance.out', status='replace', action='write')
         write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
         write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
+        !> Per-cell [CELL-DBG] trace file (bulk calcite cells 3/8 + interface cells 15/16/17)
+        open(newunit=iunit_celldbg, file=dir//root//'_Euler_consistent_cell_dbg.out', status='replace', action='write')
         !> @section time_loop Main Time Loop
         !> Loop over all time steps to solve reactive transport
         !> Write initial state (t=0) before the first time step, honouring chem_out_options%vars
@@ -446,6 +449,10 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                         this%transport%time_discr%theta_r) !< Time weighting factor [-]
                 end if
 
+                !> [CELL-DBG] intermediate results for bulk calcite cells 3/8 and interface cells 15/16/17
+                if (k<=10 .and. (this%chemistry%num_target_waters<=10 .or. i==3 .or. i==8 .or. i==15 .or. i==16 .or. i==17)) then
+                    call write_celldbg_cell(this%chemistry%waters(this%chemistry%tar_wat_indices(i)), iunit_celldbg, k, i, n_v, c_mix, c_tilde, c_hat)
+                end if
 
                 !> Domain-integrated mass-balance contribution of this cell
                 call this%chemistry%waters(this%chemistry%tar_wat_indices(i))%get_react_mix_mass_bal_terms( &
@@ -571,6 +578,7 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
     !> Close output file
     close(unit)
     close(iunit_mb)
+    close(iunit_celldbg)
     deallocate(mb_lhs, mb_transp, mb_react)
     end select !< End type selection
     !deallocate(lambdas_R) !< Free lumped kinetic rates array

@@ -37,7 +37,8 @@ module aqueous_chemistry_m
         compute_c_mix_by_zones_cons, compute_c_mix_by_zones_lump, &
         add_curr_step_react_mix_contrib_opt1, add_curr_step_react_mix_contrib_opt2, &
         add_curr_step_react_mix_contrib_opt3, &
-        reactive_mixing_iter_EI_eq_kin_anal_opt2 !< Expose mixing subroutines for external use
+        write_celldbg_legend, write_celldbg_cell, reactive_mixing_iter_EI_eq_kin_anal_opt2, &
+        reactive_mixing_iter_RKF45_eq_kin_anal_opt2 !< Expose mixing subroutines for external use
     !> \brief Aqueous chemistry class for modeling chemical reactions in the aqueous phase.
     !>
     !> This type extends local_chemistry_c and encapsulates all properties and methods required for aqueous chemical speciation, activity calculations, and coupling with solid and gas chemistry. It manages concentrations, activities, activity coefficients, and provides interfaces for mixing, reaction iteration, and property calculation.
@@ -212,6 +213,7 @@ module aqueous_chemistry_m
         procedure :: compute_dc2_dc1_ideal                          !< Jacobian computation for ideal solution assumption
         procedure :: compute_dc2v_dc1_ideal                        !< Non-constant Jacobian for ideal solutions
         procedure :: compute_dc2v_dc1                              !< General non-constant Jacobian computation
+        procedure :: compute_dlogc2v_dlogc1                        !< Log-log Jacobian d(log10 c2v)/d(log10 c1), non-ideal (log-space Newton assembly)
         procedure :: compute_dc2_dc1                                !< General Jacobian matrix computation
         procedure :: compute_c_from_u_bin_syst                      !< Concentration from binary system molality
     !> Mixing procedures for water-rock interaction and transport coupling
@@ -223,16 +225,18 @@ module aqueous_chemistry_m
         procedure :: reactive_mixing_iter_EE_kin               !< EE kinetics-only water mixing (ideal)
         procedure :: reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2    !< EI equilibrium-kinetics analytical mixing option 2 (ideal)
         procedure :: reactive_mixing_iter_EI_eq_kin_anal_opt2    !< EI equilibrium-kinetics analytical option 2
+        procedure :: reactive_mixing_iter_RKF45_eq_kin_anal_opt2 !< RKF45 equilibrium-kinetics analytical option 2 (same signature as the EI driver)
         procedure :: reactive_mixing_iter_EI_eq_anal_ideal  !< Alternative EfI option (commented)
         procedure :: reactive_mixing_iter_EI_kin_anal_ideal_opt2       !< EI kinetics analytical option 2
         procedure :: compute_u_mix                                !< Compute tilde molalities for transport
         procedure :: compute_react_term_EE_eq_kin                   !< Explicit-Euler equilibrium-kinetics reaction iteration
         procedure :: compute_react_term_EE_kin                      !< Explicit-Euler kinetics reaction iteration
-        procedure :: compute_dfk_dc_EI_ideal                          !< Compute kinetics Jacobian (EfI method)
-        procedure :: compute_dfk_dc1_EI_ideal                   !< Primary kinetics Jacobian (EfI ideal)
-        procedure :: compute_dfk_dc1_EI                          !< Compute primary kinetics Jacobian (EfI ideal)
+        procedure :: compute_dfk_dc_EI_ideal                          !< Compute kinetics Jacobian (EfI method, arithmetic form; not used by the log-space solvers)
+        procedure :: compute_dfk_dp_EI_ideal                    !< Log-space Newton Jacobian dfk/dp, p = log10 c1 (EfI, ideal)
+        procedure :: compute_dfk_dp_EI                          !< Log-space Newton Jacobian dfk/dp, p = log10 c1 (EfI, non-ideal)
         procedure :: Newton_EI_eq_kin_anal_ideal_opt2         !< Newton-Raphson EI equilibrium-kinetics option 2
         procedure :: Newton_EI_eq_kin_anal_opt2                     !< Solve Newton-Raphson EI equilibrium-kinetics option 2
+        procedure :: RKF45_eq_kin_anal_opt2                         !< Adaptive Runge-Kutta-Fehlberg 4(5) integration of the kinetic source, equilibrium-kinetics option 2
         procedure :: Newton_EI_kin_anal_ideal_opt2            !< Newton-Raphson EI kinetics option 2
         procedure :: Newton_EI_eq_ideal                     !< Newton-Raphson EI equilibrium-ideal
         procedure :: mix_within_zone_core                           !< Core procedure for mixing within a zone
@@ -268,6 +272,25 @@ module aqueous_chemistry_m
         procedure :: modify_mix_ratios_reacts
         procedure :: equilibrate_with_phases                        !< Equilibrate this water with its reactive zone's minerals/gases (PHREEQC EQUILIBRIUM_PHASES style); returns per-primary-species mole transfer
     end type                                                                !< End of aqueous_chemistry_c type definition
+
+    !> [ZONE-DBG] per-cell zone-mixing debug trace (compute_c_mix_by_zones / mix_within_zone).
+    !> A solver opens within_zone_dbg_unit once (status='replace') before its time loop, sets
+    !> within_zone_dbg_step each step and within_zone_dbg_cells (the target-water GLOBAL indices to
+    !> trace), and closes the unit afterwards; the two subroutines only write to it (no per-call
+    !> open/close). within_zone_dbg is the master enable; a block is emitted only for the selected
+    !> cells during the first within_zone_dbg_max_step steps. within_zone_dbg_active is armed per
+    !> selected cell by compute_c_mix_by_zones so mix_within_zone knows when to write its per-zone
+    !> rows. within_zone_dbg_unit=-1 means "not open".
+    public :: within_zone_dbg, within_zone_dbg_unit, within_zone_dbg_step, within_zone_dbg_cells
+    public :: sim_num_time_steps, spec_fail_print_max_steps
+    logical :: within_zone_dbg = .true.                   !< master enable for the zone-mixing trace
+    integer :: within_zone_dbg_unit = -1                 !< output unit (opened by the solver; -1=not open)
+    integer :: within_zone_dbg_step = 0                  !< current time step (set by the solver each step)
+    integer :: sim_num_time_steps = 0                    !< total number of time steps of the simulation (set by the solver before the time loop; 0 = unknown)
+    integer, parameter :: spec_fail_print_max_steps = 100 !< the speciation iteration-budget failure is printed only when sim_num_time_steps <= this value
+    integer, parameter :: within_zone_dbg_max_step = 10  !< only trace the first this-many steps
+    integer, allocatable :: within_zone_dbg_cells(:)     !< target-water GLOBAL indices to trace
+    logical :: within_zone_dbg_active = .false.          !< armed by compute_c_mix_by_zones per selected cell
 
     !> Within-zone sub-mixture of the cross-zone mixing, written to the <root>_zone_waters.out file.
     !> chemistry_c%zone_waters(i,z) holds one per domain target water i and reactive zone z (its scratch
@@ -537,6 +560,18 @@ module aqueous_chemistry_m
             real(kind=8), intent(in) :: c2v(:)                            !< Non-constant secondary concentrations
             !real(kind=8), intent(in) :: out_prod(:,:)                      !< Outer product between d_log_gamma_nc_d_I and z_nc^2 (activity coefficient derivatives)
             real(kind=8), intent(out) :: dc2v_dc1(:,:)                    !< Non-constant Jacobian matrix with activity corrections
+        end subroutine
+
+        !> Log-log Jacobian d(log10 c2v)/d(log10 c1) with activity coefficient corrections (the quantity
+        !> compute_dc2v_dc1 computes before converting it to dc2v/dc1 = c2v L / c1); used by the log-space
+        !> assembly of the Newton Jacobian (compute_dfk_dp_EI) so that no 1/c factor is ever formed
+        subroutine compute_dlogc2v_dlogc1(this,c1,c2v,dlogc2v_dlogc1)
+            import aqueous_chemistry_c                                      !< Import aqueous chemistry class
+            implicit none                                                   !< No implicit variable declarations
+            class(aqueous_chemistry_c) :: this                             !< Aqueous chemistry object (polymorphic), speciated at (c1,c2v)
+            real(kind=8), intent(in) :: c1(:)                              !< Primary concentrations, speciation order (n_p)
+            real(kind=8), intent(in) :: c2v(:)                            !< Secondary variable activity concentrations, speciation order (n_e)
+            real(kind=8), intent(out) :: dlogc2v_dlogc1(:,:)              !< d(log10 c2v)/d(log10 c1) (n_e x n_p, already allocated)
         end subroutine
         
         !> Compute aqueous non-constant Jacobian matrix with activity coefficient corrections
@@ -975,6 +1010,22 @@ module aqueous_chemistry_m
             real(kind=8), intent(in), optional :: c1_downstream(:)          !< Primary concentrations of closest downstream target water
         end subroutine
 
+        !> Water mixing iteration with adaptive RKF45 kinetics, equilibrium and kinetics (analytical, non-ideal, option 2)
+        subroutine reactive_mixing_iter_RKF45_eq_kin_anal_opt2(this,c1_old,c_hat,&
+            mix_ratio_r,Delta_t,theta,conc_nc,conc_comp,c1_downstream)
+            import aqueous_chemistry_c                                      !< Import aqueous chemistry class
+            implicit none                                                   !< No implicit variable declarations
+            class(aqueous_chemistry_c) :: this                            !< Aqueous chemistry object (polymorphic)
+            real(kind=8), intent(in) :: c1_old(:)                          !< Primary species concentrations from previous time step
+            real(kind=8), intent(in) :: c_hat(:)                          !< Transport-advected concentrations (tilde notation)
+            real(kind=8), intent(in) :: mix_ratio_r                        !< Reaction mixing ratio of this target water
+            real(kind=8), intent(in) :: Delta_t                            !< Time step size for temporal discretization
+            real(kind=8), intent(in) :: theta                              !< Time weighting factor (0=explicit, 1=implicit)
+            real(kind=8), intent(inout) :: conc_nc(:)                        !< Non-constant concentrations output
+            real(kind=8), intent(inout) :: conc_comp(:)                     !< Concentration components
+            real(kind=8), intent(in), optional :: c1_downstream(:)          !< Primary concentrations of closest downstream target water
+        end subroutine
+
         subroutine reactive_mixing_iter_EI_kin_anal_ideal_opt2(this,c1_old,c_hat,&
             mix_ratio_r,Delta_t,&
             theta,conc_nc,conc_comp,c1_downstream)
@@ -1048,30 +1099,34 @@ module aqueous_chemistry_m
         end subroutine
 
         
-        subroutine compute_dfk_dc1_EI_ideal(this,c1,c2v,drk_dc,Delta_t,theta,mix_ratio_r,dfk_dc1)
+        !> Jacobian of the Newton residual of the reactive mixing with respect to p = log10 c1 (log-space
+        !> assembly from the log-form kinetic Jacobian drk_dlogc of compute_rk_Jac_rk_anal; ideal solution)
+        subroutine compute_dfk_dp_EI_ideal(this,c1,c2v,drk_dlogc,Delta_t,theta,mix_ratio_r,dfk_dp)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c), intent(in) :: this
             real(kind=8), intent(in) :: c1(:)
             real(kind=8), intent(in) :: c2v(:)
-            real(kind=8), intent(in) :: drk_dc(:,:)
+            real(kind=8), intent(in) :: drk_dlogc(:,:)
             real(kind=8), intent(in) :: Delta_t
             real(kind=8), intent(in) :: theta
             real(kind=8), intent(in) :: mix_ratio_r
-            real(kind=8), intent(out) :: dfk_dc1(:,:)
+            real(kind=8), intent(out) :: dfk_dp(:,:)
         end subroutine
 
-        subroutine compute_dfk_dc1_EI(this,c1,c2v,drk_dc,Delta_t,theta,mix_ratio_r,dfk_dc1)
+        !> Same as compute_dfk_dp_EI_ideal for a NON-ideal solution (activity coefficients depending on the
+        !> ionic strength: the secondary-primary chain rule is compute_dlogc2v_dlogc1)
+        subroutine compute_dfk_dp_EI(this,c1,c2v,drk_dlogc,Delta_t,theta,mix_ratio_r,dfk_dp)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c), intent(in) :: this
             real(kind=8), intent(in) :: c1(:)
             real(kind=8), intent(in) :: c2v(:)
-            real(kind=8), intent(in) :: drk_dc(:,:)
+            real(kind=8), intent(in) :: drk_dlogc(:,:)
             real(kind=8), intent(in) :: Delta_t
             real(kind=8), intent(in) :: theta
             real(kind=8), intent(in) :: mix_ratio_r
-            real(kind=8), intent(out) :: dfk_dc1(:,:)
+            real(kind=8), intent(out) :: dfk_dp(:,:)
         end subroutine
 
          subroutine compute_dfk_dc_EI_ideal(this,drk_dc,Delta_t,theta,mix_ratio_r,dfk_dc)
@@ -1113,6 +1168,19 @@ module aqueous_chemistry_m
             real(kind=8), intent(in) :: theta !> time weighting factor
             real(kind=8), intent(inout) :: conc_nc(:) !> variable activity concentrations (already allocated)
             integer(kind=4), intent(out) :: niter !> number of iterations
+            logical, intent(out) :: CV_flag !> FALSE: no CV, TRUE: CV
+        end subroutine
+
+        subroutine RKF45_eq_kin_anal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta,conc_nc,niter,CV_flag)
+            import aqueous_chemistry_c
+            implicit none
+            class(aqueous_chemistry_c) :: this
+            real(kind=8), intent(in) :: u_hat(:) !> component concentrations after mixing
+            real(kind=8), intent(in) :: mix_ratio_r !> mixing ratio of kinetic reaction rate in this target
+            real(kind=8), intent(in) :: Delta_t !> time step
+            real(kind=8), intent(in) :: theta !> time weighting factor
+            real(kind=8), intent(inout) :: conc_nc(:) !> variable activity concentrations (already allocated)
+            integer(kind=4), intent(out) :: niter !> number of accepted RKF45 sub-steps
             logical, intent(out) :: CV_flag !> FALSE: no CV, TRUE: CV
         end subroutine
         
@@ -1208,19 +1276,19 @@ module aqueous_chemistry_m
             real(kind=8), intent(out) :: rk_new(:)
         end subroutine
         
-        subroutine compute_Jacobian_rk_anal(this,drk_dc)
+        subroutine compute_Jacobian_rk_anal(this,drk_dlogc)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c), intent(in) :: this
-            real(kind=8), intent(out) :: drk_dc(:,:)
+            real(kind=8), intent(out) :: drk_dlogc(:,:) !> Jacobian of the kinetic rates in LOG form, d r_k / d log10 c (chem_syst column order)
         end subroutine
         
-        subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dc)
+        subroutine compute_rk_Jac_rk_anal(this,rk_new,drk_dlogc)
             import aqueous_chemistry_c
             implicit none
             class(aqueous_chemistry_c), intent(in) :: this
             real(kind=8), intent(out) :: rk_new(:) !>  (must be allocated)
-            real(kind=8), intent(out) :: drk_dc(:,:)
+            real(kind=8), intent(out) :: drk_dlogc(:,:) !> Jacobian of the kinetic rates in LOG form, d r_k / d log10 c = ln10 c d r_k / d c (chem_syst column order)
         end subroutine
         
         subroutine compute_rk_Jac_rk_incr_coeff(this,drk_dc)
@@ -1438,7 +1506,12 @@ module aqueous_chemistry_m
             if (allocated(this%contrib_rxn_amnt_kin)) deallocate(this%contrib_rxn_amnt_kin) !< Deallocate if already allocated
             if (allocated(this%contrib_rxn_amnt_eq)) deallocate(this%contrib_rxn_amnt_eq) !< Deallocate if already allocated
             allocate(this%contrib_rxn_amnt_kin(this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species),&
-                this%contrib_rxn_amnt_eq(this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species))              !< Allocate current, previous, and previous-previous concentration arrays
+                this%contrib_rxn_amnt_eq(this%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species))              !< Allocate the kinetic and equilibrium contribution arrays (variable activity species)
+            !> Zero contributions by default: the kinetic one is only assigned by the kinetic iterations (never in an
+            !> equilibrium-only system) and the equilibrium one only by compute_Re, so they are otherwise read
+            !> (e.g. by the [CELL-DBG] trace) as uninitialised memory
+            this%contrib_rxn_amnt_kin=0d0
+            this%contrib_rxn_amnt_eq=0d0
         end subroutine
         
         !> Allocate memory for aqueous species activities
@@ -2547,14 +2620,14 @@ module aqueous_chemistry_m
             
             !> \subsection accumulate_mass Sum mass contributions from all dissolved species
             !! Loop over all dissolved solid species (ions, complexes) and add their
-            !! mass contributions: mass_i = molality_i Ãƒâ€” molecular_weight_i
+            !! mass contributions: mass_i = molality_i * molecular_weight_i
             do i=1,this%aq_phase%num_species-this%aq_phase%wat_flag         !< Loop over dissolved solids (water excluded)
                 !> Add mass contribution for species i
                 !! Extract concentration from full array using index mapping,
-                !! then multiply by molecular weight to convert mol/kg Ã¢â€ â€™ kg/kg
+                !! then multiply by molecular weight to convert mol/kg -> kg/kg
                 TDS=TDS+this%concentrations(this%indices_aq_species(this%aq_phase%ind_diss_solids(i))) * &
                     this%aq_phase%aq_species(this%aq_phase%ind_diss_solids(i))%molecular_weight
-                                                                            !< TDS += m_i Ãƒâ€” MW_i [kg_solute/kg_water]
+                                                                            !< TDS += m_i * MW_i [kg_solute/kg_water]
             end do
             
             !> \subsection compute_total_mass Calculate total fluid mass
@@ -3687,6 +3760,13 @@ module aqueous_chemistry_m
         !> Besides returning Omega = IAP/K(T), it stores it in this%saturation_mins(ind_min), the per-water
         !> record of the saturation indices of all minerals (kinetic minerals come first in
         !> chem_syst%minerals, so the kinetic index ind_min is also the mineral's position there).
+        !> [SAT-DBG] When dbg_kin_mineral (kin_mineral_m) is armed by the solver — first target water, first
+        !> dbg_kin_mineral_max_step time step(s) of the simulation (default: the first step only) — every factor
+        !> of Omega (species, their concentration, log gamma, activity and a^(-nu), the IAP, the logK(T) used and
+        !> its index) is written to the <root>_kin_mineral_dbg.out file (standard output if not open), one block
+        !> per call.
+            use kin_mineral_m, only: dbg_kin_mineral, dbg_kin_mineral_unit, dbg_kin_mineral_step !> [SAT-DBG] trace switch, file unit and current step
+            use iso_fortran_env, only: output_unit !> fallback of the [SAT-DBG] trace when its file is not open
             implicit none
             class(aqueous_chemistry_c) :: this !> aqueous chemistry object
             integer(kind=4) :: ind_min !> index of kinetic mineral in chemical system
@@ -3694,20 +3774,63 @@ module aqueous_chemistry_m
             
             real(kind=8) :: IAP
             integer(kind=4) :: i,ind_kin_react
+            integer(kind=4) :: ind_logK !> position of the mineral's logK(T) in this%logK (equilibrium, linear and redox kinetic reactions first)
+            integer(kind=4) :: ind_aq_ph !> [SAT-DBG] aqueous phase index of species i of the reaction
+            integer(kind=4) :: ind_st !> [SAT-DBG] index of species i in this water's state arrays (concentrations/activities)
+            integer(kind=4) :: iu !> [SAT-DBG] output unit of the trace
+            integer(kind=4), save :: ncall_dbg=0 !> [SAT-DBG] number of traced calls so far
+            real(kind=8) :: nu_i !> [SAT-DBG] stoichiometric coefficient of species i
+            real(kind=8) :: lg_i !> [SAT-DBG] log10 activity coefficient of species i (0 if not stored)
+            logical :: trace !> [SAT-DBG] write this call?
 
             call this%allocate_saturation_mins()
-            IAP=1d0
-            do i=1,this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(ind_min)%num_aq_rk
-                IAP=IAP*this%activities(this%indices_aq_species(this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(&
-                    ind_min)%indices_aq_phase(i)))**(-&
-                    this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(ind_min)%stoichiometry(&
-                    this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(ind_min)%indices_react_species(i)))
-            end do
-            saturation=IAP*(1d1**this%logK(&
-                this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions+&
+            associate(react => this%solid_chemistry%reactive_zone%chem_syst%min_kin_reacts(ind_min))
+            ind_logK=this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions+&
                 this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts+&
-                this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts+ind_min))
+                this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts+ind_min
+            trace=dbg_kin_mineral !> armed by the solver for the first target water during the first time step(s) only
+            if (trace) then
+                ncall_dbg=ncall_dbg+1
+                iu=output_unit
+                if (dbg_kin_mineral_unit/=-1) iu=dbg_kin_mineral_unit
+                write(iu,'(A)') '[SAT-DBG] ======================================================================'
+                write(iu,'(A,A,A,I0,A,I0,A,I0)') '[SAT-DBG] compute_saturation_kin_min: mineral ', trim(react%name), &
+                    ' (ind_min = ', ind_min, '), time step ', dbg_kin_mineral_step, ', traced call ', ncall_dbg
+                write(iu,'(A,A,A,I0,A,ES14.6,A)') '[SAT-DBG]   water "', trim(this%name), '" (id ', this%id, '), temp = ', &
+                    this%temp, ' K'
+                write(iu,'(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0)') '[SAT-DBG]   num_aq_rk = ', react%num_aq_rk, &
+                    ' ; logK index = num_eq_reactions (', this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions, &
+                    ') + num_lin_kin (', this%solid_chemistry%reactive_zone%chem_syst%num_lin_kin_reacts, &
+                    ') + num_redox_kin (', this%solid_chemistry%reactive_zone%chem_syst%num_redox_kin_reacts, &
+                    ') + ind_min (', ind_min, ') = ', ind_logK
+                write(iu,'(A)') '[SAT-DBG]     i  aq_ph  state  species              nu              conc       log_gamma'//&
+                    '        activity         a^(-nu)'
+            end if
+            IAP=1d0
+            do i=1,react%num_aq_rk
+                ind_aq_ph=react%indices_aq_phase(i)
+                ind_st=this%indices_aq_species(ind_aq_ph)
+                nu_i=react%stoichiometry(react%indices_react_species(i))
+                IAP=IAP*this%activities(ind_st)**(-nu_i)
+                if (trace) then
+                    lg_i=0d0
+                    if (allocated(this%log_act_coeffs)) lg_i=this%log_act_coeffs(ind_st)
+                    write(iu,'(A,I5,2X,I5,2X,I5,2X,A20,1X,F8.3,4(1X,ES15.6))') '[SAT-DBG] ', i, ind_aq_ph, ind_st, &
+                        adjustl(this%aq_phase%aq_species(ind_aq_ph)%name), nu_i, this%concentrations(ind_st), lg_i, &
+                        this%activities(ind_st), this%activities(ind_st)**(-nu_i)
+                end if
+            end do
+            saturation=IAP*(1d1**this%logK(ind_logK))
             this%saturation_mins(ind_min)=saturation
+            if (trace) then
+                write(iu,'(A,ES15.6)') '[SAT-DBG]   IAP = prod_i a_i^(-nu_i)          = ', IAP
+                write(iu,'(A,ES15.6,A,ES15.6)') '[SAT-DBG]   logK(T) = ', this%logK(ind_logK), ', 10**logK(T) = ', &
+                    1d1**this%logK(ind_logK)
+                write(iu,'(A,ES15.6,A,I0,A)') '[SAT-DBG]   Omega = IAP * 10**logK(T)           = ', saturation, &
+                    '  (stored in saturation_mins(', ind_min, '))'
+                write(iu,'(A)') '[SAT-DBG] ======================================================================'
+            end if
+            end associate
         end function
 
         !> \brief Saturation index Omega = IAP/K(T) of an EQUILIBRIUM mineral of the chemical system,
@@ -3998,6 +4121,345 @@ module aqueous_chemistry_m
             u_mix=matmul(this%solid_chemistry%reactive_zone%speciation_alg%comp_mat,c_mix)
                                                                                     !< Matrix-vector product: U * c_mix = u_mix
         end function
+
+        !> Write a legend for the [CELL-DBG] output.
+        !! \details Prints (1) the component definitions as linear combinations of the
+        !! variable-activity species, in the same style as u_init.dat, and (2) the reaction
+        !! names in the same order as the reaction-rate value rows (aqueous equilibrium,
+        !! mineral+exchange equilibrium, aqueous kinetic, mineral kinetic). Names are listed
+        !! in the current speciation/array order (values are NOT reordered).
+        subroutine write_celldbg_legend(this,iunit)
+            implicit none                                                           !< No implicit variable declarations
+        !> Arguments
+            class(aqueous_chemistry_c), intent(in) :: this                         !< Aqueous chemistry object (input only)
+            integer(kind=4), intent(in) :: iunit                                   !< Output unit of the CELL-DBG file
+        !> Variables
+            integer(kind=4) :: ci                                                  !< Component (comp_mat row) index
+            integer(kind=4) :: j                                                   !< Species / reaction index
+            integer(kind=4) :: n_c                                                 !< Number of components
+            integer(kind=4) :: n_v                                                 !< Number of variable-activity species
+            integer(kind=4) :: n_aq_prim                                           !< Number of aqueous primary species (secondary aqueous species follow)
+            integer(kind=4) :: n_min                                               !< Number of equilibrium minerals
+            integer(kind=4) :: n_exch                                              !< Number of exchangeable cations
+            integer(kind=4) :: n_aqeq                                              !< Number of aqueous equilibrium reactions
+            integer(kind=4) :: n_lin                                               !< Number of linear kinetic reactions
+            integer(kind=4) :: n_redox                                             !< Number of redox kinetic reactions
+            integer(kind=4) :: n_minkin                                            !< Number of kinetic minerals
+            real(kind=8) :: coef                                                   !< Component-matrix coefficient
+            real(kind=8), parameter :: tol_coef=1d-12                              !< Tolerance to treat a coefficient as zero
+            logical :: first                                                       !< Flag for the first term of a combination
+            character(len=1024) :: expr                                            !< Accumulated linear-combination string
+            character(len=64) :: term                                             !< Single term of the linear combination
+            character(len=64) :: coef_str                                         !< Formatted coefficient
+            character(len=:), allocatable :: sp_name                              !< Variable-activity species name
+        !> Process
+            associate(sc => this%solid_chemistry, rz => this%solid_chemistry%reactive_zone, &
+                      cs => this%solid_chemistry%reactive_zone%chem_syst)
+            n_c=rz%speciation_alg%num_prim_species                                 !< comp_mat rows (components)
+            n_v=rz%speciation_alg%num_var_act_species                              !< comp_mat columns (ALL variable-activity species: aqueous + exchanger)
+            n_aq_prim=rz%speciation_alg%num_aq_prim_species                        !< secondary aqueous species occupy var-act indices n_aq_prim+1..n_v
+            !> Component definitions as linear combinations of variable-activity species (u_init.dat style)
+            write(iunit,'(A)') "[CELL-DBG]   components (u_i = combination of variable-activity species):"
+            do ci=1,n_c
+                expr=''
+                first=.true.
+                do j=1,n_v
+                    coef=rz%speciation_alg%comp_mat(ci,j)
+                    if (abs(coef)<tol_coef) cycle
+                    !> comp_mat column j maps to chem_syst species rz%ind_var_act_species(j);
+                    !> this spans ALL variable-activity species (aqueous, free exchange site
+                    !> and surface complexes), so the exchanger component prints its x-/surface
+                    !> terms instead of collapsing to 0.
+                    sp_name=trim(cs%species(rz%ind_var_act_species(j))%name)
+                    if (first) then
+                        if (coef>0d0) then
+                            if (abs(coef-1d0)<tol_coef) then
+                                term=sp_name
+                            else
+                                write(coef_str,'(F0.1)') coef
+                                term=trim(adjustl(coef_str))//' '//sp_name
+                            end if
+                        else
+                            if (abs(coef+1d0)<tol_coef) then
+                                term='- '//sp_name
+                            else
+                                write(coef_str,'(F0.1)') abs(coef)
+                                term='- '//trim(adjustl(coef_str))//' '//sp_name
+                            end if
+                        end if
+                        first=.false.
+                    else
+                        if (coef>0d0) then
+                            if (abs(coef-1d0)<tol_coef) then
+                                term=' + '//sp_name
+                            else
+                                write(coef_str,'(F0.1)') coef
+                                term=' + '//trim(adjustl(coef_str))//' '//sp_name
+                            end if
+                        else
+                            if (abs(coef+1d0)<tol_coef) then
+                                term=' - '//sp_name
+                            else
+                                write(coef_str,'(F0.1)') abs(coef)
+                                term=' - '//trim(adjustl(coef_str))//' '//sp_name
+                            end if
+                        end if
+                    end if
+                    expr=trim(expr)//trim(term)
+                end do
+                if (first) expr='0'
+                write(iunit,'(A,I0,A,A)') "[CELL-DBG]     u", ci, " = ", trim(expr)
+            end do
+            !> Reaction names, one per line, in the same order as the reaction-rate value rows below
+            !> Each aqueous equilibrium reaction eliminates the secondary aqueous species at var-act index n_aq_prim+j
+            n_aqeq=cs%num_aq_eq_reacts
+            if (n_aqeq>0) then
+                write(iunit,'(A)') "[CELL-DBG]   aq eq reactions (secondary species eliminated, aq re_mean order):"
+                do j=1,n_aqeq
+                    if (n_aq_prim+j<=n_v) then
+                        write(iunit,'(A,I0,A,A)') "[CELL-DBG]     re", j, " = ", &
+                            trim(this%aq_phase%aq_species(this%indices_aq_phase(this%ind_var_act_species(n_aq_prim+j)))%name)
+                    else
+                        write(iunit,'(A,I0,A,A)') "[CELL-DBG]     re", j, " = ", trim(cs%eq_reacts(j)%name)
+                    end if
+                end do
+            end if
+            n_min=rz%num_minerals
+            n_exch=rz%cat_exch_zone%num_exch_cats
+            !> Mineral equilibrium reactions (first block of the min/exch re_mean & amnt_eq value rows)
+            if (n_min>0) then
+                write(iunit,'(A)') "[CELL-DBG]   mineral eq reactions (min re_mean / min amnt_eq order, entries 1..n_min):"
+                do j=1,n_min
+                    write(iunit,'(A,I0,A,A)') "[CELL-DBG]     me", j, " = ", &
+                        trim(cs%minerals(rz%ind_mins_chem_syst(j))%name)
+                end do
+            end if
+            !> Exchange (cation-exchange) equilibrium reactions (they follow the minerals in the
+            !> same re_mean & amnt_eq value rows, at entries n_min+1..n_min+n_exch). surf_compl(1) is
+            !> the free site (exchanger master/primary species, not a reaction); the n_exch exchange
+            !> reactions produce the adsorbed cations, which are surf_compl(2:1+n_exch).
+            if (n_exch>0) then
+                write(iunit,'(A)') "[CELL-DBG]   exchange eq reactions:"
+                do j=1,n_exch
+                    write(iunit,'(A,I0,A,A)') "[CELL-DBG]     me", n_min+j, " = ", &
+                        trim(rz%cat_exch_zone%surf_compl(1+j)%name)
+                end do
+            end if
+            n_lin=cs%num_lin_kin_reacts
+            n_redox=cs%num_redox_kin_reacts
+            if (n_lin+n_redox>0) then
+                write(iunit,'(A)') "[CELL-DBG]   aq kin reactions (aq rk_mean/new/old order):"
+                do j=1,n_lin
+                    write(iunit,'(A,I0,A,A)') "[CELL-DBG]     rk", j, " = ", &
+                        trim(cs%lin_kin_reacts(j)%name)
+                end do
+                do j=1,n_redox
+                    write(iunit,'(A,I0,A,A)') "[CELL-DBG]     rk", n_lin+j, " = ", &
+                        trim(cs%redox_kin_reacts(j)%name)
+                end do
+            end if
+            n_minkin=sc%mineral_zone%num_minerals_kin
+            if (n_minkin>0) then
+                write(iunit,'(A)') "[CELL-DBG]   min kin reactions (min rk_mean/new/old order):"
+                do j=1,n_minkin
+                    write(iunit,'(A,I0,A,A)') "[CELL-DBG]     mrk", j, " = ", &
+                        trim(cs%minerals(sc%mineral_zone%ind_min_chem_syst(j))%name)
+                end do
+            end if
+            end associate
+        end subroutine
+
+        !> Write one cell's [CELL-DBG] trace block (step header, species, legend on k==1,
+        !! c/u mixed & conservative & new values, reaction contributions and rates).
+        !! Centralises the per-cell debug output so every solver emits identical rows.
+        !! c_mix is the transported mix (lumped solvers pass their c_mix/c_hat). c_tilde
+        !! (conservative part) and c_hat (reacted mix, non-lumped solvers) are optional and,
+        !! when present, add the c_tilde/u_tilde and c_hat/u_hat rows respectively.
+        subroutine write_celldbg_cell(this,iunit,k,twi,n_v,c_mix,c_tilde,c_hat)
+            implicit none                                                           !< No implicit variable declarations
+        !> Arguments
+            class(aqueous_chemistry_c), intent(in) :: this                         !< Aqueous chemistry object (input only)
+            integer(kind=4), intent(in) :: iunit                                   !< Output unit of the CELL-DBG file
+            integer(kind=4), intent(in) :: k                                       !< Current time step index
+            integer(kind=4), intent(in) :: twi                                    !< Target water index
+            integer(kind=4), intent(in) :: n_v                                     !< Number of variable-activity species
+            real(kind=8), intent(in) :: c_mix(:)                                   !< Transported (mixed) var-act species conc
+            real(kind=8), intent(in) :: c_tilde(:)                                 !< Conservative part of the mix
+            real(kind=8), intent(in) :: c_hat(:)                                   !< Reacted mix
+        !> Variables
+            integer(kind=4) :: j                                                   !< Species index
+            character(len=18) :: nm                                                !< Fixed-width (left-justified) row label so every row's value columns align under the species-name header
+            logical, save :: descr_written = .false.  !< file variable-description block written once (first call)
+        !> Process
+            associate(sc => this%solid_chemistry)
+            !> One-time file description: meaning of each labelled row within a per-cell block
+            if (.not. descr_written) then
+                write(iunit,'(A)') "[CELL-DBG] ==========================================================================="
+                write(iunit,'(A)') "[CELL-DBG] REMIX per-cell reactive-mixing (WMA) trace  one block per (step, target water)"
+                write(iunit,'(A)') "[CELL-DBG] concentrations [mol/L]; reaction amounts [mol/L per step]; rates [mol/L/time]"
+                write(iunit,'(A)') "[CELL-DBG] variables per block:"
+                write(iunit,'(A)') "[CELL-DBG]   aq var act species : variable-activity aqueous species names (column order)"
+                write(iunit,'(A)') "[CELL-DBG]   components         : u_i as a linear combination of var-act species (step 1)"
+                write(iunit,'(A)') "[CELL-DBG]   mineral eq reactions: mineral order for min re_mean / min amnt_eq (step 1)"
+                write(iunit,'(A)') "[CELL-DBG]   c_mix   : transported (mixed) concentrations entering the reaction step"
+                write(iunit,'(A)') "[CELL-DBG]   c_tilde : purely conservative mix (transport only, no reaction)"
+                write(iunit,'(A)') "[CELL-DBG]   c_hat   : reacted mix = c_mix + Dt*r_tilde (= c_mix if lumped/no kinetics)"
+                write(iunit,'(A)') "[CELL-DBG]   c_new   : concentrations after the equilibrium/kinetic solve (end of step)"
+                write(iunit,'(A)') "[CELL-DBG]   u_mix / u_hat / u_new : component totals U*c for c_mix / c_hat / c_new"
+                write(iunit,'(A)') "[CELL-DBG]   surf compl / surf act : surface complex names and Gaines-Thomas activities"
+                write(iunit,'(A)') "[CELL-DBG]   CEC check : sum(z*c) adsorbed equivalents vs stored exchange capacity (CEC)"
+                write(iunit,'(A)') "[CELL-DBG]   contrib species : column order of the contrib_* rows (aq species, then surf)"
+                write(iunit,'(A)') "[CELL-DBG]   contrib_eq  : equilibrium reaction contribution = c_new - c_hat - kin term"
+                write(iunit,'(A)') "[CELL-DBG]   contrib_kin : kinetic reaction contribution to the species balance"
+                write(iunit,'(A)') "[CELL-DBG]   min/exch amnt_eq : equilibrium reaction amounts Re (minerals, then exchange)"
+                write(iunit,'(A)') "[CELL-DBG]   aq r_eq / min r_eq : equilibrium reaction rates = amnt_eq / Dt"
+                write(iunit,'(A)') "[CELL-DBG]   aq/min rk_mean : step-averaged kinetic reaction rates"
+                write(iunit,'(A)') "[CELL-DBG]   aq/min rk_new, rk_old : end-of-step and previous-step kinetic rates"
+                write(iunit,'(A)') "[CELL-DBG] ==========================================================================="
+                descr_written = .true.
+            end if
+            write(iunit,'(A,I0,A,I0)') "[CELL-DBG] step=", k, " target water index=", twi
+            nm='aq var act species'; write(iunit,'("[CELL-DBG]   ",A," =",*(A18))') nm, &
+                (trim(this%aq_phase%aq_species(this%indices_aq_phase(this%ind_var_act_species(j)))%name), &
+                 j=1,size(this%ind_var_act_species))
+            if (k==1) call write_celldbg_legend(this, iunit)
+            !> c_mix/c_hat are conc_nc-ordered: aqueous secondaries sit at offset num_prim_species
+            !> (AFTER the free site / solid-gas primaries), not contiguously after the aqueous
+            !> primaries. Print aqueous primaries then aqueous secondaries so the free site is not
+            !> shown in place of an eliminated aqueous secondary (e.g. calcite's ca+2), keeping the
+            !> row consistent with c_tilde/c_new. Non-exchange systems (num_prim==num_aq_prim) are
+            !> unaffected: the second slice is then simply the contiguous secondaries.
+            nm='c_mix'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, &
+                [c_mix(1:sc%reactive_zone%speciation_alg%num_aq_prim_species), &
+                 c_mix(sc%reactive_zone%speciation_alg%num_prim_species+1: &
+                       sc%reactive_zone%speciation_alg%num_prim_species+ &
+                       sc%reactive_zone%speciation_alg%num_aq_sec_var_act_species)]
+            !> c_tilde is the aqueous-only conservative mix (size num_aq_var_act_species):
+            !> print the whole array; u_tilde is not defined for it.
+            nm='c_tilde'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, c_tilde
+            nm='c_hat'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, &
+                [c_hat(1:sc%reactive_zone%speciation_alg%num_aq_prim_species), &
+                 c_hat(sc%reactive_zone%speciation_alg%num_prim_species+1: &
+                       sc%reactive_zone%speciation_alg%num_prim_species+ &
+                       sc%reactive_zone%speciation_alg%num_aq_sec_var_act_species)]
+            nm='c_new'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%concentrations(this%ind_var_act_species)
+            nm='u_mix'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%compute_u_mix(c_mix(1:n_v))
+            nm='u_hat'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%compute_u_mix(c_hat(1:n_v))
+            nm='u_new'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, &
+                matmul(sc%reactive_zone%speciation_alg%comp_mat, this%get_conc_var_act())
+            !> Surface (exchange) complexes are stored as the LAST num_surf_compl entries of the
+            !> solid-chemistry activity/concentration arrays (after any minerals); print their
+            !> names and activities just after u_new so the exchanger state is visible per cell.
+            if (sc%reactive_zone%cat_exch_zone%num_surf_compl>0) then
+                block
+                    integer(kind=4) :: nsc, off, nex, i, z
+                    real(kind=8), allocatable :: act_sc(:)
+                    real(kind=8) :: tot
+                    nsc = sc%reactive_zone%cat_exch_zone%num_surf_compl
+                    nex = sc%reactive_zone%cat_exch_zone%num_exch_cats
+                    off = sc%num_solids - nsc
+                    !> Gaines-Thomas activities are equivalent fractions. The equivalent of each
+                    !> surface complex is z_i * c_i (free site x- has z=1), and the activities are
+                    !> normalised by the total exchanger capacity ÃŽÂ£ z_j c_j so that the free-site
+                    !> and adsorbed-cation activities always sum to 1.
+                    allocate(act_sc(nsc))
+                    act_sc(1) = sc%concentrations(off+1)   !< free site x- (valence 1)
+                    do i=1,nex
+                        z = sc%reactive_zone%chem_syst%aq_phase%aq_species( &
+                            sc%reactive_zone%cat_exch_zone%exch_cat_indices(i))%valence
+                        act_sc(1+i) = z * sc%concentrations(off+1+i)
+                    end do
+                    tot = sum(act_sc)
+                    if (tot>0d0) act_sc = act_sc / tot
+                    nm='surf compl'; write(iunit,'("[CELL-DBG]   ",A," =",*(A18))') nm, &
+                        (trim(sc%reactive_zone%cat_exch_zone%surf_compl(j)%name), j=1,nsc)
+                    nm='surf act'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, act_sc
+                    !> Consistency check: the total adsorbed equivalents ÃŽÂ£ z_j c_j should equal the
+                    !> stored cation exchange capacity CEC. Print both plus their relative mismatch.
+                    write(iunit,'("[CELL-DBG]   CEC check: sum(z*c)=",ES18.10," CEC=",ES18.10," rel.diff=",ES18.10)') &
+                        tot, sc%CEC, abs(tot-sc%CEC)/max(abs(sc%CEC),1d-30)
+                end block
+            end if
+            !> contrib_eq/contrib_kin are stored in conc_nc order (aqueous primaries, solid/gas
+            !> primaries incl the free site, aqueous secondaries, surface complexes). The header is
+            !> printed as [aqueous var-act species (ind_var_act), then surface complexes], so for an
+            !> exchange system the free site (at num_prim_species) and an aqueous secondary (e.g.
+            !> ca+2, at num_prim_species+1) would otherwise be shown in each other's column. Remap the
+            !> conc_nc-ordered contrib arrays onto that header order before printing.
+            block
+                integer(kind=4) :: naq, nsc, naqp, naqsec, nprim, j, s
+                integer(kind=4), allocatable :: disp_order(:)
+                naq = sc%reactive_zone%speciation_alg%num_aq_var_act_species
+                nsc = sc%reactive_zone%cat_exch_zone%num_surf_compl
+                nm='contrib species'; write(iunit,'("[CELL-DBG]   ",A," =",*(A18))') nm, &
+                    (trim(this%aq_phase%aq_species(this%indices_aq_phase(this%ind_var_act_species(j)))%name), &
+                     j=1,size(this%ind_var_act_species)), &
+                    (trim(sc%reactive_zone%cat_exch_zone%surf_compl(j)%name), j=1,nsc)
+                if (sc%reactive_zone%speciation_alg%flag_cat_exch) then
+                    naqp   = sc%reactive_zone%speciation_alg%num_aq_prim_species
+                    naqsec = sc%reactive_zone%speciation_alg%num_aq_sec_var_act_species
+                    nprim  = sc%reactive_zone%speciation_alg%num_prim_species
+                    allocate(disp_order(naq+nsc))
+                    do j=1,naqp;   disp_order(j)=j;            end do      !> aqueous primaries
+                    do j=1,naqsec; disp_order(naqp+j)=nprim+j; end do      !> aqueous secondaries
+                    disp_order(naq+1)=nprim                                !> free site (solid primary)
+                    do s=2,nsc;    disp_order(naq+s)=nprim+naqsec+(s-1); end do !> adsorbed cations
+                    nm='contrib_eq'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%contrib_rxn_amnt_eq(disp_order)
+                    if (allocated(this%contrib_rxn_amnt_kin)) then
+                        nm='contrib_kin'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%contrib_rxn_amnt_kin(disp_order)
+                    end if
+                    deallocate(disp_order)
+                else
+                    nm='contrib_eq'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%contrib_rxn_amnt_eq
+                    if (allocated(this%contrib_rxn_amnt_kin)) then
+                        nm='contrib_kin'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%contrib_rxn_amnt_kin
+                    end if
+                end if
+            end block
+            !> sc%rxn_amnt_eq and sc%rxn_rate_eq are combined arrays: minerals occupy entries
+            !> 1..num_minerals and exchange reactions entries num_minerals+1..+num_exch_cats.
+            !> Print them as separate rows so the mineral and exchange contributions are distinct.
+            block
+                integer(kind=4) :: nme, nex
+                nme = sc%reactive_zone%num_minerals
+                nex = sc%reactive_zone%cat_exch_zone%num_exch_cats
+                if (nme>0) then
+                    nm='min amnt_eq'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, sc%rxn_amnt_eq(1:nme)
+                end if
+                if (nex>0) then
+                    nm='exch amnt_eq'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, sc%rxn_amnt_eq(nme+1:nme+nex)
+                end if
+                nm='aq r_eq'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%rxn_rate_eq
+                if (nme>0) then
+                    nm='min r_eq'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, sc%rxn_rate_eq(1:nme)
+                end if
+                if (nex>0) then
+                    nm='exch r_eq'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, sc%rxn_rate_eq(nme+1:nme+nex)
+                end if
+            end block
+            if (allocated(this%rxn_rate_kin_avg)) then
+                nm='aq rk_mean'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%rxn_rate_kin_avg
+            end if
+            if (allocated(sc%rxn_rate_kin_avg)) then
+                nm='min rk_mean'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, sc%rxn_rate_kin_avg
+            end if
+            if (allocated(this%rxn_rate_kin)) then
+                nm='aq rk_new'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%rxn_rate_kin
+            end if
+            if (allocated(this%rxn_rate_kin_old)) then
+                nm='aq rk_old'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, this%rxn_rate_kin_old
+            end if
+            if (allocated(sc%rxn_rate_kin)) then
+                nm='min rk_new'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, sc%rxn_rate_kin
+            end if
+            if (allocated(sc%rxn_rate_kin_old)) then
+                nm='min rk_old'; write(iunit,'("[CELL-DBG]   ",A," =",*(ES18.10))') nm, sc%rxn_rate_kin_old
+            end if
+            !> Flush so per-cell debug output survives even if a later time step aborts
+            !> (e.g. convergence failure); otherwise buffered content is lost on error stop.
+            flush(iunit)
+            end associate
+        end subroutine
 
 !> Compute residual of component mass balance including constant activity species
 !!> Mathematical Context: Component mass balance: U*c = u where U includes constant activity species
@@ -4347,7 +4809,13 @@ subroutine compute_c_mix_global_lump(all_waters,zone_waters,conc_idx,conc_lam,la
 
     real(kind=8), allocatable :: c_mix_full(:) !> conservative mix in the full var-act layout (base of the limited increment)
     real(kind=8), allocatable :: Sk_nc_old(:,:), rk_old(:)
+    integer(kind=4) :: p !> [NAN-DBG] row counter
+    logical, save :: mix_dbg_done=.false. !> [MIX-DBG] one-shot flag of this call site
 
+    if (within_zone_dbg_step==1 .and. .not. mix_dbg_done) then
+        mix_dbg_done=.true.
+        call print_mix_dbg_stencil("compute_c_mix_global_lump",conc_idx,conc_lam,lambda_L)
+    end if
     call compute_c_mix_cons_global(all_waters,conc_idx,conc_lam,c_mix)
     associate(this => all_waters(conc_idx(1)))
     c_mix_full=expand_c_mix_cons(this,c_mix)
@@ -4358,7 +4826,19 @@ subroutine compute_c_mix_global_lump(all_waters,zone_waters,conc_idx,conc_lam,la
         !> Positivity-preserving update (same uniform-omega limiter as the other mixers)
         if (size(Sk_nc_old,2)==size(c_hat)) &
             call add_limited_increment(c_mix_full,Delta_t*(1d0-theta_r)*lambda_L*matmul(transpose(Sk_nc_old),rk_old),c_hat)
-        if (any(c_hat/=c_hat)) error stop "compute_c_mix_global_lump: non-finite reacted mix"
+        !> [NAN-DBG] non-finite reacted mix: dump the kinetic previous-step term ingredients
+        if (any(c_hat/=c_hat)) then
+            print '(A,I0,A,I0,A,I0,A,I0,A,I0)', "[NAN-DBG] compute_c_mix_global_lump: target water ", conc_idx(1), &
+                " indices_rk%num_cols=", this%indices_rk%num_cols, " indices_rk_old%num_cols=", this%indices_rk_old%num_cols, &
+                " size(rk_old)=", size(rk_old), " rows(Sk_nc_old)=", size(Sk_nc_old,1)
+            print '(A,*(ES12.4))', "[NAN-DBG]   c_mix_full =", c_mix_full
+            print '(A,*(ES12.4))', "[NAN-DBG]   rk_old     =", rk_old
+            do p=1,size(Sk_nc_old,1)
+                print '(A,I0,A,*(ES12.4))', "[NAN-DBG]   Sk_nc_old row ", p, " =", Sk_nc_old(p,:)
+            end do
+            print '(A,*(ES12.4))', "[NAN-DBG]   c_hat      =", c_hat
+            error stop "[NAN-DBG] non-finite reacted mix in compute_c_mix_global_lump"
+        end if
     end if
     end associate
 end subroutine compute_c_mix_global_lump
@@ -4409,7 +4889,21 @@ subroutine compute_c_mix_cons_global(all_waters,conc_idx,conc_lam,c_mix)
                 all_waters(water_idx)%conc_old(all_waters(water_idx)%indices_aq_species(aq_idx))
         end do
     end do
-    if (any(c_tmp /= c_tmp)) error stop "compute_c_mix_cons_global: non-finite conservative mix"
+    !> [NAN-DBG] non-finite conservative mix: report the stencil waters whose previous-step
+    !> concentrations are non-finite (uninitialised / corrupted conc_old), then stop
+    if (any(c_tmp /= c_tmp)) then
+        print '(A,I0,A,*(ES12.4))', "[NAN-DBG] compute_c_mix_cons_global: target water ", conc_idx(1), &
+            " non-finite mix, c_tmp (aq_phase order)=", c_tmp
+        do mix_pos = 1, size(conc_idx)
+            water_idx = conc_idx(mix_pos)
+            if (any(all_waters(water_idx)%conc_old /= all_waters(water_idx)%conc_old) .or. conc_lam(mix_pos) /= conc_lam(mix_pos)) then
+                print '(A,I0,A,I0,A,ES12.4,A,*(ES12.4))', "[NAN-DBG]   water ", water_idx, " (id ", all_waters(water_idx)%id, &
+                    ") lambda_c=", conc_lam(mix_pos), " conc_old=", all_waters(water_idx)%conc_old
+                print '(A,*(ES12.4))', "[NAN-DBG]     concentrations=", all_waters(water_idx)%concentrations
+            end if
+        end do
+        error stop "[NAN-DBG] non-finite conservative mix"
+    end if
     if (allocated(c_mix)) deallocate(c_mix)
     allocate(c_mix(n_aq_prim+n_aq_sec))
     do species_pos = 1, n_aq_prim
@@ -4658,7 +5152,10 @@ end subroutine
 !>          the equilibrium block cancels under the zone's component matrix (U_z*S_eq^T = 0) and is
 !>          never added. c_mix_z is then speciated with zone z (equilibrate_water(_ideal) on a temporary
 !>          copy of the representative moved to zone z, leaving the real water states untouched) so its
-!>          aqueous species can later be re-mixed across zones by the target cell. The within-zone
+!>          aqueous species can later be re-mixed across zones by the target cell - but ONLY if rep_rz
+!>          differs from the reactive zone the members are equilibrated with (the representative's own
+!>          solid_chemistry%reactive_zone): a group already in rep_rz keeps its conservative mix, as
+!>          the target's own equilibration conserves the same components. The within-zone
 !>          ratios must already be renormalised to sum to 1 over the group
 !>          (lambda_*,z,m = lambda_*,i,m / sum_z lambda_*,i,n).
 subroutine mix_within_zone_core(this,all_waters,zone_mix_idx,ratios_conc_norm,ratios_reacts_norm,&
@@ -4687,10 +5184,10 @@ subroutine mix_within_zone_core(this,all_waters,zone_mix_idx,ratios_conc_norm,ra
     real(kind=8), allocatable :: c_eq_z(:) !> speciated (equilibrated) variable activity concentrations (Newton output; state stored in this)
     real(kind=8), allocatable :: conc_comp_z(:) !> component concentrations (work array for the speciation)
     real(kind=8), allocatable :: c1_old_init(:) !> primary-species initial guess for the Newton speciation
+    logical :: speciate !> .true. if the sub-mixture is taken to a reactive zone other than its members' own (rep_rz /= the representative's zone): then it is speciated in rep_rz; otherwise it stays the conservative mix
     !class(solid_chemistry_c), pointer :: zone_solid_chem => null() !> temporary scratch solid chemistry for the zone sub-mixture (discarded on exit)
 
-    !> The group's first water represents zone z, which is defined by rep_rz (its OLD or CURRENT
-    !> reactive zone, chosen by the caller). The members may sit in cells of OTHER zones (displaced
+    !> The group's first water represents zone z. The members may sit in cells of OTHER zones (displaced
     !> parcels), so nothing zone-dependent is taken from their own solid chemistry or index arrays.
     associate(rep_water => all_waters(zone_mix_idx(1)), zone_solid => this%solid_chemistry)
     n_v_z=rep_rz%speciation_alg%num_var_act_species
@@ -4766,11 +5263,37 @@ subroutine mix_within_zone_core(this,all_waters,zone_mix_idx,ratios_conc_norm,ra
     !> zone z's primary order) only serve as the anchor of the retry extrapolation (mu > 0).
     c1_old_init=this%get_c1()
     call this%set_conc_prim_species(c_hat_z(1:n_p_z))
-    if (ideal) then
+    !> The sub-mixture is speciated only when it is taken to a reactive zone OTHER than the one its
+    !> members are equilibrated with (rep_rz /= the representative's own reactive zone): a group that
+    !> already belongs to rep_rz (the target's own zone) only needs its conservative mix, since the
+    !> target's own equilibration conserves exactly the components the within-zone speciation would
+    !> (U_z*c_eq_z = U_z*c_hat_z) - the same redundancy that skips stage 2 altogether in the direct
+    !> mix. Its zone water then carries c_hat_z itself (no equilibrium reaction: compute_Re below finds
+    !> rho = c - c_hat = 0) and the equilibrium check does not apply to it.
+    speciate=(rep_water%solid_chemistry%reactive_zone%id/=rep_rz%id)
+    if (within_zone_dbg_active) then
+        write(within_zone_dbg_unit,'(A,I0,A,I0,A,I0,A,L1)') "[ZONE-DBG]   zone rep water=", zone_mix_idx(1), &
+            " n_members=", size(zone_mix_idx), " n_var_act=", n_v_z, " speciated=", speciate
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     zone var act =",*(A13))') &
+            (trim(rep_rz%chem_syst%species(rep_rz%ind_var_act_species(p))%name), p=1,n_v_z)
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     ratios_conc  =",*(ES13.5))') ratios_conc_norm
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     r_tilde_z    =",*(ES13.5))') r_tilde_z
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     c_mix_z      =",*(ES13.5))') c_mix_z
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     c_hat_z      =",*(ES13.5))') c_hat_z
+    end if
+    if (.not. speciate) then
+        c_eq_z=c_hat_z
+        conc_comp_z=matmul(rep_rz%speciation_alg%comp_mat,c_hat_z)
+        !> the zone water's aqueous state is the conservative sub-mixture itself (stage 3 reads it
+        !> through concentrations); the non-aqueous slots of c_hat_z are 0 and are left alone
+        this%concentrations(this%ind_var_act_species(1:n_aq_p_z))=c_hat_z(1:n_aq_p_z)
+        this%concentrations(this%ind_var_act_species(n_aq_p_z+1:n_aq_p_z+n_aq_s_z))=c_hat_z(n_p_z+1:n_p_z+n_aq_s_z)
+    else if (ideal) then
         call equilibrate_water_ideal(this,c1_old_init,c_hat_z,0d0,Delta_t,theta_r,c_eq_z,conc_comp_z)
     else
         call equilibrate_water(this,c1_old_init,c_hat_z,0d0,Delta_t,theta_r,c_eq_z,conc_comp_z)
     end if
+    if (within_zone_dbg_active) write(within_zone_dbg_unit,'("[ZONE-DBG]     c_eq_z       =",*(ES13.5))') c_eq_z
     !> Component mass-balance check: the speciation must conserve the zone's components,
     !> U_z*c_eq_z == conc_comp_z (= U_z*c_hat_z). Error stop otherwise.
     block
@@ -4789,9 +5312,11 @@ subroutine mix_within_zone_core(this,all_waters,zone_mix_idx,ratios_conc_norm,ra
     !> Check that this is equilibrated with its (associated) reactive zone: for every
     !> equilibrium reaction the ion activity product prod_i a_i^S_ri must equal K (the Newton
     !> speciation in mixing_iter_comp_ideal/mixing_iter_comp enforces it). Error stop otherwise.
+    !> Only meaningful when the sub-mixture was speciated here (a group of rep_rz's own zone is
+    !> left as its conservative mix, which is not at equilibrium).
     call this%compute_activities_aq()
     call this%compute_pH()
-    if (this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0) then
+    if (speciate .and. this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0) then
         block
             real(kind=8), allocatable :: K_eq(:) !> equilibrium constants of the zone's reactions
             real(kind=8), allocatable :: a_col(:) !> activities in stoich_mat COLUMN (speciation) order
@@ -4841,6 +5366,13 @@ subroutine mix_within_zone_core(this,all_waters,zone_mix_idx,ratios_conc_norm,ra
                 error stop "[WITHIN-ZONE] zone sub-mixture not equilibrated with its reactive zone"
             end if
         end block
+    end if
+    if (within_zone_dbg_active) then
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     rho_eq (aq)  =",*(ES13.5))') this%contrib_rxn_amnt_eq
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     Re (aq)      =",*(ES13.5))') this%rxn_amnt_eq
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     re_mean (aq) =",*(ES13.5))') this%rxn_rate_eq
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     Re (solid)   =",*(ES13.5))') zone_solid%rxn_amnt_eq
+        write(within_zone_dbg_unit,'("[ZONE-DBG]     re_mean(sol) =",*(ES13.5))') zone_solid%rxn_rate_eq
     end if
     !zone_solid_out=zone_solid !> copy the sub-mixture's scratch solid chemistry to the output variable
     !deallocate(zone_solid) !> temporary: discard the zone's scratch solid chemistry
@@ -4984,6 +5516,7 @@ subroutine compute_c_mix_by_zones_cons(all_waters,zone_waters,conc_idx,conc_lam,
         end do
         call add_limited_increment(c_mix,Delta_t*(1d0-theta_r)*kin_prev,c_hat)
     end if
+    call write_zone_dbg_c_mix(all_waters(conc_idx(1)),c_hat,c_mix)
 end subroutine compute_c_mix_by_zones_cons
 
 !> \brief Lumped WMA cross-zone mixing for one target cell.
@@ -5012,9 +5545,14 @@ subroutine compute_c_mix_by_zones_lump(all_waters,zone_waters,conc_idx,conc_lam,
     real(kind=8), allocatable :: c_hat_zones(:) !> stages 2+3 result: cross-zone mix of the speciated zone sub-mixtures (full var-act layout), before the kinetic term
     real(kind=8), allocatable :: c_mix_zones(:) !> conservative aqueous part of c_hat_zones (pure previous-step mix)
     real(kind=8), allocatable :: Sk_nc_old(:,:), rk_old(:)
+    logical, save :: mix_dbg_done=.false. !> [MIX-DBG] one-shot flag of this call site
 
     allocate(react_lam(size(conc_idx)))
     react_lam=0d0
+    if (within_zone_dbg_step==1 .and. .not. mix_dbg_done) then
+        mix_dbg_done=.true.
+        call print_mix_dbg_stencil("compute_c_mix_by_zones_lump",conc_idx,conc_lam,lambda_L)
+    end if
     call cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_lam,wat_indices_zones,ext_wat_indices,&
         Delta_t,theta_r,ideal,c_hat_zones,c_mix_zones,direct_mix)
     !> Both outputs are set unconditionally: c_hat must be allocated also when the target has no
@@ -5028,8 +5566,34 @@ subroutine compute_c_mix_by_zones_lump(all_waters,zone_waters,conc_idx,conc_lam,
         if (size(Sk_nc_old,2)==size(c_hat_zones)) &
             call add_limited_increment(c_mix,Delta_t*(1d0-theta_r)*lambda_L*matmul(transpose(Sk_nc_old),rk_old),c_hat)
     end if
+    call write_zone_dbg_c_mix(self,c_hat,c_mix)
     end associate
 end subroutine compute_c_mix_by_zones_lump
+
+!> [MIX-DBG] stdout trace of one target cell's mixing stencil: concentration-mixing waters (self
+!> first), their concentration mixing ratios (column-aligned with the indices), optionally the
+!> reaction mixing ratios (same alignment) and the lumped reaction mixing ratio, and the
+!> concentration ratio sum (must be 1). Each call site gates it on the first time step
+!> (within_zone_dbg_step==1) and prints only once (first target water processed in that step).
+subroutine print_mix_dbg_stencil(mixer,conc_idx,conc_lam,lambda_L,react_lam)
+    implicit none
+    character(len=*), intent(in) :: mixer !> name of the calling mixer
+    integer(kind=4), intent(in) :: conc_idx(:) !> concentration-mixing waters (self first), global indices
+    real(kind=8), intent(in) :: conc_lam(:) !> concentration mixing ratios aligned with conc_idx
+    real(kind=8), intent(in), optional :: lambda_L !> lumped reaction mixing ratio of the target water
+    real(kind=8), intent(in), optional :: react_lam(:) !> reaction mixing ratios aligned with conc_idx
+    if (present(lambda_L)) then
+        print '(A,I0,A,I0,A,I0,A,ES12.4,A,A)', "[MIX-DBG] step ", within_zone_dbg_step, " target water=", conc_idx(1), &
+            " nmix=", size(conc_idx), " lambda_L=", lambda_L, " mixer=", mixer
+    else
+        print '(A,I0,A,I0,A,I0,A,A)', "[MIX-DBG] step ", within_zone_dbg_step, " target water=", conc_idx(1), &
+            " nmix=", size(conc_idx), " mixer=", mixer
+    end if
+    print '(("[MIX-DBG]   conc_idx  =",12(1X,I12)))', conc_idx
+    print '(("[MIX-DBG]   conc_lam  =",12(1X,ES12.4)))', conc_lam
+    if (present(react_lam)) print '(("[MIX-DBG]   react_lam =",12(1X,ES12.4)))', react_lam
+    print '(A,ES23.15)', "[MIX-DBG]   sum(conc_lam) =", sum(conc_lam)
+end subroutine print_mix_dbg_stencil
 
 !> Patankar-type scalar limiter: c_hat = c_mix + omega*delta with a uniform omega in [0,1] so that no
 !> species is driven below floor_frac of its value; a uniform omega keeps omega*Sk^T*rk a valid reaction extent.
@@ -5049,6 +5613,31 @@ subroutine add_limited_increment(c_mix,delta,c_hat)
     if (omega<0d0) omega=0d0
     c_hat=c_mix+omega*delta
 end subroutine add_limited_increment
+
+!> [ZONE-DBG] final rows of the traced cell: c_hat (aqueous primaries then aqueous secondaries, skipping
+!> the free site), the conservative mix c_mix and their difference; then disarm the trace.
+subroutine write_zone_dbg_c_mix(self,c_hat,c_mix)
+    implicit none
+    type(aqueous_chemistry_c), intent(in) :: self
+    real(kind=8), intent(in) :: c_hat(:), c_mix(:)
+    integer(kind=4) :: jj, n_aq_prim, n_aq_sec, n_prim
+    real(kind=8), allocatable :: chat_aq(:)
+    if (within_zone_dbg_active) then
+        n_aq_prim=size(self%ind_prim_species)
+        n_aq_sec=self%solid_chemistry%reactive_zone%speciation_alg%num_aq_sec_var_act_species
+        n_prim=self%solid_chemistry%reactive_zone%speciation_alg%num_prim_species
+        allocate(chat_aq(n_aq_prim+n_aq_sec))
+        chat_aq(1:n_aq_prim)=c_hat(1:n_aq_prim)
+        chat_aq(n_aq_prim+1:n_aq_prim+n_aq_sec)=c_hat(n_prim+1:n_prim+n_aq_sec)
+        write(within_zone_dbg_unit,'("[ZONE-DBG]   aq var act species =",*(A13))') &
+            (trim(self%aq_phase%aq_species(self%indices_aq_phase(self%ind_var_act_species(jj)))%name), jj=1,n_aq_prim), &
+            (trim(self%aq_phase%aq_species(self%indices_aq_phase(self%ind_var_act_species(n_prim+jj)))%name), jj=1,n_aq_sec)
+        write(within_zone_dbg_unit,'("[ZONE-DBG]   c_hat              =",*(ES13.5))') chat_aq
+        write(within_zone_dbg_unit,'("[ZONE-DBG]   c_mix              =",*(ES13.5))') c_mix
+        write(within_zone_dbg_unit,'("[ZONE-DBG]   within-zone rxn    =",*(ES13.5))') chat_aq-c_mix
+    end if
+    within_zone_dbg_active=.false. !> [ZONE-DBG] disarm the trace for the next (possibly untraced) cell
+end subroutine write_zone_dbg_c_mix
 
 !> Conservative core shared by compute_c_mix_by_zones_{cons,lump}: stage 2 (within-zone mixing with
 !> the per-water reaction ratios react_lam) and stage 3 (cross-zone aqueous mixing). The grouping
@@ -5095,11 +5684,20 @@ subroutine cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_la
     !type(aqueous_chemistry_c), allocatable :: zone_waters_aq_chem(:) !> aqueous chemistry of the zone waters
     real(kind=8), allocatable :: c_tmp(:)
     real(kind=8), allocatable :: c_cons(:) !> cross-zone aqueous mix before speciation, aq_phase order: direct mix = pure previous-step mix; multi-zone = weighted sum of the zone waters' pre-speciation mixes c_hat_z (conc_mix), i.e. including the limited previous-step kinetic term
+    logical, parameter :: dbg=.false. !> set .true. to enable per-reactive-zone mixing debug prints
+    logical, save :: zonedbg_descr_written = .false. !> [ZONE-DBG] one-time file legend written flag
+    logical, save :: mix_dbg_done=.false. !> [MIX-DBG] one-shot flag of this call site
     logical :: single_zone !> .true. when the whole domain has a single reactive zone (per-zone lambda renormalization is then skipped)
 
     nmix=size(conc_idx) !> number of mixing waters
     nzd=wat_indices_zones%num_cols !> number of domain reactive zones (zone id = column index)
     single_zone=(nzd==1) !> flag indicating if the whole domain has a single reactive zone
+    !> [MIX-DBG] stencil of the first target water of the first time step: concentration and
+    !> reaction mixing ratios of the mixing waters, as received by the core
+    if (within_zone_dbg_step==1 .and. .not. mix_dbg_done) then
+        mix_dbg_done=.true.
+        call print_mix_dbg_stencil("cross_zone_mix_core",conc_idx,conc_lam,react_lam=react_lam)
+    end if
     !> Mixing ratios by GLOBAL water index (the stencil scattered over all_waters, 0 elsewhere), so the
     !> zone groups and the external waters are read straight from wat_indices_zones and
     !> ext_wat_indices
@@ -5129,6 +5727,50 @@ subroutine cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_la
     end do
     if (single_zone) direct_mix=.true.
 
+    !> [ZONE-DBG] arm the per-cell zone-mixing trace for this target water. mix_within_zone reads
+    !> within_zone_dbg_active to decide whether to emit its per-zone rows; disarmed at routine exit.
+    !> Only the selected cells (within_zone_dbg_cells) during the first within_zone_dbg_max_step
+    !> steps are traced, keeping the file small (like the CELL-DBG trace).
+    within_zone_dbg_active=.false.
+    if (within_zone_dbg .and. within_zone_dbg_unit/=-1 .and. within_zone_dbg_step>=1 .and. &
+        within_zone_dbg_step<=within_zone_dbg_max_step .and. allocated(within_zone_dbg_cells)) then
+        within_zone_dbg_active=any(within_zone_dbg_cells==conc_idx(1))
+    end if
+    if (within_zone_dbg_active .and. .not. zonedbg_descr_written) then
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG] =================================================================="
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG] REMIX per-cell zone-mixing trace (compute_c_mix_by_zones / mix_within_zone)"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG] one block per (step, target water); concentrations [mol/L]"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG] stage 2 (mix_within_zone) emits one sub-block per reactive zone in the"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   cell's mixing stencil:"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   zone var act : the zone's variable-activity species (conc_nc column order)"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   ratios_conc  : within-zone concentration mixing ratios (per member, sum=1)"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   r_tilde_z    : within-zone previous-step kinetic reaction term"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   c_mix_z      : conservative within-zone mix entering speciation"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   c_hat_z      : speciated within-zone sub-mixture (Newton output)"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   rho_eq/Re/re_mean : eq contributions, amounts and rates (aqueous & solid)"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG] stage 3 (cross-zone aqueous mixing), target-cell aqueous var-act species:"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   lambda_c per zone : each zone's total concentration mixing ratio"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   c_hat        : cross-zone mixed (and within-zone reacted) var-act conc = result of this subroutine"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   c_mix        : conservative cross-zone mix (transport only, no reaction)"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG]   within-zone rxn : c_hat - c_mix (per aqueous var-act species)"
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG] =================================================================="
+        zonedbg_descr_written=.true.
+    end if
+    if (within_zone_dbg_active) then
+        write(within_zone_dbg_unit,'(A)') "[ZONE-DBG] ------------------------------------------------------------------"
+        write(within_zone_dbg_unit,'(A,I0,A,I0,A,I0,A,I0,A,L1)') "[ZONE-DBG] step=", within_zone_dbg_step, &
+            " target water index=", conc_idx(1), " nmix=", nmix, " nzones=", count(lam_c_zone>0d0), " direct_mix=", direct_mix
+        write(within_zone_dbg_unit,'("[ZONE-DBG]   zone ids =",*(1X,I0))') pack([(z,z=1,nzd)],lam_c_zone>0d0)
+    end if
+
+    if (dbg) then
+        print '(A,I0,A,I0,A,I0)', "[ZONE-MIX] self=", conc_idx(1), " nmix=", nmix, " nzones=", count(lam_c_zone>0d0)
+        print '(A,*(I0,1X))', "[ZONE-MIX]   zone_ids=", pack([(z,z=1,nzd)],lam_c_zone>0d0)
+        print '(A,*(I0,1X))', "[ZONE-MIX]   mix_glob=", conc_idx
+        print '(A,*(ES12.4,1X))', "[ZONE-MIX]   lam_zone=", lam_c_zone
+        print '(A,ES12.4)', "[ZONE-MIX]   lam_ext =", lam_ext
+    end if
+
     !> Stage 2: within-zone mixing -> one temporary speciated water per zone (multi-zone domains only),
     !> indexed by zone id. The members of zone z are the waters of column z of
     !> wat_indices_zones, each with its own mixing ratios (0 for a member outside the stencil). A
@@ -5157,6 +5799,10 @@ subroutine cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_la
             sum_rr=sum(grp_rr)
             if (sum_rr>0d0) grp_rr=grp_rr/sum_rr !> within-zone reaction ratios (sum=1)
         !end if
+        if (dbg) print '(A,I0,A,I0,A,ES12.4)', "[ZONE-MIX]   zone_id=", z, &
+            " n_members=", size(grp_glob), " lambda_c_zone=", lam_c_zone(z)
+        if (within_zone_dbg_active) write(within_zone_dbg_unit,'(A,I0,A,ES13.5)') &
+            "[ZONE-DBG]   -- reactive zone id=", z, " lambda_c=", lam_c_zone(z)
         call zone_waters(z)%aq_chem%mix_within_zone_new_rz(all_waters,grp_glob,grp_rc,grp_rr,Delta_t,theta_r,ideal,&
             all_waters(conc_idx(1))%solid_chemistry%reactive_zone,all_waters(conc_idx(1))%solid_chemistry%mineral_zone) !> rep_rz = self water's zone
         call zone_waters(z)%set_tar_wat_idx(conc_idx(1))
@@ -5215,7 +5861,10 @@ subroutine cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_la
             c_cons(i)=c_cons(i)+lam_glob(w)*all_waters(w)%conc_old(all_waters(w)%indices_aq_species(aq_idx))
         end do
     end do
-    !> Mass-balance check: the mixing weights must sum to 1 (conservative transport).
+    !> Mass-balance check. (1) Partition: the mixing weights must sum to 1 (conservative transport).
+    !> (2) Per-species (dbg): compare the mixed aqueous concentration against the purely conservative
+    !> cross-zone mix of the previous-step concentrations; the difference is the within-zone reaction
+    !> (~0 for inert species such as Cl-, nonzero for reacting species).
     block
         real(kind=8) :: wsum, wsum_raw
         integer(kind=4) :: zz
@@ -5256,6 +5905,7 @@ subroutine cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_la
     do i=1,n_aq_sec
         c_hat(n_prim+i)=c_tmp(self%ind_sec_species(i))
     end do
+    if (dbg) print '(A,I0,A,*(ES12.4))', "[ZONE-MIX] self=", conc_idx(1), " c_hat=", c_hat
     !> c_mix: conservative part of c_hat (allocated here, size num_aq_var_act_species): AQUEOUS
     !> variable-activity species ONLY, compact layout [aqueous primary][aqueous secondary var act]
     !> (aqueous secondaries at offset n_aq_prim), from the pure previous-step mix.
@@ -5272,6 +5922,8 @@ subroutine cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_la
     !> (compact [aq prim | aq sec] layout, as compute_c_mix_cons_global does); the speciation input
     !> c_hat (full layout, plus the new-step reaction term) is stored by the solver in conc_hat.
     self%conc_mix=c_mix
+    if (within_zone_dbg_active .and. .not. direct_mix) &
+        write(within_zone_dbg_unit,'("[ZONE-DBG]   lambda_c per zone  =",*(ES13.5))') lam_c_zone
     end associate
 end subroutine cross_zone_mix_core
 
@@ -6526,6 +7178,27 @@ end subroutine
         lhs=V*(c_new(1:n_v)-c_old(1:n_v))/Delta_t
         transp=V*(c_mix(1:n_v)-c_old(1:n_v))/Delta_t
         react=V*(c_hat(1:n_v)-c_mix(1:n_v))/Delta_t + V*lambda_r*sr(1:n_v)
+        !> [MBTERMS-DBG] one-shot diagnostic for the exchange mass-balance investigation
+        block
+            logical, save :: mbterms_dbg_done=.false.
+            integer(kind=4) :: idbg
+            if ((.not. mbterms_dbg_done) .and. &
+                this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl>0) then
+                mbterms_dbg_done=.true.
+                print '(A)', "[MBTERMS-DBG] === get_react_mix_mass_bal_terms (first exchange cell) ==="
+                print '(A,I0,A,I0,A,ES12.4)', "[MBTERMS-DBG] n_v=", n_v, " n_eq_r=", n_eq_r, " V=", V
+                print '(A,*(I4))', "[MBTERMS-DBG] rz%ind_var_act_species=", &
+                    this%solid_chemistry%reactive_zone%ind_var_act_species
+                print '(A,*(ES12.4))', "[MBTERMS-DBG] r_new(1:n_eq_r)=", r_new(1:n_eq_r)
+                print '(A,*(ES12.4))', "[MBTERMS-DBG] rxn_rate_eq=", this%solid_chemistry%rxn_rate_eq
+                do idbg=1,n_eq_r
+                    print '(A,I0,A,*(ES12.4))', "[MBTERMS-DBG] S_nc row ", idbg, " =", S_nc(idbg,1:n_v)
+                end do
+                print '(A,*(ES12.4))', "[MBTERMS-DBG] sr(1:n_v)=", sr(1:n_v)
+                print '(A,*(ES12.4))', "[MBTERMS-DBG] c_new-c_mix=", c_new(1:n_v)-c_mix(1:n_v)
+                print '(A,*(ES12.4))', "[MBTERMS-DBG] react=", react(1:n_v)
+            end if
+        end block
     end subroutine
 
     !> \brief Brings this water into equilibrium with the equilibrium minerals/gases of its reactive zone
@@ -7502,6 +8175,7 @@ end subroutine
         !logical :: flag_surf !> flag to indicate if there are surface complexation reactions
 
         call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_comp(flag_comp)
+        write(0,'(A,L1)') ' [SSA-DBG] enter set_spec_alg assoc_sc=', associated(this%solid_chemistry)
         if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl>0) then
             flag_surf=.true.
         else
@@ -7511,6 +8185,8 @@ end subroutine
         !> and the exchange case (get_c1's surface-site term and compute_conc_surf_compl write
         !> into solid_chemistry%concentrations, so it must be sized num_solids beforehand).
         call this%solid_chemistry%allocate_conc_solids()
+        write(0,'(A,L1,A,I0)') ' [SSA-DBG] post allocate_conc_solids alloc=', &
+            allocated(this%solid_chemistry%concentrations), ' nsolids=', this%solid_chemistry%num_solids
         call this%solid_chemistry%allocate_activities()
         call this%solid_chemistry%allocate_log_act_coeffs_solid_chem()
         call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_cat_exch(flag_surf)
@@ -7573,14 +8249,6 @@ end subroutine
         !> constants (logK_tilde/logK_star) are rebuilt here from the modified K.
         block
             call this%solid_chemistry%reactive_zone%compute_speciation_alg_arrays(flag_Se,swap)
-            !> compute_speciation_alg_arrays may swap a primary and a secondary variable-activity species
-            !> (e.g. hco3- <-> o2(aq) when the natural secondaries give a singular Se_nc_2); the permutation
-            !> is recorded in reactive_zone%ind_var_act_species. Make this water's index arrays follow the
-            !> zone's column order (read_tar_wat_line does the same for the target waters), otherwise
-            !> comp_mat_aq, inv_Se_nc_2 and the mass-action law are applied to the wrong species and the
-            !> component definitions/concentrations reported for the water types (write_u_init,
-            !> write_conc_comp_wat_types, get_u_aq) are in a basis different from the solver's.
-            call this%set_ind_species_react_zone()
             !> Rebuild this water's per-reaction T-dependent logK FIRST (compute_logK_star consumes it
             !> via get_eq_csts_aq_chem = 10**logK), then its transformed constants logK_tilde/logK_star.
             call this%compute_logK_PHREEQC_aq_chem() !> rebuild this water's per-reaction logK at its own temperature

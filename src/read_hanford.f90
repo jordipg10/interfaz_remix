@@ -429,6 +429,7 @@ subroutine read_hanford(this,path,unit)
         do
             call is_int_in_1D_array(counter_mins,react_indices(base_ri_min+1:base_ri_min+this%num_minerals),min_flag,ind_reacts)
             if ((min_flag .eqv. .true.) .AND. (ind_reacts>this%num_minerals_kin)) then !> equilibrium mineral
+                min_ind=ind_reacts !> position of the mineral in this%minerals (kinetic minerals first)
                 ind_reacts=ind_reacts+base_eq_min-this%num_minerals_kin
                 allocate(stoich_coeffs(this%eq_reacts(ind_reacts)%num_species),&
                     species_names(this%eq_reacts(ind_reacts)%num_species))
@@ -444,6 +445,9 @@ subroutine read_hanford(this,path,unit)
                 call this%eq_reacts(ind_reacts)%set_eq_csts(eq_csts_local)
                 sp_ind_chem_syst=this%eq_reacts(ind_reacts)%species_ind(this%eq_reacts(ind_reacts)%num_species)
                 call this%species(sp_ind_chem_syst)%set_name(species_names(this%eq_reacts(ind_reacts)%num_species))
+                !> molecular weight [kg/mol] on the mineral and on its chemical-system species (cumulative reaction amounts in kg)
+                call this%minerals(min_ind)%mineral%set_molecular_weight(mol_weight*1d-3)
+                call this%species(sp_ind_chem_syst)%set_molecular_weight(mol_weight*1d-3)
                 this%eq_reacts(ind_reacts)%stoichiometry(this%eq_reacts(ind_reacts)%num_species)=-1d0
                 call this%eq_reacts(ind_reacts)%change_sign_stoichiometry()
                 ind_mins=ind_mins+1
@@ -454,6 +458,7 @@ subroutine read_hanford(this,path,unit)
                 end if
                 deallocate(stoich_coeffs,species_names)
             else if (min_flag.eqv..true.) then !> kinetic mineral
+                min_ind=ind_reacts !> kinetic minerals come first in this%minerals: the kinetic reaction index is the mineral's position
                 allocate(stoich_coeffs(this%min_kin_reacts(ind_reacts)%num_species),&
                     species_names(this%min_kin_reacts(ind_reacts)%num_species))
                 read(unit,*,iostat=int_var) species_names(this%min_kin_reacts(ind_reacts)%num_species), &
@@ -467,6 +472,9 @@ subroutine read_hanford(this,path,unit)
                 call this%min_kin_reacts(ind_reacts)%set_eq_csts(eq_csts_local)
                 sp_ind_chem_syst=this%min_kin_reacts(ind_reacts)%species_ind(this%min_kin_reacts(ind_reacts)%num_species)
                 call this%species(sp_ind_chem_syst)%set_name(species_names(this%min_kin_reacts(ind_reacts)%num_species))
+                !> molecular weight [kg/mol] on the mineral and on its chemical-system species (cumulative reaction amounts in kg)
+                call this%minerals(min_ind)%mineral%set_molecular_weight(mol_weight*1d-3)
+                call this%species(sp_ind_chem_syst)%set_molecular_weight(mol_weight*1d-3)
                 this%min_kin_reacts(ind_reacts)%stoichiometry(this%min_kin_reacts(ind_reacts)%num_species)=-1d0
                 call this%min_kin_reacts(ind_reacts)%change_sign_stoichiometry()
                 ind_mins=ind_mins+1

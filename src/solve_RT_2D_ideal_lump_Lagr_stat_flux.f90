@@ -224,12 +224,8 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     !> Check for equilibrium-only system (no kinetic reactions)
     else if (n_eq>0) then
         !> Equilibrium-Only Reactions
-        !> Check if Euler Implicit (method 2) is selected for equilibrium reactions
-        if (this%transport%time_discr%int_method_chem==2) then
-            !> Assign equilibrium-only analytical ideal Euler Implicit solver
-            p_solver=>reactive_mixing_iter_EI_eq_anal_ideal
-        !> End integration method check for equilibrium-only system
-        end if
+        !> The equilibrium speciation does not depend on the reactions integration method (Euler/RKF45)
+        p_solver=>reactive_mixing_iter_EI_eq_anal_ideal
     !> Kinetic-only system (no equilibrium reactions in domain)
     else
         !> Kinetic-Only Reactions
@@ -262,11 +258,11 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     end if
 
     !> Allocate array for lumped mixing ratios (one entry per mixing ratio column)
-    allocate(lumped_lambdas(this%transport%mixing_ratios_R%num_cols))
+    allocate(lumped_lambdas(this%transport%mixing_ratios_conc%num_cols))
     !> Loop over all mixing ratio columns to compute lumped (summed) values
-    do i=1,this%transport%mixing_ratios_R%num_cols
-        !> Sum all entries in mixing ratio column i to get the lumped mixing ratio
-        lumped_lambdas(i)=sum(this%transport%mixing_ratios_R%cols(i)%col_1)
+    do i=1,this%transport%mixing_ratios_conc%num_cols
+        !> lumped lambda = sum of the CONCENTRATION mixing ratios of column i (same definition in every lumped solver)
+        lumped_lambdas(i)=sum(this%transport%mixing_ratios_conc%cols(i)%col_1)
     !> End lumped mixing ratio computation loop
     end do
 

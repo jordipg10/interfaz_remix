@@ -413,9 +413,11 @@ subroutine write_chemistry(this,dir,root,time_step,Lagr_flag,num_time)
             write(unit,"(10x,*(ES15.5))") (this%target_solids(tar_sol_indices(j))%rxn_amnt_kin(i), j=1,SIZE(tar_sol_indices)) !> write mineral kinetic amount R_k [mol]
         end do
         
-        write(unit,"(/,10x,'Accumulated mineral kinetic reaction amounts:'/)")  !> write accumulated mineral kinetic amounts header
+        write(unit,"(/,10x,'Accumulated mineral kinetic reaction amounts [kg] (amount [mol] times the molecular weight of the mineral; 0 if the database gives none):'/)")  !> write accumulated mineral kinetic amounts header
         do i=1,this%mineral_zones(l)%num_minerals_kin !> loop over kinetic minerals
-            write(unit,"(10x,*(ES15.5))") (this%target_solids(tar_sol_indices(j))%cum_rxn_amnt_kin(i), j=1,SIZE(tar_sol_indices)) !> write accumulated mineral kinetic amount R_k_accum [mol]
+            write(unit,"(10x,*(ES15.5))") (this%target_solids(tar_sol_indices(j))%cum_rxn_amnt_kin(i)*&
+                this%mineral_zones(l)%chem_syst%minerals(this%mineral_zones(l)%ind_min_chem_syst(i))%mineral%molecular_weight, &
+                j=1,SIZE(tar_sol_indices)) !> write accumulated mineral kinetic amount R_k_accum [mol] x MW [kg/mol]
         end do
         end if !> mesh_too_large: end of per-cell mineral kinetic rates/amounts
     end do

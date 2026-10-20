@@ -28,6 +28,9 @@
 !> complexes) and water have \f$D=0\f$ and \f$z^2=0\f$: their activity coefficients do not depend on I
 !> and they do not contribute to it (water's log gamma is Raoult bookkeeping, fixed in the Picard
 !> iteration). The ionic strength is the object's, i.e. that of the Picard-converged state at (c1,c2v).
+!>
+!> The log-log Jacobian \f$L\f$ is what the log-space Newton assembly needs (compute_dfk_dp_EI); it is
+!> computed by compute_dlogc2v_dlogc1 below, and compute_dc2v_dc1 only converts it to \f$\partial c_{2,v}/\partial c_1\f$.
 subroutine compute_dc2v_dc1(this,c1,c2v,dc2v_dc1)
     use aqueous_chemistry_m, only: aqueous_chemistry_c
     implicit none
@@ -36,6 +39,28 @@ subroutine compute_dc2v_dc1(this,c1,c2v,dc2v_dc1)
     real(kind=8), intent(in) :: c1(:) !> primary species concentrations, speciation order (n_p)
     real(kind=8), intent(in) :: c2v(:) !> secondary variable activity species concentrations, speciation order (n_e)
     real(kind=8), intent(out) :: dc2v_dc1(:,:) !> Jacobian dc2v/dc1 (n_e x n_p, already allocated)
+!> Variables
+    integer(kind=4) :: j
+    real(kind=8), allocatable :: L(:,:) !> L = dq/dp = d(log10 c2v)/d(log10 c1) (n_e x n_p)
+    allocate(L(size(dc2v_dc1,1),size(dc2v_dc1,2)))
+    call this%compute_dlogc2v_dlogc1(c1,c2v,L)
+    do j=1,size(dc2v_dc1,2)
+        dc2v_dc1(:,j)=c2v*L(:,j)/c1(j)
+    end do
+    deallocate(L)
+end subroutine
+
+!> Log-log Jacobian \f$L = \partial\log_{10}c_{2,v}/\partial\log_{10}c_1\f$ (n_e x n_p) of a NON-ideal aqueous
+!> solution: the linear system of the header of this file, solved with one LU factorisation (LAPACK dgesv,
+!> n_p right-hand sides). No concentration is ever divided by, so the result is well defined for vanishing species.
+subroutine compute_dlogc2v_dlogc1(this,c1,c2v,dlogc2v_dlogc1)
+    use aqueous_chemistry_m, only: aqueous_chemistry_c
+    implicit none
+!> Arguments
+    class(aqueous_chemistry_c) :: this !> aqueous chemistry object, speciated at (c1,c2v): its ionic strength is used
+    real(kind=8), intent(in) :: c1(:) !> primary species concentrations, speciation order (n_p)
+    real(kind=8), intent(in) :: c2v(:) !> secondary variable activity species concentrations, speciation order (n_e)
+    real(kind=8), intent(out) :: dlogc2v_dlogc1(:,:) !> L = d(log10 c2v)/d(log10 c1) (n_e x n_p, already allocated)
 !> Variables
     integer(kind=4) :: i,j,n_p,n_p_aq,n_e,n_v2_aq,info
     integer(kind=4), allocatable :: ipiv(:) !> pivots of dgesv (n_e)
@@ -46,7 +71,6 @@ subroutine compute_dc2v_dc1(this,c1,c2v,dc2v_dc1)
     real(kind=8), allocatable :: z2c2(:) !> z^2*c of the secondaries, 0 for the non-aqueous ones (n_e)
     real(kind=8), allocatable :: W(:) !> W_i = sum_k Se*_ik D_1k - D_2i (n_e)
     real(kind=8), allocatable :: mat_lin_syst(:,:) !> I - (ln10/2) W (z2^2 o c2)^T (n_e x n_e), overwritten by dgesv
-    real(kind=8), allocatable :: L(:,:) !> Se* + (ln10/2) W (z1^2 o c1)^T on entry, L = dq/dp on exit (n_e x n_p)
     real(kind=8), parameter :: ln10=log(1d1)
 !> Pre-process: ionic strength coupling terms of each species in speciation order
     associate(sa => this%solid_chemistry%reactive_zone%speciation_alg, &
@@ -55,7 +79,7 @@ subroutine compute_dc2v_dc1(this,c1,c2v,dc2v_dc1)
     n_p_aq=sa%num_aq_prim_species
     n_e=sa%num_eq_reactions
     n_v2_aq=sa%num_aq_sec_var_act_species
-    allocate(d_lg_dI_1(n_p),z2c1(n_p),d_lg_dI_2(n_e),z2c2(n_e),W(n_e),mat_lin_syst(n_e,n_e),L(n_e,n_p),ipiv(n_e))
+    allocate(d_lg_dI_1(n_p),z2c1(n_p),d_lg_dI_2(n_e),z2c2(n_e),W(n_e),mat_lin_syst(n_e,n_e),ipiv(n_e))
     d_lg_dI_1=0d0; z2c1=0d0; d_lg_dI_2=0d0; z2c2=0d0 !> non-aqueous species: no ionic strength coupling
     do j=1,n_p_aq !> aqueous primaries (first n_p_aq columns of Se_nc_1_star)
         call species_terms(this%ind_prim_species(j),c1(j),d_lg_dI_1(j),z2c1(j))
@@ -63,21 +87,18 @@ subroutine compute_dc2v_dc1(this,c1,c2v,dc2v_dc1)
     do i=1,n_v2_aq !> aqueous secondaries (first n_v2_aq rows of Se_nc_1_star)
         call species_terms(this%ind_var_act_species(n_p_aq+i),c2v(i),d_lg_dI_2(i),z2c2(i))
     end do
-!> Process: linear system for L = dq/dp and conversion to dc2v/dc1
+!> Process: linear system for L = dq/dp (right-hand sides built in place in dlogc2v_dlogc1)
     W=matmul(Se,d_lg_dI_1)-d_lg_dI_2
     fac=0.5d0*ln10
     do i=1,n_e
         mat_lin_syst(i,:)=-fac*W(i)*z2c2
         mat_lin_syst(i,i)=mat_lin_syst(i,i)+1d0
-        L(i,:)=Se(i,:)+fac*W(i)*z2c1
+        dlogc2v_dlogc1(i,1:n_p)=Se(i,:)+fac*W(i)*z2c1
     end do
-    call dgesv(n_e,n_p,mat_lin_syst,n_e,ipiv,L,n_e,info)
-    if (info/=0) error stop "compute_dc2v_dc1: singular ionic strength coupling matrix"
-    do j=1,n_p
-        dc2v_dc1(:,j)=c2v*L(:,j)/c1(j)
-    end do
+    call dgesv(n_e,n_p,mat_lin_syst,n_e,ipiv,dlogc2v_dlogc1,n_e,info)
+    if (info/=0) error stop "compute_dlogc2v_dlogc1: singular ionic strength coupling matrix"
     end associate
-    deallocate(d_lg_dI_1,z2c1,d_lg_dI_2,z2c2,W,mat_lin_syst,L,ipiv)
+    deallocate(d_lg_dI_1,z2c1,d_lg_dI_2,z2c2,W,mat_lin_syst,ipiv)
 contains
     !> D = d(log10 gamma)/dI and z^2*c of the aqueous species with concentration index k in this water:
     !> log gamma = -alpha*A*z^2*sqrt(I)/(1+beta*sqrt(I)) + gamma*I (aq_phase_c%compute_log_act_coeffs_aq_phase),

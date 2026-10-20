@@ -43,7 +43,7 @@
 subroutine solve_RT_ideal_lump_Euler_stat_flux_1D(this,dir,root)
     use RT_m, only: RT_1D_transient_c, RT_1D_stat_c, RT_c !< Import 1D reactive transport classes
     use chemistry_m, only: write_out_step_vars !< Shared per-output-step writer (conc/react_rate/vol_fract)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, & !< Import aqueous chemistry class
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, write_celldbg_cell, & !< Import aqueous chemistry class
         reactive_mixing_iter_EE_eq_kin_ideal, reactive_mixing_iter_EE_kin, & !< Euler explicit solvers with lumping
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, mixing_iter_comp_ideal, & !< Implicit solvers for kinetic-only and equilibrium-only systems
         compute_r_tilde_impl_opt1, compute_r_tilde_impl_opt2, compute_c_mix_by_zones_lump, compute_c_mix_global_lump, &
@@ -110,6 +110,7 @@ subroutine solve_RT_ideal_lump_Euler_stat_flux_1D(this,dir,root)
     REAL(KIND=8), allocatable :: lumped_lambdas(:) !< Variable activity species concentrations (solution vector) [mol/L]
     !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
     integer(kind=4) :: iunit_mb                   !< mass-balance output file unit
+    integer(kind=4) :: iunit_celldbg              !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref                    !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref                    !< reference number of variable-activity species
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
@@ -208,9 +209,8 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
         ! end if
 !> @subsection eq_only_case Equilibrium-Only Reactions
     else if (n_eq>0) then !< Only equilibrium reactions (no kinetics)
-        if (this%transport%time_discr%int_method_chem==2) then
-            p_solver=>reactive_mixing_iter_EI_eq_anal_ideal !< Assign implicit solver
-        end if
+        !< The equilibrium speciation does not depend on the reactions integration method (Euler/RKF45)
+        p_solver=>reactive_mixing_iter_EI_eq_anal_ideal !< Assign equilibrium-only solver
         !p_solver=>mixing_iter_comp_ideal !< Assign equilibrium-only solver with component lumping
 !> @subsection kin_only_case Kinetic-Only Reactions
     else !< Only kinetic reactions (no equilibrium)
@@ -260,9 +260,9 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
         ! end if
     end if
     
-    allocate(lumped_lambdas(this%transport%mixing_ratios_R%num_cols)) !< Allocate array for lumped kinetic rates
-    do i=1,this%transport%mixing_ratios_R%num_cols !< Loop over mixing ratios columns
-        lumped_lambdas(i)=sum(this%transport%mixing_ratios_R%cols(i)%col_1) !< Sum mixing ratios for mass balance check
+    allocate(lumped_lambdas(this%transport%mixing_ratios_conc%num_cols)) !< Allocate array for lumped mixing ratios
+    do i=1,this%transport%mixing_ratios_conc%num_cols !< Loop over mixing ratios columns
+        lumped_lambdas(i)=sum(this%transport%mixing_ratios_conc%cols(i)%col_1) !< lumped lambda = sum of the CONCENTRATION mixing ratios (same definition in every lumped solver)
         !if (abs(lumped_lambdas(i)-1d0)>this%chemistry%CV_params%abs_tol) then !< Validate sum to unity within tolerance
         !    print *, "Mixing ratios do not sum to 1 in column ", i, " sum = ", lumped_lambdas(i)
         !    error stop "Mixing ratios validation failed"
@@ -296,6 +296,8 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
         open(newunit=iunit_mb, file=dir//root//'_Euler_lumped_mass_balance.out', status='replace', action='write')
         write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
         write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
+        !> Per-cell [CELL-DBG] trace file (bulk calcite cells 3/8 + interface cells 15/16/17)
+        open(newunit=iunit_celldbg, file=dir//root//'_Euler_lumped_cell_dbg.out', status='replace', action='write')
         !> @section time_loop Main Time Loop
         !> Loop over all time steps to solve reactive transport
         !> Write initial state (t=0) before the first time step, honouring chem_out_options%vars
@@ -468,6 +470,10 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                         this%transport%time_discr%theta_r) !< Time weighting factor [-]
                 end if
 
+                !> [CELL-DBG] intermediate results for bulk calcite cells 3/8 and interface cells 15/16/17
+                if (k<=10 .and. (this%chemistry%num_target_waters<=10 .or. i==3 .or. i==8 .or. i==15 .or. i==16 .or. i==17)) then
+                    call write_celldbg_cell(this%target_waters(i)%aq_chem, iunit_celldbg, k, i, n_v, c_hat, c_tilde, c_hat)
+                end if
                 
                 !> Domain-integrated mass-balance contribution of this cell
                 call this%target_waters(i)%aq_chem%get_react_mix_mass_bal_terms( &
@@ -591,6 +597,7 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
     !> Close output file
     close(unit)
     close(iunit_mb)
+    close(iunit_celldbg)
     deallocate(mb_lhs, mb_transp, mb_react)
     end select !< End type selection
     !deallocate(lambdas_R) !< Free lumped kinetic rates array

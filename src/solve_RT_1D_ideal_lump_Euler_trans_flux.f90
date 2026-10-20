@@ -4,7 +4,7 @@
 subroutine solve_RT_ideal_lump_Euler_trans_flux_1D(this,dir,root)
     use RT_m, only: RT_1D_transient_c, RT_1D_stat_c, RT_c
     use chemistry_m, only: write_out_step_vars !< Shared per-output-step writer (conc/react_rate/vol_fract)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, &
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, write_celldbg_cell, &
         reactive_mixing_iter_EE_eq_kin_ideal, reactive_mixing_iter_EE_kin, &
         reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, &
         reactive_mixing_iter_EI_kin_anal_ideal_opt2, &
@@ -60,6 +60,7 @@ subroutine solve_RT_ideal_lump_Euler_trans_flux_1D(this,dir,root)
     REAL(KIND=8), allocatable :: conc_comp(:) !> concentrations components
     !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
     integer(kind=4) :: iunit_mb !> mass-balance output file unit
+    integer(kind=4) :: iunit_celldbg !> per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref !> reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref !> reference number of variable-activity species
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !> domain-summed terms
@@ -71,6 +72,7 @@ subroutine solve_RT_ideal_lump_Euler_trans_flux_1D(this,dir,root)
     integer(kind=4) :: num_lump !> number of lumpings
     integer(kind=4) :: j_mix !> loop index for mixing waters
     integer(kind=4) :: num_mix_loc !> number of mixing waters
+    real(kind=8) :: lambda_L !> lumped lambda of the target water: sum of its CONCENTRATION mixing ratios (same definition in every lumped solver), evaluated per step because the transient flux updates the mixing ratios
     real(kind=8), allocatable :: conc_old_mix(:,:) !> conc_old from each mixing water
     integer(kind=4), allocatable :: ind_aq_sp_mix(:,:) !> indices_aq_species from each mixing water
 !> Procedure pointers
@@ -108,21 +110,14 @@ type is (RT_1D_transient_c)
     end block
 !> We select reactive mixing subroutine depending on the nature of the chemical system and the methods to compute Jacobians and integrate in time
     if (this%chemistry%chem_syst%num_kin_reacts>0 .and. this%chemistry%chem_syst%speciation_alg%num_eq_reactions>0) then !> equilibrium and kinetic reactions
-        if (this%transport%time_discr%int_method_chem==1) then !> Euler explicit
-            theta=0d0 !> Euler explicit
+        theta=this%transport%time_discr%theta_r !> reactions time weighting factor read from the time discretisation file
+        if (theta==0d0) then !> Euler explicit
             !p_solver=>reactive_mixing_iter_EE_eq_kin_ideal_lump
             compute_r_tilde=>compute_r_tilde_impl_opt1
             mix_ind=1 !> we mix all waters
             !mix_waters_indices=>this%transport%mix_conc_indices
         else if (this%chemistry%Jac_opt==1) then !> analytical Jacobian
             mix_ind=2 !> we mix all waters except one
-            if (this%transport%time_discr%int_method_chem==2) then !> Euler fully implicit
-                theta=1d0 !> Euler fully implicit
-            else if (this%transport%time_discr%int_method_chem==3) then !> Crank-Nicolson
-                theta=5d-1 !> Crank-Nicolson parameter
-            else
-                error stop "Integration method for chemical reactions not implemented yet"
-            end if
             if (this%chemistry%rk_avg_opt==1) then
                 !p_solver=>reactive_mixing_iter_EI_eq_kin_anal_ideal_opt1
             else if (this%chemistry%rk_avg_opt==2) then
@@ -182,19 +177,12 @@ type is (RT_1D_transient_c)
     else if (this%chemistry%chem_syst%speciation_alg%num_eq_reactions>0) then !> only equilibrium reactions
         !p_solver=>mixing_iter_comp_ideal !> only equilibrium reactions
     else !> only kinetic reactions
-        if (this%transport%time_discr%int_method_chem==1) then !> Euler explicit
-            theta=0d0 !> Euler explicit
+        theta=this%transport%time_discr%theta_r !> reactions time weighting factor read from the time discretisation file
+        if (theta==0d0) then !> Euler explicit
             p_solver=>reactive_mixing_iter_EE_kin
             !compute_rk_tilde=>compute_rk_tilde_expl
             mix_ind=1 !> we mix all waters
         else if (this%chemistry%Jac_opt==1) then !> analytical Jacobian
-            if (this%transport%time_discr%int_method_chem==2) then !> Euler fully implicit
-                theta=1d0
-            else if (this%transport%time_discr%int_method_chem==3) then !> Crank-Nicolson
-                theta=5d-1 !> Crank-Nicolson parameter
-            else
-                error stop "Integration method for chemical reactions not implemented yet"
-            end if
             if (this%chemistry%rk_avg_opt==1) then
                 !p_solver=>reactive_mixing_iter_EI_kin_anal_ideal_opt1
             else if (this%chemistry%rk_avg_opt==2) then
@@ -257,6 +245,8 @@ type is (RT_1D_transient_c)
     open(newunit=iunit_mb, file=dir//root//'_Euler_lumped_mass_balance.out', status='replace', action='write')
     write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
     write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
+    !> Per-cell [CELL-DBG] trace file (bulk calcite cells 3/8 + interface cells 15/16/17)
+    open(newunit=iunit_celldbg, file=dir//root//'_Euler_lumped_cell_dbg.out', status='replace', action='write')
     !> We set old concentrations in Dirichlet boundary target waters (chapuza)
     do i=1,this%chemistry%num_waters
         call waters_new(i)%set_conc_old() !> 
@@ -383,9 +373,10 @@ type is (RT_1D_transient_c)
                     !            this%chemistry%chem_syst%aq_phase%ind_diss_solids(j)))
                     !    end if
                     !end do
-                    !> We solve reactive mixing iteration
+                    !> We solve reactive mixing iteration (lumped lambda = sum of the concentration mixing ratios of this target water)
+                    lambda_L=sum(this%transport%mixing_ratios_conc%cols(ind_non_can_vec(i))%col_1)
                      call p_solver(waters_new(this%chemistry%tar_wat_indices(i)),waters_old_old(&
-                        this%chemistry%tar_wat_indices(i))%get_c1(),c_hat,this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(1),&
+                        this%chemistry%tar_wat_indices(i))%get_c1(),c_hat,lambda_L,&
                         Delta_t,theta,conc_nc,conc_comp)
                     !> Compute pH, salinity, and ionic strength from updated concentrations
                     call waters_new(this%chemistry%tar_wat_indices(i))%compute_pH()
@@ -397,10 +388,15 @@ type is (RT_1D_transient_c)
                         )%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions>0) then
                         call waters_new(this%chemistry%tar_wat_indices(i))%compute_Re(&
                             c_hat(1:n_v),Delta_t,&
-                            this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(1),&
+                            lambda_L,&
                             this%transport%time_discr%theta_r) !> chapuza
                     end if
 
+                    !> [CELL-DBG] intermediate results for bulk calcite cells 3/8 and interface cells 15/16/17
+                    if (k<=10 .and. (this%chemistry%num_target_waters<=10 .or. i==3 .or. i==8 .or. i==15 .or. i==16 .or. i==17)) then
+                        call write_celldbg_cell(waters_new(this%chemistry%tar_wat_indices(i)), iunit_celldbg, k, i, n_v, &
+                            c_hat, c_hat, c_hat)
+                    end if
                     ! call waters_new(ind_non_can_vec(i))%compute_re_mean(c_mix(n_p+1:n_p+n_v_aq_2),Delta_t,&
                     !     rk_tilde)
                     !> We compute solid chemistry state variables
@@ -413,7 +409,7 @@ type is (RT_1D_transient_c)
                     !> We compute concentrations of minerals
                         call waters_new(this%chemistry%tar_wat_indices(&
                             i))%solid_chemistry%compute_conc_minerals_iter(Delta_t,&
-                            this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(1))
+                            lambda_L)
                     end if
                     !> We compute gas chemistry state variables
                     if (associated(waters_new(this%chemistry%tar_wat_indices(i))%gas_chemistry)) then
@@ -439,7 +435,7 @@ type is (RT_1D_transient_c)
                         waters_new(this%chemistry%tar_wat_indices(i))%solid_chemistry%rxn_amnt_kin
                 !> Domain-integrated mass-balance contribution of this cell
                     call waters_new(this%chemistry%tar_wat_indices(i))%get_react_mix_mass_bal_terms( &
-                        c_hat(1:n_v), c_hat(1:n_v), this%transport%mixing_ratios_R%cols(ind_non_can_vec(i))%col_1(1), &
+                        c_hat(1:n_v), c_hat(1:n_v), lambda_L, &
                         Delta_t, theta, mb_lhs_c, mb_transp_c, mb_react_c)
                     if (size(mb_lhs_c) == n_v_ref) then
                         mb_lhs = mb_lhs + mb_lhs_c
@@ -467,6 +463,7 @@ type is (RT_1D_transient_c)
     this%chemistry%waters=waters_new
     close(unit)
     close(iunit_mb)
+    close(iunit_celldbg)
     deallocate(mb_lhs, mb_transp, mb_react)
 end select
 end subroutine

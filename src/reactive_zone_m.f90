@@ -54,7 +54,7 @@ module reactive_zone_m
     use species_m, only: species_c
     use surf_compl_m, only: cat_exch_zone_c
     use gas_phase_m, only: gas_phase_c
-    use params_iter_methods_m, only: params_iter_methods_s
+    use CV_params_m, only: CV_params_s
     use speciation_algebra_m, only: speciation_algebra_s
     use arrays_m, only: id_matrix
     implicit none
@@ -109,7 +109,7 @@ module reactive_zone_m
         integer(kind=4), allocatable :: ind_eq_reacts(:)             !< Heterogeneous equilibrium reaction indices in chemical system (same order as in chemical system)
         class(chem_system_c), pointer :: chem_syst                   !< Pointer to chemical system (shared)
         type(speciation_algebra_s) :: speciation_alg                 !< Speciation algebra object
-        class(params_iter_methods_s), pointer :: CV_params                     !< Convergence parameters for speciation/mixing
+        class(CV_params_s), pointer :: CV_params                     !< Convergence parameters for speciation/mixing
         real(kind=8), allocatable :: U_SkT_prod(:,:)                 !< Product U*S_k,nc^T for computations
         integer(kind=4), allocatable :: ind_var_act_species(:)       !< Indices of variable activity species in the chemical system (primary then secondary variable activity)
     contains
@@ -1431,7 +1431,7 @@ module reactive_zone_m
         subroutine set_CV_params(this,CV_params)
             implicit none
             class(reactive_zone_c) :: this
-            class(params_iter_methods_s), intent(in), target :: CV_params  !< Convergence parameters (must be target)
+            class(CV_params_s), intent(in), target :: CV_params  !< Convergence parameters (must be target)
             this%CV_params=>CV_params  !< Associate pointer (shallow copy)
         end subroutine
 

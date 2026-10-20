@@ -4,7 +4,7 @@
 subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mixing_ratios_R,&
     mix_conc_indices,time_discr,theta_r)
     use chemistry_m, only: chemistry_c, write_out_step_vars, check_surf_compl_act_sum
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, &
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, sim_num_time_steps, &
         reactive_mixing_iter_EI_eq_anal_ideal, &
         compute_c_mix_by_zones_lump, compute_c_mix_global_lump, reactive_mixing_iter_EI_kin_anal_ideal_opt2, &
         reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2
@@ -42,6 +42,7 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
     real(kind=8), allocatable :: lumped_lambdas(:)
 !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
     integer(kind=4) :: iunit_mb !< mass-balance output file unit
+    integer(kind=4) :: iunit_celldbg !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref !< reference number of variable-activity species
     real(kind=8), allocatable :: c_mix(:) !< per-zone transport mixed concentrations
@@ -82,6 +83,7 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
     ii=1
     kk_snap=2
     num_time_loc = time_discr%Num_time
+    sim_num_time_steps = num_time_loc !< total number of time steps (gates the speciation failure prints)
     do i=2,this%chem_out_options%num_time_steps-1
         if (this%chem_out_options%time_steps(i) > num_time_loc) then
             print *, "Output time step index", this%chem_out_options%time_steps(i), &
@@ -179,6 +181,8 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
     open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
     write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
     write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
+    !> Per-cell [CELL-DBG] trace file (10 target waters equidistant along the mesh)
+    open(newunit=iunit_celldbg, file=dir//cpu_root//'_cell_dbg.out', status='replace', action='write')
 
 !> -----------------------------------------------------------------------
 !> Initialize profiling accumulators
@@ -215,11 +219,11 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
             mix_conc_indices, mixing_ratios_conc, &
             mixing_ratios_R, &
             lumped_lambdas, &
-            conc_comp, iunit_mb, &
+            conc_comp, iunit_mb, iunit_celldbg, &
             p_solver, p_mixer)
         call cpu_time(cpu_prof_t1)
         cpu_solver_total = cpu_solver_total + (cpu_prof_t1 - cpu_prof_t0)
-        !> Verify the surface-complex site-balance invariants at every cell this time step
+        !> DEBUG: verify surface-complex activities sum to 1 at every cell this time step
         call check_surf_compl_act_sum(this, k, time)
         !> Output writing honouring chem_out_options%vars (conc / react_rate / vol_fract)
         call cpu_time(cpu_prof_t0)
@@ -270,6 +274,7 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
 !> Close output file and clean up
     close(unit)
     close(iunit_mb)
+    close(iunit_celldbg)
     deallocate(conc_comp)
     deallocate(lumped_lambdas)
     deallocate(n_p_cache, n_v_cache, n_eq_cache)

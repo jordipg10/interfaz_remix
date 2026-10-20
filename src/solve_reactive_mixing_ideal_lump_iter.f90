@@ -10,12 +10,12 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
     mix_conc_indices, mixing_ratios_conc, &
     mixing_ratios_R, &
     lumped_lambdas, &
-    conc_comp, iunit_mb, &
+    conc_comp, iunit_mb, iunit_celldbg, &
     p_solver, p_mixer)
     use chemistry_m, only: chemistry_c, reset_wat_indices_zones
-    use aqueous_chemistry_m, only: aqueous_chemistry_c, &
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, write_celldbg_cell, &
         reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2, &
-        compute_c_mix_by_zones_lump
+        compute_c_mix_by_zones_lump, within_zone_dbg_step
     use arrays_m, only: real_array_c, int_array_c
     implicit none
 
@@ -38,6 +38,7 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
     real(kind=8), intent(in) :: lumped_lambdas(:)           !< Pre-computed lumped lambdas
     real(kind=8), intent(inout) :: conc_comp(:)             !< Work buffer for component concentrations
     integer(kind=4), intent(in) :: iunit_mb                 !< Mass-balance output file unit (already open)
+    integer(kind=4), intent(in) :: iunit_celldbg            !< Per-cell [CELL-DBG] trace file unit (already open)
     procedure(reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2) :: p_solver  !< Reactive mixing solver
     procedure(compute_c_mix_by_zones_lump), pointer, intent(in) :: p_mixer
 
@@ -53,8 +54,10 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:)   !< domain-summed mass-balance terms
     real(kind=8), allocatable :: mb_lhs_c(:), mb_transp_c(:), mb_react_c(:) !< per-cell mass-balance terms
     integer(kind=4) :: n_v_ref, idx_ref                                !< reference cell dimension/index
+    integer(kind=4) :: celldbg_sel(10), n_celldbg_sel, isel            !< [CELL-DBG] 10 equidistant target waters
 
     !> Update old attributes (copies new conc from previous step into conc_old)
+    within_zone_dbg_step = k !< current step for the mixer debug prints (step-gated traces)
     do i = 1, this%num_waters
         call this%waters(i)%update_attributes() !< Shift all old attributes
     end do
@@ -63,6 +66,16 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
     idx_ref = this%tar_wat_indices(ind_tar_wat(1))
     allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
     mb_lhs = 0d0; mb_transp = 0d0; mb_react = 0d0
+    !> [CELL-DBG] pick up to 10 target waters equidistant along the mesh (endpoints included)
+    n_celldbg_sel = min(10, this%num_target_waters)
+    do isel = 1, n_celldbg_sel
+        if (n_celldbg_sel == 1) then
+            celldbg_sel(isel) = this%tar_wat_indices(1)
+        else
+            celldbg_sel(isel) = this%tar_wat_indices( &
+                nint(1d0 + dble(isel-1)*dble(this%num_target_waters-1)/dble(n_celldbg_sel-1)) )
+        end if
+    end do
     !> Target waters loop
     do i = 1, num_tar_wat
         idx = this%tar_wat_indices(ind_tar_wat(i))
@@ -81,6 +94,18 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
                 lumped_lambdas(ind_tar_wat(i)), &
                 this%wat_indices_zones, this%ext_waters_indices, Delta_t, theta_r, c_hat, c_mix, .true.)
         end associate
+        !> [NAN-DBG] one-shot diagnostic: catch the first cell whose mixed concentration is
+        !> non-finite (NaN/Inf) so the failing time step and cell index are identified.
+        block
+            logical, save :: nan_dbg_done=.false.
+            if ((.not. nan_dbg_done) .and. any(c_mix(1:n_v) /= c_mix(1:n_v))) then
+                nan_dbg_done=.true.
+                print '(A,I0,A,I0,A,I0)', "[NAN-DBG] step=", k, " cell idx=", idx, " n_v=", n_v
+                print '(A,*(ES12.4))', "[NAN-DBG] c_mix=", c_mix(1:n_v)
+                print '(A,*(ES12.4))', "[NAN-DBG] conc_nc_old=", this%waters(idx)%get_conc_old_var_act_new_rz()
+                print '(A,*(ES12.4))', "[NAN-DBG] conc_nc_cur=", this%waters(idx)%get_conc_var_act()
+            end if
+        end block
         !> Getters (get_conc_var_act)
         conc_nc = this%waters(idx)%get_conc_var_act()
         !> Reactive mixing solver
@@ -128,6 +153,10 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
             call this%waters(idx)%compute_Re(c_hat(1:n_v), Delta_t, &
                 lumped_lambdas(ind_tar_wat(i)), theta_r)
         end if
+        !> [CELL-DBG] intermediate results for 10 target waters equidistant along the mesh
+        if (k<=10 .and. any(celldbg_sel(1:n_celldbg_sel)==idx)) then
+            call write_celldbg_cell(this%waters(idx), iunit_celldbg, k, idx, n_v, c_mix, c_mix, c_hat)
+        end if
         !> Domain-integrated mass-balance contribution of this cell (lumped: c_hat = c_mix)
         call this%waters(idx)%get_react_mix_mass_bal_terms(c_mix(1:n_v), c_hat(1:n_v), &
             lumped_lambdas(ind_tar_wat(i)), Delta_t, theta_r, mb_lhs_c, mb_transp_c, mb_react_c)
@@ -143,16 +172,19 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
             call this%waters(idx)%solid_chemistry%compute_conc_minerals_iter(Delta_t,lumped_lambdas(ind_tar_wat(i)))
         end if
         if (has_gases_flag(i)) then
+            !> gas update of the TARGET water idx (ind_tar_wat(i) is its position in the target list, not an index into this%waters)
             call this%waters(idx)%gas_chemistry%compute_conc_gases_iter(Delta_t, &
-                this%waters(ind_tar_wat(i))%volume, &
-                [this%waters(ind_tar_wat(i))%rxn_rate_eq, this%waters(ind_tar_wat(i))%rxn_rate_kin_avg])
+                this%waters(idx)%volume, &
+                [this%waters(idx)%rxn_rate_eq, this%waters(idx)%rxn_rate_kin_avg])
             call this%waters(idx)%gas_chemistry%compute_vol_gas_species_conc()
             call this%waters(idx)%gas_chemistry%compute_log_act_coeffs_gases()
         end if
-        !> Accumulate reaction amounts
-        this%waters(idx)%cum_rxn_amnt_kin = this%waters(idx)%cum_rxn_amnt_kin + this%waters(idx)%rxn_amnt_kin
-        this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin = &
-            this%waters(idx)%solid_chemistry%cum_rxn_amnt_kin + this%waters(idx)%solid_chemistry%rxn_amnt_kin
+        !> Accumulate reaction amounts: kinetic AND equilibrium (update_cum_rxn_amnt adds rxn_amnt_kin and
+        !> the rxn_amnt_eq that compute_Re set this step); the abs_cum_react_amnt output reports
+        !> cum_rxn_amnt_eq for the aqueous equilibrium reactions and the equilibrium minerals
+        call this%waters(idx)%update_cum_rxn_amnt()
+        call this%waters(idx)%solid_chemistry%update_cum_rxn_amnt()
+        if (has_gases_flag(i)) call this%waters(idx)%gas_chemistry%update_cum_rxn_amnt()
         deallocate(c_mix, c_hat, conc_nc)
     end do
     !> Write this time step's domain-integrated mass balance
@@ -161,8 +193,10 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
     !> Sum equilibrium reaction rates at interfaces if mix_by_zones_flag is set
     if (this%mix_by_zones_flag) then
         do i=1,num_tar_wat
+            !print '(A,I0)', "[SUMEQ-DBG] Summing equilibrium reaction rates for target water ", this%tar_wat_indices(ind_tar_wat(i))
             call this%waters(this%tar_wat_indices(ind_tar_wat(i)))%sum_eq_rxn_rates(this%zone_waters(&
                 this%tar_wat_indices(ind_tar_wat(i)),:))
+            !print '(A,I0)', "[SUMEQ-DBG] Finished summing equilibrium reaction rates for target water ", this%tar_wat_indices(ind_tar_wat(i))
         end do
     end if
     !> Relink target waters to reactive zones if the zone set changed this step

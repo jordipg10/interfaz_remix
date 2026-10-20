@@ -156,12 +156,8 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_2D(this, dir, root)
             error stop "rk average option not implemented yet"
         end if
     else if (n_eq > 0) then
-        ! Equilibrium-only reactions
-        if (this%transport%time_discr%int_method_chem == 2) then
-            p_solver => reactive_mixing_iter_EI_eq_anal_ideal
-        else
-            error stop "Integration method for equilibrium-only reactions not implemented yet"
-        end if
+        ! Equilibrium-only reactions: the speciation does not depend on the reactions integration method (Euler/RKF45)
+        p_solver => reactive_mixing_iter_EI_eq_anal_ideal
     else
         ! Kinetic-only reactions
         if (this%chemistry%rk_avg_opt == 1) then

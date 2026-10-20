@@ -100,7 +100,7 @@
 !> \sa Newton_EI_eq
 
 subroutine compute_c_nc_from_u_Newton(this,c1_ig,c2v_ig,conc_comp,conc_nc,niter,CV_flag)
-    use aqueous_chemistry_m, only: aqueous_chemistry_c  !< Import aqueous chemistry class for speciation methods
+    use aqueous_chemistry_m, only: aqueous_chemistry_c, sim_num_time_steps, spec_fail_print_max_steps  !< Import aqueous chemistry class for speciation methods and the print gate of the failure diagnostic
     implicit none                                       !< Enforce explicit variable declarations
 !> Arguments
     class(aqueous_chemistry_c) :: this                 !< Aqueous chemistry class object [-]
@@ -235,7 +235,8 @@ subroutine compute_c_nc_from_u_Newton(this,c1_ig,c2v_ig,conc_comp,conc_nc,niter,
                 cycle newton_loop                       !< Restart Newton loop with perturbed initial guess
             end if                                      !< End retry guard
             call finish_with_best()                     !< Return the best iterate (CV_flag stays .false.: above the round-off bound)
-            print *, "Too many Newton iterations in speciation, best residual =", best_res_ratio, &
+            if (sim_num_time_steps<=spec_fail_print_max_steps) &  !< Silent in long simulations (more than spec_fail_print_max_steps time steps)
+                print *, "Too many Newton iterations in speciation, best residual =", best_res_ratio, &
                 " times its round-off bound"            !< Report failure
             exit newton_loop                            !< Leave Newton loop
         end if                                          !< End max-iteration guard

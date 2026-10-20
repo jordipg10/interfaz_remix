@@ -61,11 +61,14 @@ module chem_out_options_m
 
         !> Finalizes the output time steps before the solvers run: sets the last element to Num_time.
         !> If the TIME STEPS request was empty ('all time steps'), expands it to [0,1,...,num_time].
+        !> Intermediate time steps requested in the *_out_opts.dat file that are >= num_time are ignored
+        !> (they would never be reached, or would duplicate the final time step).
         subroutine finalize_time_steps(this,num_time)
             implicit none
             class(chem_out_options_s) :: this
             integer(kind=4), intent(in) :: num_time
-            integer(kind=4) :: i
+            integer(kind=4) :: i,n_keep
+            integer(kind=4), allocatable :: kept(:)
             if (this%all_time_steps) then
                 if (allocated(this%time_steps)) deallocate(this%time_steps)
                 this%num_time_steps=num_time+1
@@ -74,7 +77,26 @@ module chem_out_options_m
                     this%time_steps(i)=i-1
                 end do
             else
-                this%time_steps(this%num_time_steps)=num_time
+                !> keep the initial step and the intermediate steps strictly below num_time, then append num_time
+                allocate(kept(this%num_time_steps))
+                kept(1)=0
+                n_keep=1
+                do i=2,this%num_time_steps-1
+                    if (this%time_steps(i)<num_time) then
+                        n_keep=n_keep+1
+                        kept(n_keep)=this%time_steps(i)
+                    else
+                        write(*,'(A,I0,A,I0,A)') 'Warning: output time step ', this%time_steps(i), &
+                            ' exceeds the number of time steps (', num_time, '); ignored'
+                    end if
+                end do
+                n_keep=n_keep+1
+                kept(n_keep)=num_time
+                deallocate(this%time_steps)
+                this%num_time_steps=n_keep
+                allocate(this%time_steps(n_keep))
+                this%time_steps=kept(1:n_keep)
+                deallocate(kept)
             end if
         end subroutine
 

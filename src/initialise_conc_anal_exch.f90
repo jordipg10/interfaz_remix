@@ -120,7 +120,7 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
     !> We update number of iterations
         niter=niter+1
         if (niter>this%solid_chemistry%reactive_zone%CV_params%niter_max) then
-            print *, 'initialise_conc_anal_exch: Newton failed after', niter-1, 'iters'
+            print *, '[DEBUG initialise_conc_anal_exch] Newton failed after', niter-1, 'iters'
             print *, '  ||res||_inf =', inf_norm_vec_real(res)
             print *, '  c1 =', c1
             error stop "Too many Newton iterations in initialisation"
@@ -170,6 +170,34 @@ subroutine initialise_conc_anal_exch(this,icon,n_icon,indices_constrains,ctot,ni
             exit
         end if
     !> We solve linear system aqueous primary concentartions
+        if (niter==1) then
+            block
+                integer :: ii
+                write(0,'(A,4(1X,I0))') ' [ICAE-DBG] np,naqp,neq,nsaq=', &
+                    this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species, &
+                    this%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species, &
+                    this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions, &
+                    this%solid_chemistry%reactive_zone%speciation_alg%num_sec_aq_species
+                write(0,'(A,*(1X,I0))') ' [ICAE-DBG] icon=', icon
+                write(0,'(A,*(1X,I0))') ' [ICAE-DBG] ind_eq_reacts=', this%solid_chemistry%reactive_zone%ind_eq_reacts
+                write(0,'(A,*(1X,I0))') ' [ICAE-DBG] indices_constrains=', indices_constrains
+                write(0,'(A,*(1X,I0))') ' [ICAE-DBG] ind_aq_species=', this%indices_aq_species
+                if (allocated(this%indices_aq_phase)) &
+                    write(0,'(A,*(1X,I0))') ' [ICAE-DBG] ind_aq_phase=', this%indices_aq_phase
+                write(0,'(A,*(1X,ES9.2))') ' [ICAE-DBG] conc=', [c1,c2_new]
+                do ii=1,size(Jac_res,1)
+                    write(0,'(A,I0,A,*(1X,ES9.2))') ' [ICAE-DBG] Jac(',ii,',:)=', Jac_res(ii,:)
+                end do
+                do ii=1,this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions
+                    write(0,'(A,I0,A,*(1X,ES9.2))') ' [ICAE-DBG] Se(',ii,',:)=', &
+                        this%solid_chemistry%reactive_zone%chem_syst%Se(ii,:)
+                end do
+                do ii=1,size(Jac_res,1)
+                    if (maxval(abs(Jac_res(ii,:)))<1d-300) write(0,'(A,I0)') ' [ICAE-DBG] ZERO ROW ', ii
+                    if (maxval(abs(Jac_res(:,ii)))<1d-300) write(0,'(A,I0)') ' [ICAE-DBG] ZERO COL ', ii
+                end do
+            end block
+        end if
         call LU_lin_syst(Jac_res,-res,this%solid_chemistry%reactive_zone%CV_params%zero,Delta_c1)
         !> Converged when the relative Newton update is negligible (denominator guarded
         !> against zero). A negligible step is convergence, not an error.
