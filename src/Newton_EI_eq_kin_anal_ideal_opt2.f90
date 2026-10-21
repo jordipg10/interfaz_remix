@@ -85,10 +85,8 @@
 !> accepted the iterate is kept and the iteration is treated as stagnated, since repeating it would
 !> give the same result.
 !>
-!> **Convergence Criteria (machine-epsilon floor, OR arithmetic AND logarithmic):**
+!> **Convergence Criteria (user tolerances, OR round-off floor):**
 !> \f[
-!>   \|\mathbf{f}_k\|_\infty \le \varepsilon_{\mathrm{mach}}\max(\|\mathbf{U}\mathbf{c}\|_\infty,1)
-!>   \quad\text{or}\quad
 !>   \bigl(\|\mathbf{f}_k\|_\infty < \varepsilon_{\mathrm{abs}}
 !>   \;\wedge\; \|\mathbf{f}_k\|_\infty < \varepsilon_{\mathrm{rel}}\,u_s\bigr)
 !>   \;\wedge\;
@@ -96,8 +94,19 @@
 !>   \;\wedge\; \log_{10}\|\mathbf{f}_k\|_\infty - \log_{10} u_s < \varepsilon^{\log}_{\mathrm{rel}}\bigr),
 !>   \qquad u_s=\max(\|\mathbf{U}\mathbf{c}\|_\infty,\varepsilon_{\mathrm{mach}})
 !> \f]
-!> A non-converged best iterate is NEVER accepted (no \f$\sqrt{\varepsilon}\f$ acceptance): the caller
-!> retries with other initial guesses or stops.
+!> or, failing those, the round-off floor: every component residual within the forward-error bound of
+!> its own evaluation,
+!> \f[
+!>   |f_{k,i}| \le \rho_i = (n_v+1+n_{kin})\,\varepsilon\,\Bigl(|\hat u_i| + \sum_j |U_{ij}|\,c_j
+!>     + \Delta t\,\theta\,\lambda_r \sum_k |(\mathbf{U}\mathbf{S}_k^T)_{ik}|\,|r_k|\Bigr)
+!>     + \sum_{j>n_p} |U_{ij}|\,c_j\,\delta_j ,
+!> \f]
+!> with \f$\delta_j\f$ the mass-action round-off of the secondary species as in
+!> `compute_c_nc_from_u_Newton_ideal` (the round-off of the rate evaluation itself is not included).
+!> The floor caps the achievable strictness of the user tolerances (an absolute tolerance below one ulp
+!> of a large component total cannot be met) and keeps the fallback's convergence consistent with this
+!> loop's. A non-converged best iterate is NEVER accepted (no \f$\sqrt{\varepsilon}\f$ acceptance): the
+!> caller retries with other initial guesses or stops.
 !>
 !> **Re-speciation Fallback:**
 !>
@@ -222,6 +231,21 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
     real(kind=8), allocatable :: U_SkT_new(:,:)     !< \f$(\mathbf{U}\mathbf{S}_k^T)^{\mathrm{new}}\f$ (n_p x n_kin) [-]
     real(kind=8), allocatable :: Uc(:)              !< \f$\mathbf{U}\mathbf{c}_{v}\f$ (n_p) [C]
     logical :: skip_eval                            !< Reuse the speciation, rates and residual of the accepted line-search point
+!> Local variables — round-off floor of the residual (termination safeguard; bound of compute_c_nc_from_u_Newton_ideal plus the kinetic term)
+    integer(kind=4) :: n_eq                         !< Number of equilibrium reactions (= n_v - n_p) [-]
+    real(kind=8) :: zero_tol                        !< Numerically-zero concentration (CV_params%zero), for components with exactly zero \f$\hat u_i\f$ [C]
+    real(kind=8), allocatable :: res_floor(:)       !< Round-off bound \f$\rho_i\f$ of each component residual at the current iterate (n_p) [C]
+    real(kind=8), allocatable :: abs_comp_mat(:,:)  !< \f$|\mathbf{U}|\f$ (n_p x n_v) [-]
+    real(kind=8), allocatable :: abs_U2(:,:)        !< \f$|\mathbf{U}_2|\f$ (n_p x n_eq) [-]
+    real(kind=8), allocatable :: abs_U_SkT(:,:)     !< \f$|\mathbf{U}\mathbf{S}_k^T|\f$ (n_p x n_kin) [-]
+    real(kind=8), allocatable :: abs_Se_star(:,:)   !< \f$|\mathbf{S}^*_{e,v,1}|\f$ (n_eq x n_p) [-]
+    real(kind=8), allocatable :: abs_logK_star(:)   !< \f$|\log_{10}\mathbf{K}^*|\f$ (n_eq) [-]
+    real(kind=8), allocatable :: abs_log_gamma_1(:) !< \f$|\log_{10}\gamma|\f$ of the primary species (n_p) [-]
+    real(kind=8), allocatable :: abs_log_gamma_2(:) !< \f$|\log_{10}\gamma|\f$ of the secondary variable activity species (n_eq) [-]
+    real(kind=8), allocatable :: abs_u_hat(:)       !< \f$|\hat{\mathbf{u}}|\f$ (n_p) [C]
+    real(kind=8), allocatable :: row_sum_abs_U(:)   !< \f$\sum_j |U_{ij}|\f$ (n_p) [-]
+    real(kind=8), allocatable :: abs_log_c1(:)      !< \f$|\log_{10} c_{1,k}|\f$ at the current iterate (n_p) [-]
+    real(kind=8), allocatable :: rel_err_c2(:)      !< Relative round-off bound \f$\delta_j\f$ of each secondary species at the current iterate (n_eq) [-]
 !> -----------------------------------------------------------------------
 !> \section newton_ei_preproc Pre-processing: initialisation and allocation
 !> -----------------------------------------------------------------------
@@ -254,6 +278,23 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
     log_gamma_var_act=this%compute_log_act_coeffs_var_act_ideal() !> fixed during the iteration (all zeros: ideal)
     rk_old=this%get_rk_old_new_set() !> previous-step rates in the current kinetic set (rows of rk_new): only for the mean rate stored at convergence
     dt_theta_mr_new=Delta_t*theta*mix_ratio_r
+    !> Loop-invariant factors of the round-off bound of the residual (see the convergence check)
+    n_eq=n_v-n_p
+    zero_tol=this%solid_chemistry%reactive_zone%CV_params%zero
+    abs_comp_mat=abs(comp_mat)
+    abs_U2=abs(comp_mat(:,n_p+1:n_v))
+    abs_U_SkT=abs(U_SkT_new)
+    abs_u_hat=abs(u_hat)
+    row_sum_abs_U=sum(abs_comp_mat,dim=2)
+    abs_log_gamma_1=abs(log_gamma_var_act(1:n_p))
+    abs_log_gamma_2=abs(log_gamma_var_act(n_p+1:n_v))
+    if (n_eq>0) then !> mass-action factors of the secondary species (as used by compute_c2v_from_c1_ideal)
+        abs_Se_star=abs(this%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star)
+        abs_logK_star=abs(this%logK_star)
+    else
+        allocate(abs_Se_star(0,n_p),abs_logK_star(0))
+    end if
+    allocate(res_floor(n_p),abs_log_c1(n_p),rel_err_c2(n_eq))
 !> -----------------------------------------------------------------------
 !> \section newton_ei_process Process: Newton loop
 !> -----------------------------------------------------------------------
@@ -297,12 +338,30 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
             conc_nc_best=conc_nc
             rk_best=rk_new
         end if
-    !> \subsection newton_ei_conv Convergence check (machine-epsilon floor OR arithmetic AND logarithmic)
+    !> \subsection newton_ei_conv Convergence check (user tolerances OR round-off floor)
+    !> Round-off floor (evaluated only when the user tolerances are not met): every component residual
+    !> within the forward-error bound of its own evaluation,
+    !> rho_i = (n_v+1+n_kin) eps (|u_hat_i| + sum_j |U_ij| c_j + Dt theta lambda_r sum_k |(U Sk^T)_ik| |r_k|)
+    !>         + sum_{j>n_p} |U_ij| c_j delta_j,
+    !> i.e. the inner product of n_v+1+n_kin terms plus the propagated mass-action round-off delta_j of
+    !> the secondary species (as in compute_c_nc_from_u_Newton_ideal; the round-off of the rate evaluation
+    !> itself is not included). It caps the achievable strictness of the user tolerances (an absolute
+    !> tolerance below one ulp of a large total cannot be met) and makes the fallback's notion of
+    !> convergence consistent with this loop's.
         u_scale=max(u_norm,eps_d)
-        if ((fk_norm<=eps_d*max(u_norm,1d0)) .or. &
-            ((fk_norm<abs_tol .and. fk_norm<rel_tol*u_scale) .and. &
-             (fk_norm>0d0 .and. log10(fk_norm)<log_abs_tol .and. (log10(fk_norm)-log10(u_scale))<log_rel_tol))) then
-            CV_flag=.true.
+        CV_flag=(fk_norm<abs_tol .and. fk_norm<rel_tol*u_scale) .and. &
+            (fk_norm>0d0 .and. log10(fk_norm)<log_abs_tol .and. (log10(fk_norm)-log10(u_scale))<log_rel_tol)
+        if (.not. CV_flag) then
+            abs_log_c1=abs(log10(max(conc_nc(1:n_p),tiny(1d0))))
+            rel_err_c2=eps_d*(1d0+ln10*dble(n_p+3)*(matmul(abs_Se_star,abs_log_c1+abs_log_gamma_1)+abs_logK_star+abs_log_gamma_2))
+            res_floor=dble(n_v+1+n_kin)*eps_d*(abs_u_hat+matmul(abs_comp_mat,abs(conc_nc))+ &
+                abs(dt_theta_mr_new)*matmul(abs_U_SkT,abs(rk_new)))+matmul(abs_U2,abs(conc_nc(n_p+1:n_v))*rel_err_c2)
+            do ii=1,n_p !> a component with exactly zero total has no root at finite concentrations: its species are accepted as absent below the numerically-zero concentration
+                if (u_hat(ii)==0d0) res_floor(ii)=max(res_floor(ii),zero_tol*row_sum_abs_U(ii))
+            end do
+            CV_flag=all(abs(fk)<=res_floor)
+        end if
+        if (CV_flag) then
             !> the object holds the speciation and the rates of this iterate; store the mean rate and
             !> the kinetic reaction amounts and contributions of the step
             rk_avg=theta*rk_new+(1d0-theta)*rk_old
@@ -423,6 +482,8 @@ subroutine Newton_EI_eq_kin_anal_ideal_opt2(this,u_hat,mix_ratio_r,Delta_t,theta
 !> -----------------------------------------------------------------------
     deallocate(fk,fk_trial,drk_dlogc,rk_old,rk_new,rk_trial,rk_best,rk_avg,conc_nc_best,conc_nc_save,u_fix)
     deallocate(dfk_dp,dfk_dp_eq,Delta_p,log_c1,ipiv_dgesv,Uc,row_scale,col_scale,comp_mat,U_SkT_new,log_gamma_var_act)
+    deallocate(res_floor,abs_comp_mat,abs_U2,abs_U_SkT,abs_Se_star,abs_logK_star,abs_log_gamma_1,abs_log_gamma_2, &
+        abs_u_hat,row_sum_abs_U,abs_log_c1,rel_err_c2)
 
 contains
 

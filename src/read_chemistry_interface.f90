@@ -12,7 +12,7 @@
 !>     output options ("<root>_out_opts.dat"): the interface routines write
 !>     their own output files and do not use those options.
 !> The convergence parameters file "<root>_CV_params.dat" is optional (see
-!> read_params_iter_methods): without it the defaults of params_iter_methods_s apply.
+!> read_CV_params): without it the defaults of CV_params_s apply.
 !>
 !> \author Jordi
 !> \date Unknown
@@ -40,9 +40,9 @@ subroutine read_chemistry_interface(this,root,path_pb,path_DB,num_tar)
     unit_chem_syst=1
     unit_loc_chem=2
 
-    !> Convergence parameters ("<root>_CV_params.dat" is optional: defaults of params_iter_methods_s otherwise).
+    !> Convergence parameters ("<root>_CV_params.dat" is optional: defaults of CV_params_s otherwise).
     !> Read BEFORE the chemistry, since the reactive zones are linked to this%CV_params while they are read.
-    call this%CV_params%read_params_iter_methods(path_pb,root)
+    call this%CV_params%read_CV_params(path_pb,root)
     !> Read chemical data depending on the selected option (we impose CHEPROO here)
     read_opt=1 !> CHEPROO-based (chapuza)
     call this%set_read_opt(read_opt) !> set reading option (chapuza)

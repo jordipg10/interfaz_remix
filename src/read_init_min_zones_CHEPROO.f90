@@ -15,7 +15,7 @@
 !>   <zone_id> <temp>   ! Zone index, temperature (°C)
 !>   <name>             ! Zone name
 !>   mineral            ! Header line
-!>   <min_name> <vol_frac> <react_surf>  ! Mineral name, volume fraction [-], reactive surface [m²/m³]
+!>   <min_name> <vol_frac_por> <react_surf>  ! Mineral name, volume fraction [-], reactive surface [m²/m³]
 !>   ...
 !>   *                  ! End of zone marker
 !>   ```
@@ -105,7 +105,7 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
     character(len=256) :: str        !< General string for reading headers and markers
     character(len=256) :: constrain  !< Constraint string (unused)
     character(len=256) :: label      !< Label for section identification
-    character(len=256) :: min_name   !< Mineral name (unused, using mineral%name instead)
+    character(len=256) :: min_name   !< Mineral name read from file
     character(len=256) :: name       !< Zone name read from file
     !< @}
     
@@ -114,7 +114,7 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
     real(kind=8) :: guess       !< Initial guess for solver (unused)
     real(kind=8) :: c_tot       !< Total concentration (unused)
     real(kind=8) :: temp        !< Temperature in Celsius (converted to Kelvin)
-    real(kind=8) :: vol_frac    !< Volume fraction of mineral [-]
+    real(kind=8) :: vol_frac_por !< Volume fraction of mineral [-]
     real(kind=8) :: react_surf  !< Reactive surface area [m² mineral / m³ rock]
     real(kind=8) :: conc        !< Mineral concentration [M] (unused, set to 1.0 for pure phases)
     !< @}
@@ -185,8 +185,9 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
                         num_mins_vare_mean=0  !< Variable activity equilibrium minerals
                         num_mins_var_kin=0  !< Variable activity kinetic minerals
                         do  !< Inner loop: read mineral names and classify
-                            read(unit,*) mineral%name  !< Read mineral name from file
-                            if (mineral%name=='*') then  !< End marker "*" - finish this zone
+                            read(unit,*) min_name  !< Read mineral name from file
+                            call mineral%set_phase_name(min_name)
+                            if (min_name=='*') then  !< End marker "*" - finish this zone
                                 call this%mineral_zones(imtype)%set_chem_syst_min_zone(this%chem_syst)
                                 call this%mineral_zones(imtype)%set_id(imtype)
                                 call this%materials(imtype)%set_mineral_zone(this%mineral_zones(imtype)) !> chapuza
@@ -283,8 +284,9 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
                             num_mins_loc_kin=0 !> counter kinetic minerals in this zone (reset)
                             num_mins_loc_eq=0 !> counter equilibrium minerals in this zone (reset)
                             do  !< Loop through minerals in this zone
-                                read(unit,*) mineral%name, vol_frac, react_surf !> Mineral name, volume fraction [-], reactive surface [m² mineral/m³ rock]
-                                if (mineral%name=='*') then  !< End marker for this zone
+                                read(unit,*) min_name, vol_frac_por, react_surf !> Mineral name, volume fraction [-], reactive surface [m² mineral/m³ rock]
+                                call mineral%set_phase_name(min_name)
+                                if (min_name=='*') then  !< End marker for this zone
                                     exit  !< Exit mineral loop
                                 else  !< Valid mineral data
                                     num_mins_loc=num_mins_loc+1  !< Increment local mineral counter
@@ -299,7 +301,7 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
                                             min_indices(num_mins_loc,num_min_zones) !> Same global index
                                         !< Set volume fraction [-] (dimensionless)
                                         this%materials(imtype)%min_pore_vol_ratios(&
-                                            this%materials(imtype)%mineral_zone%num_minerals_kin+num_mins_loc_eq)=vol_frac
+                                            this%materials(imtype)%mineral_zone%num_minerals_kin+num_mins_loc_eq)=vol_frac_por
                                         !< Set reactive surface [m² mineral/m³ rock]
                                         this%materials(imtype)%react_surfaces(&
                                             this%materials(imtype)%mineral_zone%num_minerals_kin+num_mins_loc_eq)=react_surf
@@ -315,7 +317,7 @@ subroutine read_init_min_zones_CHEPROO(this,unit,nmrz,surf_chem)
                                         this%materials(imtype)%mineral_zone%ind_min_chem_syst(num_mins_loc_kin)=&
                                             min_indices(num_mins_loc,num_min_zones) !> Global index from chemical system
                                         !< Set volume fraction [-]
-                                        this%materials(imtype)%min_pore_vol_ratios(num_mins_loc_kin)=vol_frac
+                                        this%materials(imtype)%min_pore_vol_ratios(num_mins_loc_kin)=vol_frac_por
                                         !< Set reactive surface [m² mineral/m³ rock]
                                         this%materials(imtype)%react_surfaces(num_mins_loc_kin)=react_surf
                                         !< Set concentration [M] (pure phase assumption)

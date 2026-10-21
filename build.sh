@@ -53,7 +53,7 @@ SRCS=(
   spatial_discr_rad_m
   time_discr_m
   # --- chemistry layer + routines (compile-chem) ---
-  params_iter_methods_m
+  CV_params_m
   params_aq_sol_m
   params_spec_vol_m
   params_act_coeff_m
@@ -111,7 +111,10 @@ SRCS=(
   compute_dfk_dc1_EI_ideal
   compute_dfk_dc1_EI
   compute_dfk_dc_EI_ideal
+  compute_dfk_dp_EI_ideal
+  compute_dfk_dp_EI
   compute_drk_dc_mineral
+  compute_drk_dlogc_mineral
   compute_drk_dc_Monod
   compute_Jacobian_rk_anal
   compute_mass_bal_mins
@@ -151,6 +154,7 @@ SRCS=(
   Newton_EI_kin_anal_ideal_opt2
   Newton_EI_eq_kin_anal_ideal_opt2
   Newton_EI_eq_kin_anal_opt2
+  RKF45_eq_kin_anal_opt2
   compute_react_term_EE_eq_kin
   compute_react_term_EE_kin
   read_association_react_PHREEQC
@@ -193,6 +197,7 @@ SRCS=(
   reactive_mixing_iter_EI_kin_anal_ideal_opt2
   reactive_mixing_iter_EI_eq_anal_ideal
   reactive_mixing_iter_EI_eq_kin_anal_opt2
+  reactive_mixing_iter_RKF45_eq_kin_anal_opt2
   write_chemistry
   # --- driver (compile-main) ---
   main_interfaz

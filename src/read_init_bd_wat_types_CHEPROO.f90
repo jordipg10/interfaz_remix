@@ -541,7 +541,6 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit)
                 !> ------------------------------------------------------------
                 read(unit,*) j, temp !> read index and temperature in Celsius
                 read(unit,*) name !> read water type name
-                write(0,'(A,2(1X,I0),1X,A)') ' [RIB-DBG] loop i,j=', i, j, trim(name)
                 
                 !> ------------------------------------------------------------
                 !> Set up reactive zone for this water type
@@ -586,7 +585,6 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit)
                 !> solid-chemistry path, so no cation exchange zone is used here.
                 call sol_types_loc(j)%set_mineral_zone(min_zones(j))
                     !> set mineral zone for this solid type
-                write(0,'(A,I0)') ' [RIB-DBG] pre read_wat_type j=', j
                 
                 !> Read water type composition. When the chemical system has gases
                 !> used only as constraints, the water type's own gas zone
@@ -618,7 +616,6 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit)
                     min_zones(j)%ind_min_chem_syst=react_zones(j)%ind_mins_chem_syst
                 end if
                 call min_zones(j)%allocate_ind_min_Sk(0)
-                write(0,'(A,I0,A,I0)') ' [RIB-DBG] min_zone populated j=', j, ' nmin=', react_zones(j)%num_minerals
             end do !> end second pass water types loop
             
             !> Exit search loop after processing section
@@ -879,53 +876,5 @@ subroutine read_init_bd_wat_types_CHEPROO(this,unit)
     
     !print *, this%sol_types(1)%mineral_zone%num_minerals_eq, this%sol_types(1)%mineral_zone%num_minerals_kin
         !> (COMMENTED) debug print: number of equilibrium and kinetic minerals in first solid type
-
-!> ================================================================
-!> DIAGNOSTIC (one-shot): print the speciated state of each water type so the
-!> computed initial condition can be compared with Rezaei et al. (2005) Table 1.
-!> Written to stderr (unit 0, unbuffered) so it survives a later crash.
-!> ================================================================
-    do i=1,nwtype
-        write(0,'(A,I0,2A)') ' === WATER TYPE ', i, ' : ', trim(this%wat_types(i)%name)
-        write(0,'(A,F8.3,A,F8.5,A,F8.5,A,F8.5)') '   T [C] = ', this%wat_types(i)%temp-273.15d0, &
-            '   rho_w [kg/L] = ', this%wat_types(i)%density, &
-            '   Debye-Huckel A = ', this%wat_types(i)%params_aq_sol%A, '   B = ', this%wat_types(i)%params_aq_sol%B
-        if (this%wat_types(i)%aq_phase%ind_prot/=0) then !> pH only defined when a proton is in the system
-            write(0,'(A,F9.4)') '   pH = ', this%wat_types(i)%pH
-        end if
-        !> equilibrium constants of this water type's reactive zone at ITS temperature (the ones its
-        !> speciation used), next to the database reference values (25 C)
-        if (allocated(this%wat_types(i)%logK) .and. associated(this%wat_types(i)%solid_chemistry)) then
-            write(0,'(A)') '   log10 K at T (database 25 C value in brackets):'
-            do k=1,this%wat_types(i)%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions
-                associate(rct => this%wat_types(i)%solid_chemistry%reactive_zone%chem_syst%eq_reacts( &
-                    this%wat_types(i)%solid_chemistry%reactive_zone%ind_eq_reacts(k)))
-                if (rct%eq_cst_ref>0d0) then
-                    write(0,'(3A,F10.4,A,F10.4,A)') '     ', trim(rct%name), ' : ', this%wat_types(i)%logK(k), &
-                        '  (', log10(rct%eq_cst_ref), ')'
-                else
-                    write(0,'(3A,F10.4)') '     ', trim(rct%name), ' : ', this%wat_types(i)%logK(k)
-                end if
-                end associate
-            end do
-        end if
-        do k=1,this%wat_types(i)%aq_phase%num_species
-            write(0,'(3A,ES14.6,A,ES14.6)') '   ', &
-                trim(this%wat_types(i)%aq_phase%aq_species(this%wat_types(i)%indices_aq_phase(k))%name), &
-                ' : conc=', this%wat_types(i)%concentrations(k), &
-                '  act=', this%wat_types(i)%activities(k)
-        end do
-        if (associated(this%wat_types(i)%gas_chemistry)) then
-            write(0,'(A,ES14.6,A,ES14.6)') '   [gas debug] volume=', &
-                this%wat_types(i)%gas_chemistry%volume, '  temp=', this%wat_types(i)%gas_chemistry%temp
-            do k=1,this%wat_types(i)%gas_chemistry%reactive_zone%gas_phase%num_species
-                write(0,'(3A,ES14.6,A,ES14.6,A,ES14.6)') '   gas ', &
-                    trim(this%wat_types(i)%gas_chemistry%reactive_zone%gas_phase%gases(k)%name), &
-                    ' : P=', this%wat_types(i)%gas_chemistry%activities(k), &
-                    '  conc=', this%wat_types(i)%gas_chemistry%concentrations(k), &
-                    '  log_act_coeff=', this%wat_types(i)%gas_chemistry%log_act_coeffs(k)
-            end do
-        end if
-    end do
         
 end subroutine

@@ -12,8 +12,8 @@
 !> - **Stagnation detection** and **best-solution tracking** for robustness
 !> - **Re-speciation fallback** via `compute_c_nc_from_u_Newton_ideal` when
 !>   max iterations or stagnation is reached (tried once before giving up)
-!> - **Machine-epsilon safeguard** so that the loop terminates when the residual reaches
-!>   double-precision round-off
+!> - **Round-off floor** (per-component bound of the computed residual) so that the loop terminates
+!>   when the residual reaches double-precision round-off, however strict the user tolerances
 !>
 !> **Mathematical Formulation:**
 !>
@@ -122,13 +122,7 @@
 !>       If the fallback was already tried or fails, return the best iterate with failure.
 !> 3. **Post-processing:** Deallocate temporaries.
 !>
-!> **Convergence Criteria (machine-epsilon floor, OR arithmetic AND logarithmic):**
-!>
-!> *Machine-epsilon branch (termination safeguard):*
-!> \f[
-!>   \|\mathbf{f}\|_\infty \le \varepsilon_{\mathrm{mach}}
-!>     \cdot \max\!\bigl(\|\mathbf{U}\mathbf{c}\|_\infty,\,1\bigr)
-!> \f]
+!> **Convergence Criteria (user tolerances, OR round-off floor):**
 !>
 !> *Arithmetic branch:*
 !> \f[
@@ -146,6 +140,21 @@
 !>     - \log_{10}\!\max\!\bigl(\|\mathbf{U}\mathbf{c}\|_\infty,\,\varepsilon_{\mathrm{mach}}\bigr)
 !>     < \varepsilon_{\mathrm{rel}}^{\log}
 !> \f]
+!>
+!> *Round-off floor (termination safeguard, evaluated only when the user tolerances are not met):*
+!> every component residual lies within the rigorous round-off bound of its own evaluation,
+!> \f[
+!>   |f_i| \le \rho_i = (n_v+1)\,\varepsilon\,\Bigl(|\hat u_i| + \sum_j |U_{ij}|\,c_j\Bigr)
+!>                      + \sum_{j>n_p} |U_{ij}|\,c_j\,\delta_j ,
+!> \f]
+!> the forward-error bound of the \f$(n_v+1)\f$-term inner product forming \f$f_i\f$ plus the propagated
+!> round-off \f$\delta_j\f$ of the mass-action evaluation of the secondary species (same bound, and same
+!> \f$\delta_j\f$, as `compute_c_nc_from_u_Newton_ideal`; a component with exactly zero \f$\hat u_i\f$ is
+!> widened to `CV_params%zero`\f$\cdot\sum_j|U_{ij}|\f$). A point whose exact residual vanishes has a computed
+!> residual within \f$\rho\f$, so this is the strictest criterion double precision can meet: it caps the
+!> achievable strictness of the user tolerances (e.g. an absolute tolerance below one ulp of the largest
+!> component total) and makes the fallback's notion of convergence consistent with this loop's. Being
+!> per component, it does not accept round-off of a large total as convergence of a small one.
 !>
 !> **Re-speciation Fallback:**
 !>
@@ -280,6 +289,19 @@ subroutine Newton_EI_eq_ideal(this,u_hat,conc_nc,niter,CV_flag)
     real(kind=8), allocatable :: comp_mat(:,:)       !< Component matrix \f$\mathbf{U}\f$ (cached, n_p × n_v) [-]
     real(kind=8), allocatable :: U1(:,:)             !< Cached primary species block \f$\mathbf{U}_1 = \mathbf{U}(:,1:n_p)\f$ (n_p × n_p) [-]
     real(kind=8), allocatable :: U2(:,:)             !< Cached secondary species block \f$\mathbf{U}_2 = \mathbf{U}(:,n_p+1:n_v)\f$ (n_p × n_eq) [-]
+!> Local variables — round-off floor of the residual (termination safeguard; same bound as compute_c_nc_from_u_Newton_ideal)
+    real(kind=8) :: zero_tol                         !< Numerically-zero concentration (CV_params%zero), for components with exactly zero \f$\hat u_i\f$ [C]
+    real(kind=8), allocatable :: res_floor(:)        !< Round-off bound \f$\rho_i\f$ of each component residual at the current iterate (n_p) [C]
+    real(kind=8), allocatable :: abs_comp_mat(:,:)   !< \f$|\mathbf{U}|\f$ (n_p × n_v) [-]
+    real(kind=8), allocatable :: abs_U2(:,:)         !< \f$|\mathbf{U}_2|\f$ (n_p × n_eq) [-]
+    real(kind=8), allocatable :: abs_Se_star(:,:)    !< \f$|\mathbf{S}^*_{e,v,1}|\f$ (n_eq × n_p) [-]
+    real(kind=8), allocatable :: abs_logK_star(:)    !< \f$|\log_{10}\mathbf{K}^*|\f$ (n_eq) [-]
+    real(kind=8), allocatable :: abs_log_gamma_1(:)  !< \f$|\log_{10}\gamma|\f$ of the primary species (n_p) [-]
+    real(kind=8), allocatable :: abs_log_gamma_2(:)  !< \f$|\log_{10}\gamma|\f$ of the secondary variable activity species (n_eq) [-]
+    real(kind=8), allocatable :: abs_u_hat(:)        !< \f$|\hat{\mathbf{u}}|\f$ (n_p) [C]
+    real(kind=8), allocatable :: row_sum_abs_U(:)    !< \f$\sum_j |U_{ij}|\f$ (n_p) [-]
+    real(kind=8), allocatable :: abs_log_c1(:)       !< \f$|\log_{10} c_{1,k}|\f$ at the current iterate (n_p) [-]
+    real(kind=8), allocatable :: rel_err_c2(:)       !< Relative round-off bound \f$\delta_j\f$ of each secondary species at the current iterate (n_eq) [-]
 !> -----------------------------------------------------------------------
 !> \section newton_eq_preproc Pre-processing: initialisation and allocation
 !> -----------------------------------------------------------------------
@@ -311,6 +333,21 @@ subroutine Newton_EI_eq_ideal(this,u_hat,conc_nc,niter,CV_flag)
     predictor_applied = .false.     !< Re-speciation fallback has not been tried yet
     skip_eval = .false.             !< No accepted step yet; must compute from scratch
     log_gamma_var_act = this%get_log_gamma_var_act()  !< Read log10 activity coefficients from the object, held fixed during the iteration (ideal ⇒ all zeros)
+    !> Loop-invariant factors of the round-off bound of the residual (see the convergence check)
+    zero_tol = this%solid_chemistry%reactive_zone%CV_params%zero          !< Numerically-zero concentration
+    abs_comp_mat = abs(comp_mat)                                           !< \f$|\mathbf{U}|\f$
+    abs_U2 = abs(U2)                                                       !< \f$|\mathbf{U}_2|\f$
+    abs_u_hat = abs(u_hat)                                                 !< \f$|\hat{\mathbf{u}}|\f$
+    row_sum_abs_U = sum(abs_comp_mat, dim=2)                               !< \f$\sum_j |U_{ij}|\f$
+    abs_log_gamma_1 = abs(log_gamma_var_act(1:n_p))                        !< \f$|\log_{10}\gamma|\f$ of the primary species
+    abs_log_gamma_2 = abs(log_gamma_var_act(n_p+1:n_v))                    !< \f$|\log_{10}\gamma|\f$ of the secondary species
+    if (n_eq > 0) then                                                     !< Mass-action factors of the secondary species (as used by compute_c2v_from_c1_ideal)
+        abs_Se_star = abs(this%solid_chemistry%reactive_zone%speciation_alg%Se_nc_1_star)  !< \f$|\mathbf{S}^*_{e,v,1}|\f$
+        abs_logK_star = abs(this%logK_star)                                !< \f$|\log_{10}\mathbf{K}^*|\f$
+    else                                                                   !< No secondary species: empty factors
+        allocate(abs_Se_star(0,n_p), abs_logK_star(0))
+    end if
+    allocate(res_floor(n_p), abs_log_c1(n_p), rel_err_c2(n_eq))           !< Per-iterate factors of the bound
 !> -----------------------------------------------------------------------
 !> \section newton_eq_process Process: Newton loop
 !> -----------------------------------------------------------------------
@@ -368,13 +405,8 @@ subroutine Newton_EI_eq_ideal(this,u_hat,conc_nc,niter,CV_flag)
             best_fk_norm = fk_norm      !< Update best residual norm
             conc_nc_best = conc_nc      !< Snapshot concentrations at the new best point
         end if                          !< End best-solution tracking update
-    !> \subsubsection newton_eq_conv Convergence check (machine-epsilon floor OR arithmetic AND logarithmic)
-    !> The Newton iterate is accepted as converged only if
-    !>
-    !> **Branch 1 — Machine-epsilon safeguard (termination floor):**
-    !> \f$\|\mathbf{f}\|_\infty \le \varepsilon_{\mathrm{mach}}\cdot\max(\|\mathbf{U}\mathbf{c}\|,1)\f$
-    !>
-    !> or BOTH of
+    !> \subsubsection newton_eq_conv Convergence check (user tolerances OR round-off floor)
+    !> The Newton iterate is accepted as converged if BOTH of
     !>
     !> **Branch 2 — Arithmetic tolerances (abs AND rel):**
     !> \f$\|\mathbf{f}\|_\infty < \varepsilon_{\mathrm{abs}}\f$ AND
@@ -384,17 +416,34 @@ subroutine Newton_EI_eq_ideal(this,u_hat,conc_nc,niter,CV_flag)
     !> \f$\log_{10}\|\mathbf{f}\|_\infty < \varepsilon_{\mathrm{abs}}^{\log}\f$ AND
     !> \f$\log_{10}\|\mathbf{f}\|_\infty - \log_{10}\max(\|\mathbf{U}\mathbf{c}\|,\varepsilon_{\mathrm{mach}}) < \varepsilon_{\mathrm{rel}}^{\log}\f$
     !>
+    !> or, failing those, if it satisfies
+    !>
+    !> **Branch 1 — Round-off floor (termination safeguard):**
+    !> \f$|f_i| \le \rho_i = (n_v+1)\,\varepsilon\,(|\hat u_i| + \sum_j |U_{ij}| c_j) + \sum_{j>n_p} |U_{ij}|\,c_j\,\delta_j\f$
+    !> for every component (see the header; same bound as compute_c_nc_from_u_Newton_ideal).
+    !>
     !> The relative tests scale with the ACTUAL component norm (not max(.,1)), so for
     !> component norms below unity they are tighter than a max(||Uc||,1) scaling would be;
-    !> Branch 1 caps the achievable strictness at machine precision so the loop always terminates.
+    !> Branch 1 caps the achievable strictness at the round-off level of each component residual, so
+    !> the loop always terminates (a tolerance below one ulp of a large total cannot be met otherwise).
         u_scale = max(u_norm, eps_d)    !< Relative-tolerance scale (never zero)
-        if ((fk_norm <= eps_d * max(u_norm, 1d0)) .or. &                               !< Branch 1: machine-epsilon floor
-            ((fk_norm < abs_tol .and. &                                                 !< Branch 2a: absolute tolerance
-              fk_norm < rel_tol * u_scale) .and. &                                      !< Branch 2b: relative tolerance
-             (fk_norm > 0d0 .and. &                                                     !< Branch 3: guard against log10(0)
-              log10(fk_norm) < log_abs_tol .and. &                                      !< Branch 3a: log-absolute tolerance
-              (log10(fk_norm) - log10(u_scale)) < log_rel_tol))) then                   !< Branch 3b: log-relative tolerance
-            CV_flag = .true.            !< Mark as converged
+        CV_flag = (fk_norm < abs_tol .and. &                                            !< Branch 2a: absolute tolerance
+                   fk_norm < rel_tol * u_scale) .and. &                                 !< Branch 2b: relative tolerance
+                  (fk_norm > 0d0 .and. &                                                !< Branch 3: guard against log10(0)
+                   log10(fk_norm) < log_abs_tol .and. &                                 !< Branch 3a: log-absolute tolerance
+                   (log10(fk_norm) - log10(u_scale)) < log_rel_tol)                     !< Branch 3b: log-relative tolerance
+        if (.not. CV_flag) then         !< Branch 1: round-off floor, evaluated only when the user tolerances are not met
+            abs_log_c1 = abs(log10(max(conc_nc(1:n_p), tiny(1d0))))                    !< \f$|\log_{10} c_{1,k}|\f$
+            rel_err_c2 = eps_d * (1d0 + ln10 * dble(n_p+3) * &                          !< \f$\delta_j\f$: round-off of the mass-action evaluation of each secondary species
+                (matmul(abs_Se_star, abs_log_c1 + abs_log_gamma_1) + abs_logK_star + abs_log_gamma_2))
+            res_floor = dble(n_v+1) * eps_d * (abs_u_hat + matmul(abs_comp_mat, abs(conc_nc))) + &  !< Inner-product forward-error bound of \f$f_i\f$
+                matmul(abs_U2, abs(conc_nc(n_p+1:n_v)) * rel_err_c2)                    !< Propagated speciation round-off
+            do ii = 1, n_p              !< A component with exactly zero total has no root at finite concentrations:
+                if (u_hat(ii) == 0d0) res_floor(ii) = max(res_floor(ii), zero_tol * row_sum_abs_U(ii))  !< its species are accepted as absent below the numerically-zero concentration
+            end do
+            CV_flag = all(abs(fk) <= res_floor)                                         !< Every component residual within its round-off bound
+        end if                          !< End round-off floor
+        if (CV_flag) then               !< Converged
             exit newton_loop            !< Leave the Newton loop — solution accepted
         else                            !< Not converged — proceed with Jacobian and Newton step
         !> \subsubsection newton_eq_jacobian Jacobian assembly and log-space transformation
@@ -513,4 +562,6 @@ subroutine Newton_EI_eq_ideal(this,u_hat,conc_nc,niter,CV_flag)
     deallocate(fk, dfk_dc1, dc2v_dc1, conc_nc_best, conc_nc_save)  !< Free Jacobian, residual, best/save arrays
     deallocate(dfk_dp, dfk_dp_eq, Delta_p, log_c1, fk_trial, ipiv_dgesv, Uc, col_scale)  !< Free log-space work arrays
     deallocate(comp_mat, U1, U2)        !< Free cached component-matrix blocks
+    deallocate(res_floor, abs_comp_mat, abs_U2, abs_Se_star, abs_logK_star, abs_log_gamma_1, abs_log_gamma_2, &
+        abs_u_hat, row_sum_abs_U, abs_log_c1, rel_err_c2)  !< Free round-off floor factors
 end subroutine Newton_EI_eq_ideal       !< End of Newton_EI_eq_ideal subroutine

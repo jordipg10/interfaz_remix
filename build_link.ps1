@@ -10,10 +10,11 @@ $obj = @(
   'compute_c2nc_from_c1_ideal.o','compute_c2v_from_c1_Picard.o','compute_conc_surf_ideal_Newton.o','compute_conc_surf_ideal_Picard.o',
   'compute_conc_surf_ideal_bin.o','compute_d_log_gamma_d_I_aq_chem.o','compute_dc2_dc1_ideal.o','compute_dc2_dc1.o',
   'compute_dc2nc_dc1_ideal.o','compute_dc2nc_dc1.o','compute_dfk_dc1_EI_ideal.o','compute_dfk_dc1_EI.o','compute_dfk_dc_EI_ideal.o',
-  'compute_drk_dc_mineral.o','compute_drk_dc_Monod.o','compute_Jacobian_rk_anal.o','compute_mass_bal_mins.o',
+  'compute_dfk_dp_EI_ideal.o','compute_dfk_dp_EI.o',
+  'compute_drk_dc_mineral.o','compute_drk_dlogc_mineral.o','compute_drk_dc_Monod.o','compute_Jacobian_rk_anal.o','compute_mass_bal_mins.o',
   'compute_Re.o','compute_res_init.o','compute_res_Jac_res_anal_ideal.o','compute_res_Jac_res_anal_exch.o',
   'compute_res_Jac_res_anal.o','compute_res_Jac_res_incr_coeff.o','compute_rk_Jac_rk_anal.o','compute_rk_Jac_rk_incr_coeff.o',
-  'compute_rk_mineral.o','compute_rk_Monod.o','compute_rxn_rate_kin.o','compute_rk_drk_dc_Monod.o','params_iter_methods_m.o',
+  'compute_rk_mineral.o','compute_rk_Monod.o','compute_rxn_rate_kin.o','compute_rk_drk_dc_Monod.o','CV_params_m.o',
   'eq_reaction_m.o','exch_sites_conv_m.o','Gaines_Thomas_m.o','Gapon_m.o','gas_chemistry_m.o','gas_species_m.o','gas_phase_m.o',
   'get_indices_reaction.o','initialise_conc_anal_ideal.o','initialise_conc_anal_exch.o','initialise_conc_anal.o','initialise_conc_incr_coeff.o',
   'interfaz_comps_arch.o','interfaz_comps_arch_mix.o','interfaz_esp_arch.o','interfaz_comps_vars.o','kin_mineral_m.o',
@@ -21,7 +22,7 @@ $obj = @(
   'link_target_solids_reactive_zone.o','link_target_solids_mineral_zone.o','link_target_waters_mineral_zone.o',
   'set_wat_indices_zones.o','link_target_waters_old_reaction_zones.o','link_target_waters_target_gases.o','link_target_waters_target_solids.o',
   'local_chemistry_m.o','mineral_m.o','mineral_zone_m.o','mixing_iter_comp_ideal.o','mixing_iter_comp.o','mixing_iter_species.o',
-  'Monod_params_m.o','Newton_EI_eq_ideal.o','Newton_EI_eq_kin_anal_ideal_opt2.o','Newton_EI_eq_kin_anal_opt2.o','Newton_EI_kin_anal_ideal_opt2.o',
+  'Monod_params_m.o','Newton_EI_eq_ideal.o','Newton_EI_eq_kin_anal_ideal_opt2.o','Newton_EI_eq_kin_anal_opt2.o','RKF45_eq_kin_anal_opt2.o','Newton_EI_kin_anal_ideal_opt2.o',
   'params_act_coeff_m.o','params_aq_sol_m.o','params_spec_vol_m.o','phase_m.o','compute_react_term_EE_eq_kin.o','compute_react_term_EE_kin.o',
   'reaction_m.o','reactive_zone_m.o','read_association_react_PHREEQC.o','read_chem_system_CHEPROO.o','read_chemistry_CHEPROO.o','read_chemistry.o',
   'read_chemistry_interface.o','read_dissolution_react_PHREEQC.o','read_exchange_react_PHREEQC.o','read_init_bd_wat_types_CHEPROO.o',
@@ -32,6 +33,7 @@ $obj = @(
   'solve_reactive_mixing_ideal_lump_iter.o','solve_reactive_mixing_lump.o','solve_reactive_mixing_ideal_cons.o','solve_reactive_mixing_cons.o','solve_reactive_mixing_ideal_lump.o','speciation_algebra_m.o','species_m.o','surf_compl_m.o','update_eq_reactions.o','Vanselow_m.o',
   'reactive_mixing_iter_EE_eq_kin_ideal.o','reactive_mixing_iter_EE_eq_kin.o','reactive_mixing_iter_EE_kin.o',
   'reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2.o','reactive_mixing_iter_EI_kin_anal_ideal_opt2.o','reactive_mixing_iter_EI_eq_anal_ideal.o','reactive_mixing_iter_EI_eq_kin_anal_opt2.o',
+  'reactive_mixing_iter_RKF45_eq_kin_anal_opt2.o',
   'write_chemistry.o','main_interfaz.o'
 )
 Push-Location (Join-Path $root 'obj')

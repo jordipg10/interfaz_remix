@@ -547,14 +547,16 @@ module time_discr_m
             character(len=100) :: label                 !< Temporary string for reading lines
             integer :: i                                !< I/O status variable
             real(kind=8) :: theta_t_read, theta_r_read  !< Values read from file
-            integer(kind=4) :: int_flag_chem_read       !< Reactions integration method flag read from file (0: Euler, 1: RKF45)
+            real(kind=8) :: dt                          !< Time step read from file [T]
+            integer(kind=4) :: num_time                 !< Number of time steps read from file
+            integer(kind=4) :: int_method_chem          !< Reactions integration method flag read from file (0: Euler, 1: RKF45)
 
             open(unit=1, file=filename, status='old', action='read')  !< Open file for reading
             do
                 read(1,*) label                               !< Read line
                 if (trim(label)=='TIME DISCRETISATION') then
-                    read(1,*) int_flag_chem_read                !< Read reactions time integration method flag (0: Euler, 1: RKF45)
-                    if (int_flag_chem_read/=0 .and. int_flag_chem_read/=1) then
+                    read(1,*) int_method_chem                   !< Read reactions time integration method flag (0: Euler, 1: RKF45)
+                    if (int_method_chem/=0 .and. int_method_chem/=1) then
                         error stop "Reactions integration method flag must be 0 (Euler) or 1 (RKF45)"
                     end if
 
@@ -562,7 +564,7 @@ module time_discr_m
                     call this%set_theta_t(theta_t_read)
                     
                     read(1,*) theta_r_read                      !< Read time weighting factor for reactions
-                    if (int_flag_chem_read==1) then
+                    if (int_method_chem==1) then
                         theta_r_read=1d0                        !< RKF45: the RK mean rate carries the whole kinetic term (weight 1, no previous-step rate), theta_r forced to 1 regardless of the input
                     end if
                     call this%set_theta_r(theta_r_read)
@@ -579,7 +581,7 @@ module time_discr_m
 
                     !> Derive the reactions int_method from the flag and theta_r:
                     !> flag=1 -> RKF45 (3); flag=0 -> Euler explicit (1) if theta_r=0, Euler implicit (2) if theta_r>0.
-                    if (int_flag_chem_read==1) then
+                    if (int_method_chem==1) then
                         call this%set_int_method_chem(3)        !< reactions Runge-Kutta-Fehlberg 4(5)
                     else if (theta_r_read==0d0) then
                         call this%set_int_method_chem(1)        !< reactions Euler explicit (theta_r=0)
@@ -587,15 +589,11 @@ module time_discr_m
                         call this%set_int_method_chem(2)        !< reactions Euler implicit (theta_r>0)
                     end if
                     
-                    read(1,*) this%Delta_t                      !< Read time step from line 3
-                    if (this%Delta_t < 0d0) then                !< Validate Δt > 0
-                        error stop "Time step must be positive"
-                    end if
+                    read(1,*) dt                                !< Read time step from line 4
+                    call this%set_Delta_t([dt])                 !< Validates dt > 0 and sets this%Delta_t
                 
-                    read(1,*) this%Num_time                     !< Read number of steps from line 4
-                    if (this%Num_time < 0) then                 !< Validate N > 0
-                        error stop "Number of time steps must be positive"
-                    end if
+                    read(1,*) num_time                          !< Read number of steps from line 5
+                    call this%set_Num_time(num_time)            !< Validates num_time >= 1 and sets this%Num_time
                 else if (trim(label)=='end') then
                     exit                                        !< End of time discretization block
                 else
@@ -876,22 +874,23 @@ module time_discr_m
         
         !> \brief Read WMA time discretisation from a "_WMA_discr.dat" file
         !>
-        !> \details Reads the integration method for chemical reactions, the time step size,
-        !>          and the number of time steps from the problem-specific WMA discretisation
-        !>          file. The file format is:
-        !>          - Title line (skipped)
-        !>          - Separator line (skipped)
-        !>          - 'TIME DISCRETISATION WMA' label
-        !>          - Integration method (1: Euler Explicit, 2: Euler fully Implicit, 3: Crank-Nicolson)
-        !>          - Time step size (days)
-        !>          - Number of time steps
-        !>          - Separator line (skipped)
-        !>          - 'end'
+        !> \details Same format as the "discr_time.dat" file read by read_time_discr_homog,
+        !>          except that there is no theta_t line (transport is not integrated in WMA mode).
+        !>          Expected block after the 'TIME DISCRETISATION' label (4 lines):
+        !>          ```
+        !>          int_flag_chem ! Reactions integration method flag (0: Euler, 1: RKF45)
+        !>          theta_r       ! Reactions time weighting factor
+        !>          Delta_t       ! Time step size [T]
+        !>          Num_time      ! Number of time steps
+        !>          ```
+        !>          The flag is mapped to int_method_chem exactly as in read_time_discr_homog:
+        !>          0 and theta_r = 0 -> 1 (Euler explicit); 0 and theta_r > 0 -> 2 (Euler implicit);
+        !>          1 -> 3 (RKF45), theta_r forced to 1 regardless of the input.
         !>
         !> @param[in,out] this Homogeneous time discretisation object to configure
         !> @param[in] dir Problem directory path
         !> @param[in] root Root name (prefix) for input file
-        !> @param[out] int_method_chem_reacts Integration method for chemical reactions
+        !> @param[out] int_method_chem_reacts Integration method for chemical reactions (1: Euler explicit, 2: Euler implicit, 3: RKF45)
         subroutine read_time_discr_WMA(this,dir,root,int_method_chem_reacts)
             implicit none
             class(time_discr_homog_c) :: this
@@ -901,41 +900,52 @@ module time_discr_m
             
             integer(kind=4) :: unit
             character(len=256) :: label
+            real(kind=8) :: theta_r_read                !< Reactions time weighting factor read from file
+            real(kind=8) :: dt                          !< Time step read from file [T]
+            integer(kind=4) :: num_time                 !< Number of time steps read from file
+            integer(kind=4) :: int_method_chem          !< Reactions integration method flag read from file (0: Euler, 1: RKF45)
             
             unit=58
             open(unit,file=dir//root//'_WMA_discr.dat',status='old',action='read')
             do
                 read(unit,*) label
-                if (trim(label).eq.'end') then
+                if (trim(label)=='TIME DISCRETISATION') then
+                    read(unit,*) int_method_chem                !< Read reactions time integration method flag (0: Euler, 1: RKF45)
+                    if (int_method_chem/=0 .and. int_method_chem/=1) then
+                        error stop "Reactions integration method flag must be 0 (Euler) or 1 (RKF45)"
+                    end if
+                    
+                    read(unit,*) theta_r_read                   !< Read time weighting factor for reactions
+                    if (int_method_chem==1) then
+                        theta_r_read=1d0                        !< RKF45: theta_r forced to 1 regardless of the input
+                    end if
+                    call this%set_theta_r(theta_r_read)
+                    
+                    !> Derive the reactions int_method from the flag and theta_r:
+                    !> flag=1 -> RKF45 (3); flag=0 -> Euler explicit (1) if theta_r=0, Euler implicit (2) if theta_r>0.
+                    if (int_method_chem==1) then
+                        call this%set_int_method_chem(3)        !< reactions Runge-Kutta-Fehlberg 4(5)
+                    else if (theta_r_read==0d0) then
+                        call this%set_int_method_chem(1)        !< reactions Euler explicit (theta_r=0)
+                    else
+                        call this%set_int_method_chem(2)        !< reactions Euler implicit (theta_r>0)
+                    end if
+                    int_method_chem_reacts=this%int_method_chem
+                    
+                    read(unit,*) dt                             !< Read time step
+                    call this%set_Delta_t([dt])                 !< Validates dt > 0 and sets this%Delta_t
+                    
+                    read(unit,*) num_time                       !< Read number of time steps
+                    call this%set_Num_time(num_time)            !< Validates num_time >= 1 and sets this%Num_time
+                else if (trim(label)=='end') then
                     exit
-                else if (index(label,'TIME').gt.0) then
-                    read(unit,*) int_method_chem_reacts
-                    if (int_method_chem_reacts == 1) then
-                        call this%set_theta_r(0d0)
-                    else if (int_method_chem_reacts == 2) then
-                        call this%set_theta_r(1d0)
-                    else if (int_method_chem_reacts == 3) then
-                        call this%set_theta_r(0.5d0)
-                    else
-                        error stop "Integration method not implemented"
-                    end if
-                    !> The WMA file only sets theta_r; the reactions are integrated with the Euler method:
-                    !> explicit (1) if theta_r=0, implicit (2) otherwise. The transport int_method is left untouched.
-                    if (int_method_chem_reacts == 1) then
-                        call this%set_int_method_chem(1)
-                    else
-                        call this%set_int_method_chem(2)
-                    end if
-                    read(unit,*) this%Delta_t
-                    if (this%Delta_t < 0d0) error stop "Time step must be positive"
-                    read(unit,*) this%Num_time
-                    if (this%Num_time < 0) error stop "Number of time steps must be positive"
-                    call this%compute_Final_time()
                 else
                     continue
                 end if
             end do
             close(unit)
+            
+            call this%compute_Final_time()              !< Compute t_f = N * Δt
         end subroutine
         
 end module time_discr_m

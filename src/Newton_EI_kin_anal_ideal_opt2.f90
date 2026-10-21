@@ -134,6 +134,10 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
     real(kind=8) :: dt_theta_mr_new                 !< Cached Dt*theta*lambda_r^new [-]
     real(kind=8), allocatable :: SkT_new(:,:)       !< S_k^T at new time (n_p x n_kin) (U=I for kin-only)
     real(kind=8), allocatable :: SkT_new_rk_old(:)  !< Cached S_k^T * rk_old for predictor (n_p) [C]
+!> Round-off floor of the residual (termination safeguard)
+    real(kind=8), allocatable :: abs_SkT_new(:,:)   !< |S_k^T| (n_p x n_kin) [-]
+    real(kind=8), allocatable :: abs_c_hat(:)       !< |c_hat| (n_p) [C]
+    real(kind=8), allocatable :: res_floor(:)       !< Round-off bound rho_i of each component residual at the current iterate (n_p) [C]
 !> -----------------------------------------------------------------------
 !> Pre-processing: initialisation and allocation
 !> -----------------------------------------------------------------------
@@ -176,6 +180,10 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
     !> NOT subtracted again in the residual; only the new-step (theta) term is formed here.
     dt_theta_mr_new = Delta_t*theta*mix_ratio_r
     SkT_new_rk_old = matmul(SkT_new, rk_old)
+    !> Loop-invariant factors of the round-off bound of the residual (see the convergence check)
+    abs_SkT_new = abs(SkT_new)
+    abs_c_hat = abs(c_hat)
+    allocate(res_floor(n_p))
     !> Save original initial guess for recovery via explicit-predictor fallback
     predictor_applied = .false.
     best_fk_norm = huge(1d0)
@@ -249,15 +257,22 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
             best_fk_norm = fk_norm
             conc_nc_best = conc_nc
         end if
-        !> Triple convergence check (same as eq_kin version)
-        if ((fk_norm<=eps_d*max(c_norm,1d0)) .or. &
-            (fk_norm<abs_tol .and. &
+        !> Convergence check: user tolerances (arithmetic OR logarithmic), or the round-off floor
+        !> rho_i = (2+n_kin) eps (|c_i| + |c_hat_i| + Dt theta lambda_r sum_k |S_k^T_ik| |r_k|), the forward-error
+        !> bound of the (2+n_kin)-term sum forming f_k,i (the round-off of the rate evaluation itself is not
+        !> included); evaluated only when the user tolerances are not met, it caps their achievable strictness
+        !> (an absolute tolerance below one ulp of a large concentration cannot be met)
+        CV_flag = (fk_norm<abs_tol .and. &
             fk_norm<rel_tol*max(c_norm,1d0)) .or. &
             (fk_norm>0d0 .and. &
             (log10(fk_norm)<log_abs_tol .and. &
             (log10(fk_norm)-log10(max(c_norm,1d0)))< &
-            log_rel_tol))) then
-            CV_flag=.true.
+            log_rel_tol))
+        if (.not. CV_flag) then
+            res_floor = dble(2+n_kin)*eps_d*(abs(conc_nc)+abs_c_hat+abs(dt_theta_mr_new)*matmul(abs_SkT_new,abs(rk_new)))
+            CV_flag = all(abs(fk)<=res_floor)
+        end if
+        if (CV_flag) then
             call this%compute_rxn_rate_kin_avg(theta)
             call this%compute_rxn_amnt_kin(Delta_t)
             call this%compute_contrib_rxn_amnt_kin(mix_ratio_r)
@@ -397,4 +412,5 @@ subroutine Newton_EI_kin_anal_ideal_opt2(this,c_hat,mix_ratio_r,Delta_t,theta,co
     deallocate(fk,drk_dlogc,rk_old,rk_new,conc_nc_best)
     deallocate(dfk_dp,dfk_dp_LM,Delta_p,log_c,rk_trial,fk_trial,ipiv_dgesv)
     deallocate(SkT_new,SkT_new_rk_old)
+    deallocate(abs_SkT_new,abs_c_hat,res_floor)
 end subroutine Newton_EI_kin_anal_ideal_opt2

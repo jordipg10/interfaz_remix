@@ -566,9 +566,6 @@ subroutine read_master25(this,path,unit)
                     read(line,*,iostat=int_var) species_names(this%eq_reacts(ind_reacts)%num_species), &
                         mol_vol, num_reactants, (stoich_coeffs(j), species_names(j), j=1,num_reactants),&
                         log_K
-                else
-                    print *, 'Molecular weight read successfully: ', mol_weight, ' g/mol', ' for mineral ', &
-                        trim(species_names(this%eq_reacts(ind_reacts)%num_species))
                 end if
                 !> Set stoichiometric coefficients for the reaction
                 call this%eq_reacts(ind_reacts)%set_stoichiometry(stoich_coeffs)

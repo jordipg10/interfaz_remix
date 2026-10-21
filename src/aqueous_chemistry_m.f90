@@ -1642,14 +1642,16 @@ module aqueous_chemistry_m
                                                                             !< Activity calculation: a_i = c_i Ãƒâ€” ÃŽÂ³_i
         end subroutine
         
-        !> Compute water activity using Raoult's law approximation
+        !> Compute water activity using Raoult's law (ideal mole fraction of water)
         subroutine compute_act_water(this)
             implicit none                                                   !< No implicit variable declarations
             class(aqueous_chemistry_c) :: this                             !< Aqueous chemistry object (polymorphic)
             if (this%aq_phase%ind_wat>0) then                              !< If water index is defined
-                this%activities(this%indices_aq_species(this%aq_phase%ind_wat))=1d0-0.018*sum(this%concentrations(&
-                    this%indices_aq_species(this%aq_phase%ind_diss_solids)))
-                                                                            !< First-order Raoult's law: a_w = 1 - 0.018 Ãƒâ€” ÃŽÂ£c_i
+                !> a_w = x_w = n_w/(n_w + sum n_i) = 1/(1 + 0.018*sum m_i) (0.018 kg/mol = molar mass of water, 1/0.018 = 55.56 mol/kg).
+                !> Its first-order expansion 1 - 0.018*sum m_i becomes negative when sum m_i > 55.56; the
+                !> mole fraction is always in (0,1]
+                this%activities(this%indices_aq_species(this%aq_phase%ind_wat))=1d0/(1d0+0.018d0*sum(this%concentrations(&
+                    this%indices_aq_species(this%aq_phase%ind_diss_solids))))
             end if
         end subroutine
                 
@@ -3436,7 +3438,9 @@ module aqueous_chemistry_m
             !> this water's own log10 K(T) (equilibrium block), not the shared 25 C eq_cst_ref
             log_res=this%logK(1:this%solid_chemistry%reactive_zone%speciation_alg%num_eq_reactions)-&
             matmul(this%solid_chemistry%reactive_zone%stoich_mat(:,1:this%aq_phase%num_species),log10(this%activities))
-            if (inf_norm_vec_real(log_res)>this%solid_chemistry%reactive_zone%CV_params%log_rel_tol) then
+            !> log_rel_tol is a base-10 exponent (-14 = 1e-14): the logarithmic residual is tested against
+            !> 10**log_rel_tol (a log10 residual of delta is a relative error ~ ln(10)*delta on the activities)
+            if (inf_norm_vec_real(log_res)>1d1**this%solid_chemistry%reactive_zone%CV_params%log_rel_tol) then
                 print *, inf_norm_vec_real(log_res)
                 error stop "Error in aqueous activities"
             end if
@@ -3623,7 +3627,9 @@ module aqueous_chemistry_m
                                                                             !< Right-hand side from theoretical derivation
             !> Check consistency within tolerance
             res=lhs-rhs                                                     !< Compute residual between analytical and expected
-            if (norm_mat_inf(res)>this%solid_chemistry%reactive_zone%CV_params%log_rel_tol) then
+            !> Relative identity test: log_rel_tol is a base-10 exponent (-14 = 1e-14), so the threshold is
+            !> 10**log_rel_tol scaled by the magnitude of the dimensionless right-hand side (d log c2 / d log c1 relation)
+            if (norm_mat_inf(res)>1d1**this%solid_chemistry%reactive_zone%CV_params%log_rel_tol*max(1d0,norm_mat_inf(rhs))) then
                 print *, norm_mat_inf(res)                                  !< Print error magnitude for debugging
                 error stop "Error in dc2v_dc1"                            !< Stop execution if validation fails
             end if
@@ -3670,7 +3676,8 @@ module aqueous_chemistry_m
                                                                             !< Expected value from analytical derivation
             !> Validate within numerical tolerance
             res=lhs-rhs                                                     !< Compute validation residual
-            if (norm_mat_inf(res)>this%solid_chemistry%reactive_zone%CV_params%log_rel_tol) then
+            !> Relative identity test against 10**log_rel_tol (base-10 exponent) scaled by the right-hand side magnitude
+            if (norm_mat_inf(res)>1d1**this%solid_chemistry%reactive_zone%CV_params%log_rel_tol*max(1d0,norm_mat_inf(rhs))) then
                 print *, norm_mat_inf(res)                                  !< Print error for debugging
                 error stop "Error in dc2v_dc1"                            !< Terminate if validation fails
             end if
@@ -3711,7 +3718,8 @@ module aqueous_chemistry_m
             this%solid_chemistry%reactive_zone%speciation_alg%num_species,1:&
             this%solid_chemistry%reactive_zone%speciation_alg%num_prim_species)
             res=lhs-rhs
-            if (norm_mat_inf(res)>this%solid_chemistry%reactive_zone%CV_params%log_rel_tol) then
+            !> Relative identity test against 10**log_rel_tol (base-10 exponent) scaled by the right-hand side magnitude
+            if (norm_mat_inf(res)>1d1**this%solid_chemistry%reactive_zone%CV_params%log_rel_tol*max(1d0,norm_mat_inf(rhs))) then
                 print *, norm_mat_inf(res)
                 error stop "Error in dc2_dc1"
             end if
@@ -4810,12 +4818,7 @@ subroutine compute_c_mix_global_lump(all_waters,zone_waters,conc_idx,conc_lam,la
     real(kind=8), allocatable :: c_mix_full(:) !> conservative mix in the full var-act layout (base of the limited increment)
     real(kind=8), allocatable :: Sk_nc_old(:,:), rk_old(:)
     integer(kind=4) :: p !> [NAN-DBG] row counter
-    logical, save :: mix_dbg_done=.false. !> [MIX-DBG] one-shot flag of this call site
 
-    if (within_zone_dbg_step==1 .and. .not. mix_dbg_done) then
-        mix_dbg_done=.true.
-        call print_mix_dbg_stencil("compute_c_mix_global_lump",conc_idx,conc_lam,lambda_L)
-    end if
     call compute_c_mix_cons_global(all_waters,conc_idx,conc_lam,c_mix)
     associate(this => all_waters(conc_idx(1)))
     c_mix_full=expand_c_mix_cons(this,c_mix)
@@ -5545,14 +5548,9 @@ subroutine compute_c_mix_by_zones_lump(all_waters,zone_waters,conc_idx,conc_lam,
     real(kind=8), allocatable :: c_hat_zones(:) !> stages 2+3 result: cross-zone mix of the speciated zone sub-mixtures (full var-act layout), before the kinetic term
     real(kind=8), allocatable :: c_mix_zones(:) !> conservative aqueous part of c_hat_zones (pure previous-step mix)
     real(kind=8), allocatable :: Sk_nc_old(:,:), rk_old(:)
-    logical, save :: mix_dbg_done=.false. !> [MIX-DBG] one-shot flag of this call site
 
     allocate(react_lam(size(conc_idx)))
     react_lam=0d0
-    if (within_zone_dbg_step==1 .and. .not. mix_dbg_done) then
-        mix_dbg_done=.true.
-        call print_mix_dbg_stencil("compute_c_mix_by_zones_lump",conc_idx,conc_lam,lambda_L)
-    end if
     call cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_lam,wat_indices_zones,ext_wat_indices,&
         Delta_t,theta_r,ideal,c_hat_zones,c_mix_zones,direct_mix)
     !> Both outputs are set unconditionally: c_hat must be allocated also when the target has no
@@ -5569,31 +5567,6 @@ subroutine compute_c_mix_by_zones_lump(all_waters,zone_waters,conc_idx,conc_lam,
     call write_zone_dbg_c_mix(self,c_hat,c_mix)
     end associate
 end subroutine compute_c_mix_by_zones_lump
-
-!> [MIX-DBG] stdout trace of one target cell's mixing stencil: concentration-mixing waters (self
-!> first), their concentration mixing ratios (column-aligned with the indices), optionally the
-!> reaction mixing ratios (same alignment) and the lumped reaction mixing ratio, and the
-!> concentration ratio sum (must be 1). Each call site gates it on the first time step
-!> (within_zone_dbg_step==1) and prints only once (first target water processed in that step).
-subroutine print_mix_dbg_stencil(mixer,conc_idx,conc_lam,lambda_L,react_lam)
-    implicit none
-    character(len=*), intent(in) :: mixer !> name of the calling mixer
-    integer(kind=4), intent(in) :: conc_idx(:) !> concentration-mixing waters (self first), global indices
-    real(kind=8), intent(in) :: conc_lam(:) !> concentration mixing ratios aligned with conc_idx
-    real(kind=8), intent(in), optional :: lambda_L !> lumped reaction mixing ratio of the target water
-    real(kind=8), intent(in), optional :: react_lam(:) !> reaction mixing ratios aligned with conc_idx
-    if (present(lambda_L)) then
-        print '(A,I0,A,I0,A,I0,A,ES12.4,A,A)', "[MIX-DBG] step ", within_zone_dbg_step, " target water=", conc_idx(1), &
-            " nmix=", size(conc_idx), " lambda_L=", lambda_L, " mixer=", mixer
-    else
-        print '(A,I0,A,I0,A,I0,A,A)', "[MIX-DBG] step ", within_zone_dbg_step, " target water=", conc_idx(1), &
-            " nmix=", size(conc_idx), " mixer=", mixer
-    end if
-    print '(("[MIX-DBG]   conc_idx  =",12(1X,I12)))', conc_idx
-    print '(("[MIX-DBG]   conc_lam  =",12(1X,ES12.4)))', conc_lam
-    if (present(react_lam)) print '(("[MIX-DBG]   react_lam =",12(1X,ES12.4)))', react_lam
-    print '(A,ES23.15)', "[MIX-DBG]   sum(conc_lam) =", sum(conc_lam)
-end subroutine print_mix_dbg_stencil
 
 !> Patankar-type scalar limiter: c_hat = c_mix + omega*delta with a uniform omega in [0,1] so that no
 !> species is driven below floor_frac of its value; a uniform omega keeps omega*Sk^T*rk a valid reaction extent.
@@ -5686,18 +5659,11 @@ subroutine cross_zone_mix_core(all_waters,zone_waters,conc_idx,conc_lam,react_la
     real(kind=8), allocatable :: c_cons(:) !> cross-zone aqueous mix before speciation, aq_phase order: direct mix = pure previous-step mix; multi-zone = weighted sum of the zone waters' pre-speciation mixes c_hat_z (conc_mix), i.e. including the limited previous-step kinetic term
     logical, parameter :: dbg=.false. !> set .true. to enable per-reactive-zone mixing debug prints
     logical, save :: zonedbg_descr_written = .false. !> [ZONE-DBG] one-time file legend written flag
-    logical, save :: mix_dbg_done=.false. !> [MIX-DBG] one-shot flag of this call site
     logical :: single_zone !> .true. when the whole domain has a single reactive zone (per-zone lambda renormalization is then skipped)
 
     nmix=size(conc_idx) !> number of mixing waters
     nzd=wat_indices_zones%num_cols !> number of domain reactive zones (zone id = column index)
     single_zone=(nzd==1) !> flag indicating if the whole domain has a single reactive zone
-    !> [MIX-DBG] stencil of the first target water of the first time step: concentration and
-    !> reaction mixing ratios of the mixing waters, as received by the core
-    if (within_zone_dbg_step==1 .and. .not. mix_dbg_done) then
-        mix_dbg_done=.true.
-        call print_mix_dbg_stencil("cross_zone_mix_core",conc_idx,conc_lam,react_lam=react_lam)
-    end if
     !> Mixing ratios by GLOBAL water index (the stencil scattered over all_waters, 0 elsewhere), so the
     !> zone groups and the external waters are read straight from wat_indices_zones and
     !> ext_wat_indices
@@ -8175,7 +8141,6 @@ end subroutine
         !logical :: flag_surf !> flag to indicate if there are surface complexation reactions
 
         call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_comp(flag_comp)
-        write(0,'(A,L1)') ' [SSA-DBG] enter set_spec_alg assoc_sc=', associated(this%solid_chemistry)
         if (this%solid_chemistry%reactive_zone%cat_exch_zone%num_surf_compl>0) then
             flag_surf=.true.
         else
@@ -8185,8 +8150,6 @@ end subroutine
         !> and the exchange case (get_c1's surface-site term and compute_conc_surf_compl write
         !> into solid_chemistry%concentrations, so it must be sized num_solids beforehand).
         call this%solid_chemistry%allocate_conc_solids()
-        write(0,'(A,L1,A,I0)') ' [SSA-DBG] post allocate_conc_solids alloc=', &
-            allocated(this%solid_chemistry%concentrations), ' nsolids=', this%solid_chemistry%num_solids
         call this%solid_chemistry%allocate_activities()
         call this%solid_chemistry%allocate_log_act_coeffs_solid_chem()
         call this%solid_chemistry%reactive_zone%speciation_alg%set_flag_cat_exch(flag_surf)
