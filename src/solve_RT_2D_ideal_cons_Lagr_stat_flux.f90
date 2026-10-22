@@ -76,7 +76,6 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_2D(this, dir, root)
     real(kind=8), allocatable :: c_tilde(:)
     real(kind=8), allocatable :: conc_nc(:), r_tilde(:)
     ! Domain-integrated reactive-mixing mass balance (per variable-activity species)
-    integer(kind=4) :: iunit_mb                   !< mass-balance output file unit
     integer(kind=4) :: idx_ref                    !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref                    !< reference number of variable-activity species
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
@@ -255,9 +254,6 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_2D(this, dir, root)
     else
         cpu_root = cpu_root//'_consistent'
     end if
-    open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
-    write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
-    write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
 
     ! Initialise allocation tracking for inner loop
     prev_n_v = -1
@@ -483,7 +479,7 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_2D(this, dir, root)
         end do ! target waters
 
         ! Domain-integrated mass balance for this time step (per variable-activity species)
-        call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+        call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,time,n_v_ref,mb_lhs,mb_transp,mb_react)
 
         !----------------------------------------------------------------
         ! Output selected waters at output time steps. Decoupled from the
@@ -501,7 +497,6 @@ subroutine solve_RT_ideal_cons_Lagr_stat_flux_2D(this, dir, root)
 
     if (allocated(c_hat)) deallocate(c_hat, conc_comp, r_tilde)
     close(out_unit)
-    close(iunit_mb)
     deallocate(mb_lhs, mb_transp, mb_react)
 
     ! --- Write the CPU profiling report (tagged filename) ---

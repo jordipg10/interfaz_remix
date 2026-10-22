@@ -3,6 +3,7 @@
 'c5h7o2n(aq)'  4.0  0.0 0.0	! esto no va aqui
 'c6h12o6n0(s)' 4.0 0.0 0.0	! esto no va aqui
 'A'	1.0 0.0 0.0
+'acetate(p)' 4.0 -1.0 0.0
 'acetic~acid(aq)(p)' 3.0  0.0 0.0
 'ag+'  3.0  1.0 0.0
 'al+3'  9.0  3.0 0.0
@@ -14,7 +15,7 @@
 'ba+2'  5.0  2.0 0.0
 'be+2'  8.0  2.0 0.0
 'br-'  4.0 -1.0 0.0
-'ca+2'  6.0  2.0 40.0780
+'ca+2'  6.0  2.0 40.08
 'cd+2'  4.5  2.0 0.0
 'ce+3'  9.0  3.0 0.0
 'ch4(aq)' 3.0 0.0 0.0
@@ -131,7 +132,7 @@
 'glycine(aq)' 4  -3.50 'o2(g)'   1.00 'no3-'   2.00 'hco3-'   3.00 'h+' 160.1275  3.0  0.0
 'h2(aq)' 1  -0.50 'o2(g)'  44.6575  3.0  0.0
 'h2aso3-' 2  -0.50 'o2(g)'   1.00 'h2aso4-'  29.0857  4.0 -1.0
-'h2co3' 2 1.0 'h+' 1.0 'hco3-' -6.35 1.0 0.0					! radio ionico inventado
+'h2co3' 2 1.0 'h+' 1.0 'hco3-' -3.52 1.0 0.0					! radio ionico inventado
 'h2o' 2 1.0 'h+' 1.0 'oh-(p)' -14.0 3.0 0.0						 
 'h2po4-' 2   1.00 'h+'   1.00 'hpo4-2'  -7.2054  4.0 -1.0
 'hg2+2' 3  -2.00 'h+'  -0.50 'o2(g)'   2.00 'hg+2'  10.7589  4.5  2.0
@@ -226,6 +227,7 @@
 '2-pentanone(aq)' 2  -1.00 'o2(g)'   5.00 'acetone(aq)'  65.4795  0.0  0.0
 'a-aminobutyric(aq)' 4  -1.00 'h+'  -1.00 'no3-'   0.50 'o2(g)'   2.00 'glycine(aq)'  46.6258  3.0  0.0
 'acetate' 2  -1.00 'h+'   1.00 'acetic~acid(aq)(p)'   4.7572  4.0 -1.0
+'acetic acid' 2 1.00 'h+' 'acetate(p)' 1.00 4.7572 1.0 0.0
 'ag(co3)2-3' 2   1.00 'ag+'   2.00 'co3-2'  -2.1514  4.0 -3.0
 'agcl(aq)' 2   1.00 'ag+'   1.00 'cl-'  -3.2971  0.0  0.0
 'agcl2-' 2   1.00 'ag+'   2.00 'cl-'  -5.2989  4.0 -1.0
@@ -494,7 +496,7 @@
 'haso4-2' 2  -1.00 'h+'   1.00 'h2aso4-'   6.7583  4.0 -2.0
 'hass2(aq)' 3   1.00 'h2aso3-'   2.00 'hs-'   3.00 'h+' -30.5010  3.0  0.0
 'hbro(aq)' 3   0.50 'o2(g)'   1.00 'br-'   1.00 'h+'   3.9692  3.0  0.0
-'hcl(aq)' 2   1.00 'cl-'   1.00 'h+'   0.6700  3.0  0.0
+'hcl(aq)' 2   1.00 'cl-'   1.00 'h+'   6.7  3.0  0.0
 'hclo(aq)' 3   0.50 'o2(g)'   1.00 'cl-'   1.00 'h+'   8.9821  3.0  0.0
 'hclo2(aq)' 3   1.00 'cl-'   1.00 'h+'   1.00 'o2(g)'  22.8363  3.0  0.0
 'hcoo2-' 2  -3.00 'h+'   1.00 'co+2'  21.2430  4.0 -1.0
@@ -967,8 +969,8 @@
 'andalusite'  51.530 3  -6.00 'h+'   1.00 'sio2(aq)'   2.00 'al+3'  14.2351
 'andradite' 131.850 4 -12.00 'h+'   2.00 'fe+3'   3.00 'ca+2'   3.00 'sio2(aq)'  33.3352
 'anglesite'  47.950 2   1.00 'pb+2'   1.00 'so4-2'  -7.8527
-'anhydrite'  45.940 2   1.00 'ca+2'   1.00 'so4-2'  -4.3064
-'anhydrite_kin'  45.940 2   1.00 'ca+2'   1.00 'so4-2'  -4.3064
+'anhydrite'  45.940 2   1.00 'ca+2'   1.00 'so4-2'  -4.3064 136.1416
+'anhydrite_kin'  45.940 2   1.00 'ca+2'   1.00 'so4-2'  -4.3064 136.1416
 'anilite'  25.222 4  -1.00 'h+'   1.50 'cu+'   0.25 'cu+2'   1.00 'hs-' -31.8660
 'annite' 154.320 5 -10.00 'h+'   1.00 'al+3'   1.00 'k+'   3.00 'fe+2'   3.00 'sio2(aq)'  28.6146
 'anorthite' 100.790 4  -8.00 'h+'   1.00 'ca+2'   2.00 'al+3'   2.00 'sio2(aq)'  24.8686
@@ -1061,12 +1063,13 @@
 'caal2o4:10h2o'   0.000 3  -8.00 'h+'   1.00 'ca+2'   2.00 'al+3'  36.2852
 'caal4o7'  89.350 3 -14.00 'h+'   1.00 'ca+2'   4.00 'al+3'  65.1951
 'cadmoselite'  33.727 3  -1.50 'o2(g)'   1.00 'cd+2'   1.00 'seo3-2'  53.6049
-'calcite'  36.934 3  -1.00 'h+'   1.00 'ca+2'   1.00 'hco3-'   1.8487 ! volumen molar en cm^3/mol
-'calcite_60'  36.934 3  -1.00 'h+'   1.00 'ca+2'   1.00 'hco3-'   1.53 ! volumen molar en cm^3/mol
-'calcite_60_kin'  36.934 3  -1.00 'h+'   1.00 'ca+2'   1.00 'hco3-'   1.53 ! (chapuza)
-'calcite2'  36.934 2   1.00 'ca+2'   1.00 'co3-2(p)'   -8.4801 ! volumen molar en cm^3/mol
-'calcite2_kin'  36.934 2   1.00 'ca+2'   1.00 'co3-2(p)'   -8.4801 ! volumen molar en cm^3/mol
-'calcite2_60'  36.934 2   1.00 'ca+2'   1.00 'co3-2(p)'   -8.22 ! volumen molar en cm^3/mol
+'calcite'  36.934 3  -1.00 'h+'   1.00 'ca+2'   1.00 'hco3-'   1.8487 100.0872 ! volumen molar en cm^3/mol
+'calcite_kin'  36.934 3  -1.00 'h+'   1.00 'ca+2'   1.00 'hco3-'   1.8487 100.0872 ! volumen molar en cm^3/mol
+'calcite_60'  36.934 3  -1.00 'h+'   1.00 'ca+2'   1.00 'hco3-'   1.3330 100.0872 ! volumen molar en cm^3/mol
+'calcite_60_kin'  36.934 3  -1.00 'h+'   1.00 'ca+2'   1.00 'hco3-'   1.3330 100.0872 ! (chapuza)
+'calcite2'  36.934 2   1.00 'ca+2'   1.00 'co3-2(p)'   -8.4801 100.0872 ! volumen molar en cm^3/mol
+'calcite2_kin'  36.934 2   1.00 'ca+2'   1.00 'co3-2(p)'   -8.4801 100.0872 ! volumen molar en cm^3/mol
+'calcite2_60'  36.934 2   1.00 'ca+2'   1.00 'co3-2(p)'   -8.22 100.0872 ! volumen molar en cm^3/mol
 'calomel'  66.020 4  -2.00 'h+'  -0.50 'o2(g)'   2.00 'cl-'   2.00 'hg+2'  -7.0581
 'carnallite' 172.580 3   1.00 'k+'   1.00 'mg+2'   3.00 'cl-'   4.2721
 'carnotite' 169.960 3   2.00 'k+'   2.00 'uo2+2'   2.00 'vo4-3' -56.3792
@@ -1189,6 +1192,7 @@
 'dioptase'  48.240 3  -2.00 'h+'   1.00 'cu+2'   1.00 'sio2(aq)'   6.0773
 'dolomite*'  64.365 4  -2.00 'h+'   1.00 'ca+2'   1.00 'mg+2'   2.00 'hco3-'   2.5135
 'dolomite'  64.365 4  -2.00 'h+'   1.00 'ca+2'   1.00 'mg+2'   2.00 'hco3-'   3.5700
+'dolomite_kin'  64.365 4  -2.00 'h+'   1.00 'ca+2'   1.00 'mg+2'   2.00 'hco3-'   3.5700
 'dolomite-dis'  64.390 4  -2.00 'h+'   1.00 'ca+2'   1.00 'mg+2'   2.00 'hco3-'   4.0579
 'dolomite-ord'  64.340 4  -2.00 'h+'   1.00 'ca+2'   1.00 'mg+2'   2.00 'hco3-'   2.5135
 'downeyite'  28.090 2   1.00 'seo3-2'   2.00 'h+'  -6.7511
@@ -1261,8 +1265,8 @@
 'goethite'  20.820 2  -3.00 'h+'   1.00 'fe+3'   0.5345
 'greenalite' 115.000 3  -6.00 'h+'   2.00 'sio2(aq)'   3.00 'fe+2'  22.6701
 'grossular' 125.300 4 -12.00 'h+'   2.00 'al+3'   3.00 'ca+2'   3.00 'sio2(aq)'  50.2134
-'gypsum'  74.690 2   1.00 'ca+2'   1.00 'so4-2'  -4.4823
-'gypsum_kin'  74.690 2   1.00 'ca+2'   1.00 'so4-2'  -4.4823	! chapuza
+'gypsum'  74.690 2   1.00 'ca+2'   1.00 'so4-2'  -4.4823 172.1722
+'gypsum_kin'  74.690 2   1.00 'ca+2'   1.00 'so4-2'  -4.4823 172.1722	! chapuza
 'gyrolite' 136.850 3  -4.00 'h+'   2.00 'ca+2'   3.00 'sio2(aq)'  22.9099
 'h-autunite'   0.000 2   2.00 'hpo4-2'   2.00 'uo2+2' -25.3353
 'haiweeite' 322.000 4  -6.00 'h+'   1.00 'ca+2'   2.00 'uo2+2'   6.00 'sio2(aq)'  -7.0395
@@ -1966,3 +1970,11 @@
 'x-na' 2   1.00 'x-'   1.00 'na+' -20.0000  0.0
 'x-cd' 2   1.00 'x-'   1.00 'cd+2'   1.0000  1.0
 'null' 1   0.00 '0'   0.0000  0.0
+'delta_h'               ! optional (REMIX): standard enthalpy of reaction [J/mol] in the SAME direction as the log K of the reaction lines above (defined species on the left = dissociation / dissolution). LLNL -delta_H (kJ/mol) is in this direction for PHASES (minerals, gases) and in the opposite (formation) direction for SOLUTION_SPECIES. Deliberately absent: calcite_60(_kin) (log K already at 60 C), hcl(aq) and h2co3 (no enthalpy data): they keep their log K and REMIX prints a one-time notice.
+'co2(aq)'         9702.7       ! co2(aq) + h2o = h+ + hco3- ; LLNL SOLUTION_SPECIES (formation) -9.7027 kJ/mol, sign reversed
+'co3-2'         -14698.4       ! co3-2 + h+ = hco3- ; LLNL SOLUTION_SPECIES (formation) +14.6984 kJ/mol, sign reversed
+'h2co3'         -6.3d3         ! h2co3 = h+ + hco3- (Aminov et al, 2019)
+'calcite'       -25714.9       ! calcite + h+ = ca+2 + hco3- ; LLNL PHASES -25.7149 kJ/mol, same direction
+'calcite_kin'   -25714.9       ! same reaction as calcite
+'co2(g)'        -10585.5       ! co2(g) + h2o = h+ + hco3- ; LLNL PHASES -10.5855 kJ/mol, same direction
+'null'               0.0

@@ -41,7 +41,6 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
     real(kind=8), allocatable :: conc_comp(:)
     real(kind=8), allocatable :: lumped_lambdas(:)
 !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
-    integer(kind=4) :: iunit_mb !< mass-balance output file unit
     integer(kind=4) :: iunit_celldbg !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref !< reference number of variable-activity species
@@ -178,9 +177,6 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
     else
         cpu_root = root//'_Euler_consistent'
     end if
-    open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
-    write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
-    write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
     !> Per-cell [CELL-DBG] trace file (10 target waters equidistant along the mesh)
     open(newunit=iunit_celldbg, file=dir//cpu_root//'_cell_dbg.out', status='replace', action='write')
 
@@ -219,7 +215,7 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
             mix_conc_indices, mixing_ratios_conc, &
             mixing_ratios_R, &
             lumped_lambdas, &
-            conc_comp, iunit_mb, iunit_celldbg, &
+            conc_comp, iunit_celldbg, &
             p_solver, p_mixer)
         call cpu_time(cpu_prof_t1)
         cpu_solver_total = cpu_solver_total + (cpu_prof_t1 - cpu_prof_t0)
@@ -273,7 +269,6 @@ subroutine solve_reactive_mixing_ideal_lump(this,dir,root,mixing_ratios_conc,mix
 
 !> Close output file and clean up
     close(unit)
-    close(iunit_mb)
     close(iunit_celldbg)
     deallocate(conc_comp)
     deallocate(lumped_lambdas)

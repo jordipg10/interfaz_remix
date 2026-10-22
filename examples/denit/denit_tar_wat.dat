@@ -1,12 +1,12 @@
-'TITLE OF THE PROBLEM: Denitrification '
+'TITLE OF THE PROBLEM: Denitrification'
 '------------------------------------------------------------------------------------------------------------------'
 'WATERS'
 12					! number of waters
-0					! number of recharge waters
 2					! number of boundary waters
-1	1	0	1	0
-2-11	2	0	0	1
-12	2	0	0	0
+0					! number of recharge waters
+1-10	2	0	0	
+11	1	0	0	
+12	2	0	0	
 '---------------------------------------------------------------------------------------------------------------------'
 'end'
 

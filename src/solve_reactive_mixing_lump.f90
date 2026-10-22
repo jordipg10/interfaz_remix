@@ -57,7 +57,6 @@ subroutine solve_reactive_mixing_lump(this,dir,root,mixing_ratios_conc,mixing_ra
     real(kind=8), allocatable :: mal_residual(:)
     real(kind=8) :: mal_max
 !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
-    integer(kind=4) :: iunit_mb !< mass-balance output file unit
     integer(kind=4) :: iunit_celldbg !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref !< reference number of variable-activity species
@@ -185,9 +184,6 @@ subroutine solve_reactive_mixing_lump(this,dir,root,mixing_ratios_conc,mixing_ra
     else
         cpu_root = root//'_Euler_consistent'
     end if
-    open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
-    write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
-    write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
     !> Per-cell [CELL-DBG] trace file (bulk calcite cells 3/8 + interface cells 15/16/17)
     open(newunit=iunit_celldbg, file=dir//cpu_root//'_cell_dbg.out', status='replace', action='write')
 
@@ -332,7 +328,7 @@ subroutine solve_reactive_mixing_lump(this,dir,root,mixing_ratios_conc,mixing_ra
         call cpu_time(cpu_prof_t1)
         cpu_output_total = cpu_output_total + (cpu_prof_t1 - cpu_prof_t0)
         !> Domain-integrated mass balance for this time step (per variable-activity species)
-        call this%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+        call this%write_react_mix_mass_bal_dom(idx_ref,time,n_v_ref,mb_lhs,mb_transp,mb_react)
     end do
 
 !> -----------------------------------------------------------------------
@@ -356,7 +352,6 @@ subroutine solve_reactive_mixing_lump(this,dir,root,mixing_ratios_conc,mixing_ra
 !> -----------------------------------------------------------------------
 !> Close output file and clean up
     close(unit)
-    close(iunit_mb)
     close(iunit_celldbg)
     deallocate(mb_lhs, mb_transp, mb_react)
     deallocate(conc_comp)

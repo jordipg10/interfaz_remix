@@ -41,8 +41,6 @@ subroutine write_chemistry(this,dir,root,time_step,Lagr_flag,num_time)
     integer(kind=4), allocatable :: wat_indices(:),tar_sol_indices(:) !> domain and external water indices [-]
     real(kind=8), allocatable :: sat_row(:) !> saturation index of one kinetic mineral in each target water (1 = equilibrium where never evaluated) [-]
     integer(kind=4) :: unit !> file unit number for main output [-]
-    integer(kind=4) :: jw !> water index for species order check [-]
-    logical :: order_ok !> flag for species order consistency check [-]
     character(len=:), allocatable :: wma_tag !> WMA option tag for output filename (lumped/consistent) [-]
     character(len=:), allocatable :: tpt_tag !> transport approach tag for output filename (Euler/Lagr) [-]
     character(len=:), allocatable :: nt_tag !> number-of-time-steps tag for output filename [-]
@@ -86,6 +84,7 @@ subroutine write_chemistry(this,dir,root,time_step,Lagr_flag,num_time)
         end if
     end if
     write(unit,"(/,2x,'rk average option:',I25)") this%rk_avg_opt !> write kinetic reaction averaging option flag
+    write(unit,"(/,2x,'Number of interfaces:',I25)") this%num_interfaces !> write number of solid-solid interfaces [-]
     write(unit,"(/,2x,'Aqueous species:'/)")  !> write aqueous species section header
     do i=1,this%chem_syst%aq_phase%num_species !> loop over all aqueous species
         write(unit,"(10x,A15)") this%chem_syst%aq_phase%aq_species(i)%name !> write aqueous species name
@@ -170,46 +169,6 @@ subroutine write_chemistry(this,dir,root,time_step,Lagr_flag,num_time)
     !     write(unit,"(10x,*(ES15.5))") (this%waters(this%rech_waters_indices(j))%activities(&
     !         this%waters(this%rech_waters_indices(j))%indices_aq_species(i)), j=1,this%num_rech_waters) !> write recharge water activities [-]
     ! end do
-    !> Check that all water types have the same species ordering
-    order_ok = .true.
-    do j = 2, this%num_wat_types
-        do i = 1, this%chem_syst%aq_phase%num_species
-            if (this%wat_types(j)%indices_aq_species(i) /= this%wat_types(1)%indices_aq_species(i)) then
-                print *, "WARNING: water type", j, " has different indices_aq_species than water type 1"
-                print *, "  species", i, ": water type 1 ->", this%wat_types(1)%indices_aq_species(i), &
-                    ", water type", j, " ->", this%wat_types(j)%indices_aq_species(i)
-                order_ok = .false.
-            end if
-        end do
-    end do
-    !> Check that all target waters have the same species ordering as last water type
-    do jw = 1, this%num_target_waters
-        j = this%tar_wat_indices(jw)
-        do i = 1, this%chem_syst%aq_phase%num_species
-            if (this%waters(j)%indices_aq_species(i) /= this%wat_types(this%num_wat_types)%indices_aq_species(i)) then
-                print *, "WARNING: target water", jw, " (index", j, ") has different indices_aq_species"
-                print *, "  species", i, ": water type", this%num_wat_types, "->", &
-                    this%wat_types(this%num_wat_types)%indices_aq_species(i), &
-                    ", target water ->", this%waters(j)%indices_aq_species(i)
-                order_ok = .false.
-            end if
-        end do
-    end do
-    !> Check initial target waters too
-    do jw = 1, this%num_target_waters_init
-        j = this%tar_wat_indices_init(jw)
-        do i = 1, this%chem_syst%aq_phase%num_species
-            if (this%waters_init(j)%indices_aq_species(i) /= this%wat_types(1)%indices_aq_species(i)) then
-                print *, "WARNING: init target water", jw, " (index", j, ") has different indices_aq_species"
-                print *, "  species", i, ": water type 1 ->", this%wat_types(1)%indices_aq_species(i), &
-                    ", init target water ->", this%waters_init(j)%indices_aq_species(i)
-                order_ok = .false.
-            end if
-        end do
-    end do
-    if (order_ok) then
-        print *, "Species ordering check PASSED: all waters have consistent indices_aq_species"
-    end if
     write(unit,"(/,2x,'Water types names:'/)")  !> write water types names header
     write(unit,"(/,10x,*(A25))") (this%wat_types(j)%name, j=1,this%num_wat_types)  !> write water types names (column width = ES25.15E3 below)
     !> Per water type: temperature, Debye-Huckel parameters and the equilibrium constants of its

@@ -234,7 +234,7 @@ module chemistry_m
         procedure :: solve_reactive_mixing_ideal_lump        !< Ideal reactive mixing solver with lumping
         procedure :: solve_reactive_mixing_ideal_lump_iter   !< Single time-step iteration of ideal lumped solver
         procedure :: solve_reactive_mixing         !< Reactive mixing with time-dependent boundary conditions
-        procedure :: write_react_mix_mass_bal_dom   !< Write the domain-integrated reactive-mixing mass balance (per species) for one time step
+        procedure :: write_react_mix_mass_bal_dom   !< Check the domain-integrated reactive-mixing mass balance (per species) for one time step (error stop on violation; no file output)
         !> @}
         
         !> @name Linkage and Association Methods
@@ -912,7 +912,7 @@ module chemistry_m
             mix_conc_indices, mixing_ratios_conc, &
             mixing_ratios_R, &
             lumped_lambdas, &
-            conc_comp, iunit_mb, iunit_celldbg, &
+            conc_comp, iunit_celldbg, &
             p_solver, p_mixer)
             import chemistry_c                            !< Import chemistry class definition
             import real_array_c                           !< Import real array container type
@@ -937,7 +937,6 @@ module chemistry_m
             class(real_array_c), intent(in) :: mixing_ratios_R !< Reaction mixing ratios (mix_conc_indices layout)
             real(kind=8), intent(in) :: lumped_lambdas(:) !< Lumped eigenvalues for spatial lumping
             real(kind=8), intent(inout) :: conc_comp(:)   !< Component concentrations (updated in place)
-            integer(kind=4), intent(in) :: iunit_mb       !< Mass-balance output file unit (already open)
             integer(kind=4), intent(in) :: iunit_celldbg  !< Per-cell [CELL-DBG] trace file unit (already open)
             procedure(reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2) :: p_solver !< Procedure pointer to equilibrium-kinetic solver
             procedure(compute_c_mix_by_zones_lump), pointer, intent(in) :: p_mixer
@@ -2310,26 +2309,40 @@ module chemistry_m
         real(kind=8) :: coef !< component-matrix coefficient
         logical :: first !< flag for first term in a component definition
 
-        !> Reference/resident basis = the INITIAL (resident) water TYPE of the first domain target
-        !> water. All component definitions, the species list and every concentration column (domain
-        !> and external) are expressed in this single basis (species reordered to the resident order,
-        !> components u = comp_mat_ref * c); waters are written in order (no per-reactive-zone grouping).
-        iref=1
-        if (allocated(this%wat_type_indices) .and. this%num_target_waters>0) iref=this%wat_type_indices(1)
-        comp_mat_ref=this%wat_types(iref)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq
-        ncomp=size(comp_mat_ref,1)
-        nsp_ref=size(comp_mat_ref,2)
-        allocate(ref_sp_names(nsp_ref))
-        do j=1,nsp_ref
-            ref_sp_names(j)=this%wat_types(iref)%aq_phase%aq_species(this%wat_types(iref)%indices_aq_phase(&
-                this%wat_types(iref)%ind_var_act_species(j)))%name
-        end do
+        !> Reference/resident basis = the reactive zone of the first TARGET WATER (not of its
+        !> water type: the water types satisfy their own icon=4 equilibrium constraints, e.g. a mineral
+        !> in equilibrium, whereas in the domain that mineral may be kinetic and hence does not reduce
+        !> the number of aqueous components). All component definitions, the species list and every
+        !> concentration column (domain and external) are expressed in this single basis (species
+        !> reordered to the resident order, components u = comp_mat_ref * c); waters are written in
+        !> order (no per-reactive-zone grouping).
         n_tar=size(this%tar_wat_indices)
         n_ext=size(this%ext_waters_indices)
+        if (n_tar>0) then
+            iref=this%tar_wat_indices(1)
+            comp_mat_ref=this%waters(iref)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq
+            ncomp=size(comp_mat_ref,1)
+            nsp_ref=size(comp_mat_ref,2)
+            allocate(ref_sp_names(nsp_ref))
+            do j=1,nsp_ref
+                ref_sp_names(j)=this%waters(iref)%aq_phase%aq_species(this%waters(iref)%indices_aq_phase(&
+                    this%waters(iref)%ind_var_act_species(j)))%name
+            end do
+        else !> no target waters: fall back to the first water type
+            iref=1
+            comp_mat_ref=this%wat_types(iref)%solid_chemistry%reactive_zone%speciation_alg%comp_mat_aq
+            ncomp=size(comp_mat_ref,1)
+            nsp_ref=size(comp_mat_ref,2)
+            allocate(ref_sp_names(nsp_ref))
+            do j=1,nsp_ref
+                ref_sp_names(j)=this%wat_types(iref)%aq_phase%aq_species(this%wat_types(iref)%indices_aq_phase(&
+                    this%wat_types(iref)%ind_var_act_species(j)))%name
+            end do
+        end if
 
         open(unit=20,file=path//filename,status='replace',action='write') !< open output file, replacing if it exists
 
-        !> Number of aqueous components (resident water type basis)
+        !> Number of aqueous components (domain reactive zone basis)
         write(20,"(2x,'Number of aqueous components: ',I0)") ncomp
 
         !> Variable activity species (resident basis order): primaries (rows 1..ncomp) then secondaries
@@ -2866,23 +2879,21 @@ module chemistry_m
                 time_discr,theta_r) !< Pass time discretization and integration method
         end subroutine
 
-        !> @brief Writes one time step of the domain-integrated reactive-mixing mass balance (per variable-activity species).
+        !> @brief Checks one time step of the domain-integrated reactive-mixing mass balance (per variable-activity species).
         !> @details idx_ref is the reference target water (homogeneous domain: it supplies the species names/flags).
         !> For each species: LHS (storage), RHS = transport + reaction, residual = LHS - RHS (all already summed over cells).
         !> A residual above mb_tol*max(1,|LHS|,|RHS|) is a hard failure (error stop) after printing the offending species
         !> and its LHS/transport/reaction split: a violated balance means the reactive-mixing step is wrong, not a warning.
-        subroutine write_react_mix_mass_bal_dom(this,idx_ref,iunit,time,n_v,lhs,transp,react)
+        !> Nothing is written to file.
+        subroutine write_react_mix_mass_bal_dom(this,idx_ref,time,n_v,lhs,transp,react)
             class(chemistry_c), intent(in) :: this !< Chemistry object instance
             integer(kind=4), intent(in) :: idx_ref !< reference target-water index (species names/flags)
-            integer(kind=4), intent(in) :: iunit !< mass-balance output file unit
             real(kind=8), intent(in) :: time !< current simulation time
             integer(kind=4), intent(in) :: n_v !< number of variable activity species
             real(kind=8), intent(in) :: lhs(:),transp(:),react(:) !< domain-summed per-species terms
             integer(kind=4) :: j,nmax
             real(kind=8) :: rhs,residual,mb_tol,mb_scale
             character(len=:), allocatable :: sp_name
-            write(iunit,"(2x,'t = ',ES15.5)") time
-            write(iunit,"(4x,A15,3A20)") 'species','LHS','RHS','residual'
             !> Species names/flags come from the aqueous phase via indices_aq_phase o ind_var_act_species;
             !> chem_syst%species is reordered by the speciation algebra, so indexing it directly with
             !> ind_var_act_species mislabels and drops species (e.g. ca+2 for gypsum).
@@ -2894,7 +2905,6 @@ module chemistry_m
                     rhs=transp(j)+react(j)
                     residual=lhs(j)-rhs
                     sp_name=trim(w%aq_phase%aq_species(w%indices_aq_phase(w%ind_var_act_species(j)))%name)
-                    write(iunit,"(4x,A15,3ES20.10)") sp_name,lhs(j),rhs,residual
                     !> Scale-relative violation test (absolute floor at 1) so the guard is meaningful in
                     !> any solver regardless of the balance magnitude: |residual| > mb_tol*max(1,|LHS|,|RHS|).
                     mb_scale=max(abs(lhs(j)),abs(rhs))
@@ -2909,42 +2919,6 @@ module chemistry_m
                 end if
             end do
             end associate
-            !> Companion component-space balance (u = U*c): apply the component matrix U to the
-            !> species terms. Equilibrium reactions cancel under U (U*Se_eq^T = 0), so its reaction
-            !> term is kinetic-only. Written to a sibling "<name>_comp.out", opened lazily here and
-            !> kept open across time steps (re-found each call via INQUIRE, no extra arguments needed).
-            block
-                integer(kind=4) :: ncomp,iunit_comp,jc
-                logical :: comp_open
-                character(len=512) :: fname
-                character(len=:), allocatable :: comp_fname
-                character(len=15) :: clabel
-                real(kind=8), allocatable :: lhs_c(:),transp_c(:),react_c(:)
-                real(kind=8) :: rhs_c,resid_c
-                associate(sa => this%waters(idx_ref)%solid_chemistry%reactive_zone%speciation_alg)
-                ncomp=size(sa%comp_mat,1)
-                lhs_c=matmul(sa%comp_mat,lhs(1:n_v))
-                transp_c=matmul(sa%comp_mat,transp(1:n_v))
-                react_c=matmul(sa%comp_mat,react(1:n_v))
-                end associate
-                inquire(unit=iunit,name=fname)
-                comp_fname=trim(fname)
-                comp_fname=comp_fname(1:len_trim(comp_fname)-4)//'_comp.out'
-                inquire(file=comp_fname,opened=comp_open,number=iunit_comp)
-                if (.not. comp_open) then
-                    open(newunit=iunit_comp,file=comp_fname,status='replace',action='write')
-                    write(iunit_comp,*) 'Domain-integrated reactive-mixing mass balance (per aqueous component u = U*c)'
-                    write(iunit_comp,*) 'Per time step & component: LHS = U*sum V*(c^{k+1}-c^k)/Dt, RHS = U*(transport+reaction), residual = LHS - RHS'
-                end if
-                write(iunit_comp,"(2x,'t = ',ES15.5)") time
-                write(iunit_comp,"(4x,A15,3A20)") 'component','LHS','RHS','residual'
-                do jc=1,ncomp
-                    rhs_c=transp_c(jc)+react_c(jc)
-                    resid_c=lhs_c(jc)-rhs_c
-                    write(clabel,'(A,I0)') 'u',jc
-                    write(iunit_comp,"(4x,A15,3ES20.10)") clabel,lhs_c(jc),rhs_c,resid_c
-                end do
-            end block
         end subroutine
 
         !> @brief Set upstream water indices using flow direction and grid topology

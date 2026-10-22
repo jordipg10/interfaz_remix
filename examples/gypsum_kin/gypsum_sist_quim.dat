@@ -1,6 +1,5 @@
-'TITLE OF THE PROBLEM: Yeso cinetico'
-'-----------------------------------------------------------------------------------------------------'
-'DEFINITION OF THE GEOCHEMICAL SYSTEM'
+'TITLE OF THE PROBLEM: Gypsum kinetics'
+'-------------------------------------------------------------------------------------------------------------'
 'PRIMARY AQUEOUS SPECIES'
 'h2o(p)'					! species name
 'ca+2'
@@ -10,13 +9,14 @@
 'AQUEOUS COMPLEXES'
 '*'
 'MINERALS'
-'gypsum' .false. .true. 		! name of mineral, flag equilibrium, flag constant activity 
+'gypsum_kin' .false. .true.			! name of mineral, flag equilibrium, flag constant activity
+'gypsum' .true. .true. 				
 '*' .true. .true.         
 'GASES'
 '*'  .true. .true.
 'SURFACE COMPLEXES'
 '*'
-'------------------------------------------------------------------------------------------------------'
+'--------------------------------------------------------------------------------------------------------------'
 'end'
 
 

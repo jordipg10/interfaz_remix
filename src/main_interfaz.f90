@@ -36,6 +36,7 @@ program main_interfaz
         file_u_wat_types_trimmed !>< Trimmed deferred-length versions of the input strings.
     integer :: ios !>< I/O status code returned by safe read statements.
     logical :: has_ieee !>< True if the runtime supports the IEEE intrinsic standard.
+    logical :: u_tilde_exists !>< True if the u_tilde input file exists in the problem path.
     character(len=512) :: buf !>< Line buffer used by read_clean_line to skip comments/blank lines.
     procedure(interfaz_esp_arch), pointer :: p_interfaz=>null() !>< Procedure pointer dispatching to the appropriate reactive-mixing interface.
     !> Pre-Process
@@ -173,6 +174,27 @@ program main_interfaz
         write(*,*) 'Error/EOF reading file_u_tilde. Run in an interactive terminal or redirect from fort.5'; call &
             safe_stop(1)
     end if
+    !> Trim trailing blanks from the u_tilde input filename.
+    file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
+    !> The u_tilde file is produced by an external conservative-transport step and must
+    !> already exist in the problem path. If it is missing, we cannot run the reactive
+    !> mixing: make sure the water-types file (u_init) is available and stop here, telling
+    !> the user to produce u_tilde (via conservative transport) and run again.
+    inquire(file=path_pb_trimmed // file_u_tilde_trimmed, exist=u_tilde_exists)
+    if (.not. u_tilde_exists) then
+        !> If u_init was not generated earlier (user claimed it already existed), generate it now
+        !> so that the external conservative-transport step has its input available.
+        if (flag_wat_types /= 0) then
+            call my_chem%write_u_init(path_pb_trimmed,file_u_wat_types_trimmed)
+        end if
+        write(*,*) 'The file ' // trim(file_u_tilde_trimmed) // &
+            ' was not found in the problem path.'
+        write(*,*) 'The water types file ' // trim(file_u_wat_types_trimmed) // &
+            ' has been generated.'
+        write(*,*) 'The program now needs the u_tilde file (aqueous component concentrations after &
+            solving one iteration of conservative transport). Produce it and run the program again.'
+        call safe_stop(0)
+    end if
     !> u_tilde is assumed to already be after conservative mixing (post-transport),
     !> so the program does not perform mixing; it only asks about matrix orientation.
     !> Ask the user whether the input matrix is transposed (rows=targets, columns=components).
@@ -197,8 +219,6 @@ program main_interfaz
         !> Time step must be strictly positive.
         error stop "The time step must be greater than zero"
     end if
-    !> Trim trailing blanks from the u_tilde input filename.
-    file_u_tilde_trimmed = trim(file_u_tilde) !> we trim file name
     !> Select the reactive-mixing interface via procedure pointer based on the
     !> chemical system and on the orientation of the u_tilde input file:
     !>   - no equilibrium reactions                  → interfaz_esp_arch (kinetic only)

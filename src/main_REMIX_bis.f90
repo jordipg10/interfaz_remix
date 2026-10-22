@@ -178,7 +178,6 @@ program main                                                          !< Main pr
 !> @section chemistry_init Chemistry Initialization Section
 !> @brief Read chemical system definition, set reaction parameters, and initialise target waters
     call my_RT%chemistry%read_chemistry(root_trim,dir_pb_trim,dir_DB_trim)     !< Read complete chemistry setup: chemical system (species, reactions, stoichiometry), thermodynamic database, initial/boundary waters, output options [-]
-    write(0,'(A)') ' MARK F: read_chemistry returned in main'
     apply_time_scaling=.false.                                                  !< Set time-scaling flag — USER MUST MODIFY THIS VALUE TO ENABLE/DISABLE EXPLICIT TIME SCALING OF MINERAL REACTION RATES [-]
     do i_min=1,my_RT%chemistry%chem_syst%num_minerals_kin                       !< Loop over all kinetic mineral reactions in the chemical system
         call my_RT%chemistry%chem_syst%min_kin_reacts(i_min)%set_time_scaling(apply_time_scaling) !< Configure explicit time-scaling flag for each kinetic mineral reaction [-]
@@ -187,9 +186,7 @@ program main                                                          !< Main pr
     select type (rt => my_RT)                                                  !< Polymorphic dispatch: select concrete RT type for dimension-specific chemistry initialisation
     type is (RT_1D_transient_c)                                                !< Match 1D transient reactive transport type
         call rt%chemistry%set_target_solids_mesh(rt%transport%spatial_discr)   !< Assign mineral assemblages (solid chemistry) to spatial mesh cells based on reactive zone mapping [-]
-        write(0,'(A)') ' MARK G: set_target_solids_mesh done (1D)'
         call rt%set_target_waters(rt%transport%spatial_discr,rt%transport%Lagr_flag,rt%transport%BCs%labels,dir_pb_trim,root_trim) !< Initialise target waters at each mesh cell: set initial concentrations, link to reactive zones, configure BCs [-]
-        write(0,'(A)') ' MARK H: set_target_waters done (1D)'
         if (rt%transport%Lagr_flag) then                                       !< Check if Lagrangian transport is active (particle tracking requires upstream/downstream indices)
             block                                                              !< Begin local scope block for temporary array allocation (Fortran 2008 feature)
                 real(kind=8), allocatable :: vy_zero(:)                        !< Temporary array for zero y-velocity component (1D has no transverse velocity) [m/s]
@@ -219,7 +216,6 @@ program main                                                          !< Main pr
         end if                                                                 !< End of Lagrangian-specific upstream/downstream index computation for 2D
     end select                                                                 !< End of dimension-specific chemistry initialisation block
     call my_RT%chemistry%write_u_init(dir_pb_trim,root_trim//'_u_init.out')    !< Write initial aqueous components and species (grouped by reactive zone) to root_u_init.out [-]
-    write(0,'(A)') ' MARK I: u_init written, about to dispatch RT solver'
     !> Finalize output time steps before dispatch: last element = Num_time (expand empty request) [-]
     select type (rt => my_RT)
     type is (RT_1D_transient_c)

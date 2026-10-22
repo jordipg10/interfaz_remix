@@ -10,7 +10,7 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
     mix_conc_indices, mixing_ratios_conc, &
     mixing_ratios_R, &
     lumped_lambdas, &
-    conc_comp, iunit_mb, iunit_celldbg, &
+    conc_comp, iunit_celldbg, &
     p_solver, p_mixer)
     use chemistry_m, only: chemistry_c, reset_wat_indices_zones
     use aqueous_chemistry_m, only: aqueous_chemistry_c, write_celldbg_cell, &
@@ -37,7 +37,6 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
     class(real_array_c), intent(in) :: mixing_ratios_R      !< Reaction mixing ratios (mix_conc_indices layout)
     real(kind=8), intent(in) :: lumped_lambdas(:)           !< Pre-computed lumped lambdas
     real(kind=8), intent(inout) :: conc_comp(:)             !< Work buffer for component concentrations
-    integer(kind=4), intent(in) :: iunit_mb                 !< Mass-balance output file unit (already open)
     integer(kind=4), intent(in) :: iunit_celldbg            !< Per-cell [CELL-DBG] trace file unit (already open)
     procedure(reactive_mixing_iter_EI_eq_kin_anal_ideal_opt2) :: p_solver  !< Reactive mixing solver
     procedure(compute_c_mix_by_zones_lump), pointer, intent(in) :: p_mixer
@@ -188,7 +187,7 @@ subroutine solve_reactive_mixing_ideal_lump_iter(this, k, Delta_t, theta_r, time
         deallocate(c_mix, c_hat, conc_nc)
     end do
     !> Write this time step's domain-integrated mass balance
-    call this%write_react_mix_mass_bal_dom(idx_ref, iunit_mb, time, n_v_ref, mb_lhs, mb_transp, mb_react)
+    call this%write_react_mix_mass_bal_dom(idx_ref, time, n_v_ref, mb_lhs, mb_transp, mb_react)
     deallocate(mb_lhs, mb_transp, mb_react)
     !> Sum equilibrium reaction rates at interfaces if mix_by_zones_flag is set
     if (this%mix_by_zones_flag) then

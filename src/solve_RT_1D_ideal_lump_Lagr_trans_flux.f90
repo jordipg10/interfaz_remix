@@ -75,7 +75,6 @@ subroutine solve_RT_ideal_lump_Lagr_trans_flux_1D(this,dir,root)
     REAL(KIND=8), allocatable :: conc_comp(:) !> Concentrations before mixing for all mixing waters (n_v × num_mix_waters) [M/L³]
     REAL(KIND=8), allocatable :: conc_nc(:) !> Concentrations of variable activity species after reaction [M/L³]
     !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
-    integer(kind=4) :: iunit_mb !> mass-balance output file unit
     integer(kind=4) :: idx_ref !> reference target-water index (species names/dimension)
     integer(kind=4) :: idx !> output water index (into chemistry%waters)
     integer(kind=4) :: n_v_ref !> reference number of variable-activity species
@@ -278,9 +277,6 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
     idx_ref=this%chemistry%tar_wat_indices(1)
     n_v_ref=this%chemistry%waters(idx_ref)%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species
     allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
-    open(newunit=iunit_mb, file=dir//root//'_Lagr_lumped_mass_balance.out', status='replace', action='write')
-    write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
-    write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
     
 !**************************************************************************************************
 !> \name Concentration Storage Initialization
@@ -503,7 +499,7 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
                     deallocate(conc_nc) !> Deallocate concentration array
             end do !> End loop over domain target waters
             !> Domain-integrated mass balance for this time step (per variable-activity species)
-            call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+            call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,time,n_v_ref,mb_lhs,mb_transp,mb_react)
             !> Write chemistry output honouring chem_out_options%vars (conc / react_rate / vol_fract)
             if (k==this%chemistry%chem_out_options%time_steps(kk)) then
                 call write_out_step_vars(this%chemistry, unit, time)
@@ -522,7 +518,6 @@ type is (RT_1D_transient_c) !> Transient reactive transport case
 !> Commented out redundant assignment (target waters already updated in-place)
     !this%chemistry%waters=this%chemistry%waters
     close(unit) !> Close output file
-    close(iunit_mb)
     deallocate(mb_lhs, mb_transp, mb_react)
 end select !> End type selection
 end subroutine !> End solve_RT_ideal_lump_Lagr_trans_flux_1D

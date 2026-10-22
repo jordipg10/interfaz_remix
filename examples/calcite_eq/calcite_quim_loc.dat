@@ -26,18 +26,9 @@
 1								! number of mineral zones 
 1	25.0							! index mineral zone, temperature (C)
 'calcite'							! name of mineral zone
-'mineral         vol.frac.    area(m2/m3rock)'
-'calcite'          0.50           1d2 
-'*'                0.00          0.00
-'--------------------------------------------------------------------------------------------------------------'
-'INITIAL AND BOUNDARY GAS ZONES'
-1                       					! number of gas zones
-1	25	1d9						! index gas zone, temperature (C), volume
-'atmosphere'							! name of gas zone
-'gas	       		partial pressure'
-'o2(g)'             	  	2d-1
-'co2(g)'			3.5d-4
-'*'				0.00
+'mineral         vol.frac./porosity    	area(m2/dm3water)'
+'calcite'          1d0           	  2d-1 
+'*'                0.00          	  0.00
 '--------------------------------------------------------------------------------------------------------------'
 'end'
 

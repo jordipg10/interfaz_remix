@@ -224,7 +224,6 @@ subroutine read_kinetics_DB(this,path,unit)
                             error stop 'Catalyser not found in chemical system' !> stop with error
                         else !> catalyzer found
                             min_params%cat_indices(k)=cat_ind !> store catalyzer index
-                            print *, 'Catalyzer ', catalysers(k)%name, ' found at index ', cat_ind
                         end if
                     end do
                 end do !> end parallel reactions loop

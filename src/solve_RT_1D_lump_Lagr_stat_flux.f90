@@ -137,7 +137,6 @@ subroutine solve_RT_1D_lump_Lagr_stat_flux(this,dir,root)
     REAL(KIND=8), allocatable :: conc_nc(:) !< Variable activity species concentrations (solution vector) [mol/L]
     REAL(KIND=8), allocatable :: lumped_lambdas(:) !< Lumped reaction mixing ratio per target water [-]
     !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
-    integer(kind=4) :: iunit_mb                   !< mass-balance output file unit
     integer(kind=4) :: iunit_celldbg              !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref                    !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref                    !< reference number of variable-activity species
@@ -350,9 +349,6 @@ subroutine solve_RT_1D_lump_Lagr_stat_flux(this,dir,root)
         idx_ref=this%chemistry%tar_wat_indices(ind_non_can_vec(1))
         n_v_ref=this%chemistry%waters(idx_ref)%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species
         allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
-        open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
-        write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
-        write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
         ! Per-cell [CELL-DBG] trace file (interface cells 15/16/17)
         open(newunit=iunit_celldbg, file=dir//cpu_root//'_cell_dbg.out', status='replace', action='write')
         !> [ZONE-DBG] per-cell zone-mixing trace (compute_c_mix_by_zones / mix_within_zone): open
@@ -615,7 +611,7 @@ subroutine solve_RT_1D_lump_Lagr_stat_flux(this,dir,root)
             end do !< End target waters spatial loop
             dbg_kin_mineral = .false. !< [DRK-DBG] off outside the target-water loop
             !> Domain-integrated mass balance for this time step (per variable-activity species)
-            call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+            call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,time,n_v_ref,mb_lhs,mb_transp,mb_react)
             !> Sum equilibrium reaction rates for non-canonical target waters if mixing by zones is enabled
             if (this%chemistry%mix_by_zones_flag) then
                 do i=1,num_non_can_vec
@@ -696,7 +692,6 @@ subroutine solve_RT_1D_lump_Lagr_stat_flux(this,dir,root)
     print *, 'CPU profiling written to: ', dir//cpu_root//'_cpu_profile.out'
     !> Close output file
     close(unit)
-    close(iunit_mb)
     close(iunit_celldbg)
     deallocate(mb_lhs, mb_transp, mb_react)
     !> Deallocate pre-allocated buffers

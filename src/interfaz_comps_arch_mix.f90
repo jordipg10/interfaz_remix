@@ -23,7 +23,7 @@
 !> i.e. file_in must have exactly as many columns as file_mix.
 !> It writes the variable activity species and aqueous component concentrations after
 !> solving the reactive mixing iteration in file_out.
-subroutine interfaz_comps_arch_eq_kin_mix(this,path,num_aq_comps,file_in,file_mix,Delta_t,file_out)
+subroutine interfaz_comps_arch_eq_kin_mix(this,path,num_aq_comps,file_in,file_mix_rat,Delta_t,file_out)
     use chemistry_m, only: chemistry_c
     implicit none
 !> Arguments
@@ -31,7 +31,7 @@ subroutine interfaz_comps_arch_eq_kin_mix(this,path,num_aq_comps,file_in,file_mi
     character(len=*), intent(in) :: path !> path for input and output files
     integer(kind=4), intent(in) :: num_aq_comps !> number of aqueous components
     character(len=*), intent(in) :: file_in !> name of file containing aqueous component concentrations PRIOR to mixing (rows: components, columns: waters)
-    character(len=*), intent(in) :: file_mix !> name of file containing the mixing ratios in row-major order (rows: target waters, columns: waters)
+    character(len=*), intent(in) :: file_mix_rat !> name of file containing the mixing ratios in row-major order (rows: target waters, columns: waters)
     real(kind=8), intent(in) :: Delta_t !> time step
     character(len=*), intent(in) :: file_out !> name of file containing variable activity species and aqueous component concentrations after solving reactive mixing iteration
 !> Variables
@@ -100,15 +100,15 @@ subroutine interfaz_comps_arch_eq_kin_mix(this,path,num_aq_comps,file_in,file_mi
     !> (rows: target waters, columns: waters). The number of mixing waters
     !> (columns) is auto-detected from the first row, so the matrix need not be
     !> square.
-    open(unit=1,file=path//file_mix,status='old',action='read')
+    open(unit=1,file=path//file_mix_rat,status='old',action='read')
     call read_long_line(1,first_line,ios_local)
     if (ios_local /= 0) then
-        print *, "Error reading the first row of the mixing-ratios file: ", path//file_mix
+        print *, "Error reading the first row of the mixing-ratios file: ", path//file_mix_rat
         error stop
     end if
     num_mix_wat = count_tokens(first_line)
     if (num_mix_wat < 1) then
-        print *, "Could not detect any mixing-ratio columns in: ", path//file_mix
+        print *, "Could not detect any mixing-ratio columns in: ", path//file_mix_rat
         error stop
     end if
     !> The rows of the mixing matrix are the target waters and its columns are the

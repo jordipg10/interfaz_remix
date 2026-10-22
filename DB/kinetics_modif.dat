@@ -1,24 +1,31 @@
 'kinetic data for mineral dissolution/precipitation in mol m-2 s-1'
-'gypsum_kin' 1 0 0.0 1.0 'Barton and Wilde, 1970'			! N_k, num_cat, E_a (J/mol), thr_supersat
+'gypsum_kin' 1 0 0.0 1d2 'Barton and Wilde, 1970'		! N_k, num_cat, E_a (J/mol), thr_supersat
         1d0 1.0 1.0						! k, theta, eta
 'anhydrite_kin' 1 0 0.0 1.0 'Barton and Wilde, 1970'
         1d0 1.0 1.0
-'dolomite' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
+'dolomite_kin' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
         1d-9 1.0 1.0
 'sylvite' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
         1d0 1.0 1.0
 'halite' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
         1d-9 1.0 1.0
+'calcite_kin' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
+        2d0 1.0 1.0
 'calcite2_kin' 1 0 0.0 1.0 'Inskeep and Bloom, 1986'
         1d0 1.0 1.0
 'moti(min)' 1 0 0.0 1.0 'inventado'
-        1.79184d-2 1.0 1.0
+        1.06d-2 1.0 1.0
 'moti2(min)' 1 0 0.0 1.0 'inventado'
-        8.123d-2 1.0 1.0
-'calcite_60_kin' 2 1 0d0 1.0 'Petchamé, 2025 (chapuza)'
+        4.81d-2 1.0 1.0
+'calcite_60_kin' 3 2 0d0 1d2 'Palandri & Kharaka (2004)'
 	9.22374d-1 1.0 3.0					! k, theta, eta
 	'h+' 1d0						! catalyst, p
+	'co2(aq)' 0d0
 	4.19551d-6 1.0 3.0
 	'h+' 0d0
+	'co2(aq)' 0d0
+	1.48439d-3 1.0 3.0
+	'h+' 0d0
+	'co2(aq)' 1d0
 'null' 0 0 0.0 0.0 ' '
 

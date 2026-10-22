@@ -109,7 +109,6 @@ subroutine solve_RT_ideal_lump_Euler_stat_flux_1D(this,dir,root)
     REAL(KIND=8), allocatable :: r_tilde(:) !< Variable activity species concentrations (solution vector) [mol/L]
     REAL(KIND=8), allocatable :: lumped_lambdas(:) !< Variable activity species concentrations (solution vector) [mol/L]
     !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
-    integer(kind=4) :: iunit_mb                   !< mass-balance output file unit
     integer(kind=4) :: iunit_celldbg              !< per-cell [CELL-DBG] trace file unit
     integer(kind=4) :: idx_ref                    !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref                    !< reference number of variable-activity species
@@ -293,9 +292,6 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
         idx_ref=this%chemistry%tar_wat_indices(1)
         n_v_ref=this%chemistry%waters(idx_ref)%solid_chemistry%reactive_zone%speciation_alg%num_var_act_species
         allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
-        open(newunit=iunit_mb, file=dir//root//'_Euler_lumped_mass_balance.out', status='replace', action='write')
-        write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
-        write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
         !> Per-cell [CELL-DBG] trace file (bulk calcite cells 3/8 + interface cells 15/16/17)
         open(newunit=iunit_celldbg, file=dir//root//'_Euler_lumped_cell_dbg.out', status='replace', action='write')
         !> @section time_loop Main Time Loop
@@ -527,7 +523,7 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
                 !deallocate(mix_waters) !< Free mixing waters array
             end do !< End target waters spatial loop
             !> Domain-integrated mass balance for this time step (per variable-activity species)
-            call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+            call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,time,n_v_ref,mb_lhs,mb_transp,mb_react)
             !> Write chemistry output honouring chem_out_options%vars (conc / react_rate / vol_fract)
             if (k==this%chemistry%chem_out_options%time_steps(kk)) then
                 call write_out_step_vars(this%chemistry, unit, time)
@@ -596,7 +592,6 @@ type is (RT_1D_transient_c) !< Transient (time-dependent) reactive transport
     
     !> Close output file
     close(unit)
-    close(iunit_mb)
     close(iunit_celldbg)
     deallocate(mb_lhs, mb_transp, mb_react)
     end select !< End type selection

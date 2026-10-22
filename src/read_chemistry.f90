@@ -67,5 +67,4 @@ subroutine read_chemistry(this,root,path_pb,path_DB)
     ! end do
     !> Read output options
      call this%chem_out_options%read_chem_out_options(path_pb,root,this%chem_syst,this%num_waters,this%num_rech_waters)
-    write(0,'(A)') ' MARK E: read_chem_out_options done (read_chemistry returning)'
 end subroutine

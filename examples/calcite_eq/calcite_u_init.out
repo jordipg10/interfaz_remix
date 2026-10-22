@@ -1,0 +1,36 @@
+  Number of aqueous components: 3
+
+  Aqueous variable activity species (rows 1 to 3: primary; rows 4 to 4: secondary):
+    1: h+
+    2: ca+2
+    3: o2(aq)
+    4: hco3-
+
+  Aqueous components:
+    u1 = h+ + hco3-
+    u2 = ca+2 - hco3-
+    u3 = o2(aq)
+
+  Aqueous variable activity species concentrations in the domain (rows = species, cols = target waters):
+      1.00000E-05    1.00000E-05    1.00000E-05    1.00000E-05    1.00000E-05    1.00000E-05    1.00000E-05    1.00000E-05    1.00000E-05    1.00000E-05
+      1.00000E-03    1.00000E-03    1.00000E-03    1.00000E-03    1.00000E-03    1.00000E-03    1.00000E-03    1.00000E-03    1.00000E-03    1.00000E-03
+      1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06
+      7.05830E-01    7.05830E-01    7.05830E-01    7.05830E-01    7.05830E-01    7.05830E-01    7.05830E-01    7.05830E-01    7.05830E-01    7.05830E-01
+
+  Aqueous component concentrations in the domain (rows = components, cols = target waters):
+      7.05840E-01    7.05840E-01    7.05840E-01    7.05840E-01    7.05840E-01    7.05840E-01    7.05840E-01    7.05840E-01    7.05840E-01    7.05840E-01
+     -7.04830E-01   -7.04830E-01   -7.04830E-01   -7.04830E-01   -7.04830E-01   -7.04830E-01   -7.04830E-01   -7.04830E-01   -7.04830E-01   -7.04830E-01
+      1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06    1.00000E-06
+
+  Aqueous variable activity species concentrations of external waters (rows = species, cols = external waters):
+                  boundary                resident
+          1.0000000000E-07        1.0000000000E-05
+          1.0000000000E-09        1.0000000000E-03
+          2.5294726949E-04        1.0000000000E-06
+          5.3761087393E-05        7.0582981586E-01
+
+  Aqueous component concentrations of external waters (rows = components, cols = external waters):
+                  boundary                resident
+          5.3861087393E-05        7.0583981586E-01
+         -5.3760087393E-05       -7.0482981586E-01
+          2.5294726949E-04        1.0000000000E-06

@@ -118,7 +118,6 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     real(kind=8), allocatable :: conc_nc(:)          !< Variable activity species concentrations [mol/L]
     real(kind=8), allocatable :: lumped_lambdas(:)   !< Lumped mixing ratios per target water [-]
     !> Domain-integrated reactive-mixing mass balance (per variable-activity species)
-    integer(kind=4) :: iunit_mb                      !< mass-balance output file unit
     integer(kind=4) :: idx_ref                       !< reference target-water index (species names/dimension)
     integer(kind=4) :: n_v_ref                       !< reference number of variable-activity species
     real(kind=8), allocatable :: mb_lhs(:), mb_transp(:), mb_react(:) !< domain-summed terms
@@ -423,9 +422,6 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     idx_ref = this%chemistry%tar_wat_indices(ind_non_can_vec(1))
     n_v_ref = n_v_cache(1)
     allocate(mb_lhs(n_v_ref), mb_transp(n_v_ref), mb_react(n_v_ref))
-    open(newunit=iunit_mb, file=dir//cpu_root//'_mass_balance.out', status='replace', action='write')
-    write(iunit_mb,*) 'Domain-integrated reactive-mixing mass balance (per variable-activity species)'
-    write(iunit_mb,*) 'Per time step & species: LHS = sum V*(c^{k+1}-c^k)/Dt, RHS = transport + reaction, residual = LHS - RHS'
 
 !> -----------------------------------------------------------------------
 !> Main Time Loop
@@ -682,7 +678,7 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
         end do
 
         !> Domain-integrated mass balance for this time step (per variable-activity species)
-        call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,iunit_mb,time,n_v_ref,mb_lhs,mb_transp,mb_react)
+        call this%chemistry%write_react_mix_mass_bal_dom(idx_ref,time,n_v_ref,mb_lhs,mb_transp,mb_react)
         !> Write chemistry output honouring chem_out_options%vars (conc / react_rate / vol_fract)
         if (is_output_step) then
             call write_out_step_vars(this%chemistry, unit, time)
@@ -723,7 +719,6 @@ subroutine solve_RT_ideal_lump_Lagr_stat_flux_2D(this,dir,root)
     !> Close the main species concentration output file
     close(unit)
     !> Close the domain-integrated mass-balance output file and free its accumulators
-    close(iunit_mb)
     deallocate(mb_lhs, mb_transp, mb_react)
 !> End of subroutine
 end subroutine
