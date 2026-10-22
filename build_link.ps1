@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
-$gfortran = 'C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe'
-$root = 'C:\Users\user2319\source\repos\jordipg10\interfaz_remix'
+$gfortran = 'C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe'
+$root = 'C:\Users\jordi\source\repos\jordipg10\interfaz_remix'
 $obj = @(
   'array_ops_m.o','strings_m.o','vectors_m.o','arrays_m.o','metodos_sist_lin_m.o','penta_cholesky_inv_m.o',
   'polynomials_m.o','special_fcts_m.o','time_discr_m.o','target_m.o','spatial_discr_m.o','spatial_discr_1D_m.o',
