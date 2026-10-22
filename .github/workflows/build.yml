@@ -28,17 +28,18 @@ jobs:
 
       - name: Set up gfortran
         uses: fortran-lang/setup-fortran@v1
+        if: runner.os == 'macOS'
         with:
           compiler: gcc
 
-      - name: Install LAPACK/BLAS (Linux only)
+      - name: Install gfortran and LAPACK/BLAS (Linux only)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y liblapack-dev libblas-dev
+        run: sudo apt-get update && sudo apt-get install -y gfortran liblapack-dev libblas-dev
 
       - name: Build
         run: bash build.sh
         env:
-          FC: ${{ env.FC }}   # gfortran provided by setup-fortran
+          FC: ${{ env.FC }}   # macOS action provides FC; Linux defaults to gfortran
 
       - name: Smoke test (binary exists and runs)
         run: |
