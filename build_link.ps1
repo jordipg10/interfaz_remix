@@ -1,11 +1,11 @@
 $ErrorActionPreference = 'Stop'
-$gfortran = 'C:\Users\jordi\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe'
-$root = 'C:\Users\jordi\source\repos\jordipg10\interfaz_remix'
+$gfortran = 'C:\Users\user2319\OneDrive\Documentos\fortran\mingw64\bin\gfortran.exe'
+$root = 'C:\Users\user2319\source\repos\jordipg10\interfaz_remix'
 $obj = @(
   'array_ops_m.o','strings_m.o','vectors_m.o','arrays_m.o','metodos_sist_lin_m.o','penta_cholesky_inv_m.o',
   'polynomials_m.o','special_fcts_m.o','time_discr_m.o','target_m.o','spatial_discr_m.o','spatial_discr_1D_m.o',
   'spatial_discr_2D_m.o','spatial_discr_rad_m.o','aq_phase_m.o','aq_species_m.o','aqueous_chemistry_m.o','biofilm_m.o',
-  'chem_out_options_m.o','chem_system_m.o','chemistry_m.o','initialise_chemistry.o','compare_react_zones.o',
+  'chem_out_options_m.o','chem_system_m.o','chemistry_m.o','chemistry_interface_m.o','initialise_chemistry.o','compare_react_zones.o',
   'compute_c_nc_from_u_Newton_ideal.o','compute_c_nc_from_u_Newton.o','equilibrate_water.o','equilibrate_water_ideal.o','compute_c2_from_c1_ideal.o','compute_c2_from_c1_Picard.o',
   'compute_c2nc_from_c1_ideal.o','compute_c2v_from_c1_Picard.o','compute_conc_surf_ideal_Newton.o','compute_conc_surf_ideal_Picard.o',
   'compute_conc_surf_ideal_bin.o','compute_d_log_gamma_d_I_aq_chem.o','compute_dc2_dc1_ideal.o','compute_dc2_dc1.o',

@@ -35,9 +35,6 @@ module chemistry_m
     public :: write_out_step_vars !< Shared per-output-step writer honouring chem_out_options%vars
     public :: check_surf_compl_act_sum !< DEBUG: per-step/per-cell surface-complex activity sum check
     public :: reset_wat_indices_zones !< Rebuild wat_indices_zones when the reactive-zone set/membership changed
-    public :: interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch !< External interface subroutines for reactive mixing iterations
-    public :: interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T !< Transposed-input variants (rows: targets, columns: components)
-    public :: interfaz_comps_arch_eq_kin_mix !< Conservative + reactive mixing variant (reads concentrations prior to mixing and the mixing ratios)
     !> @brief Main chemistry class - central coordinator for all chemical processes
     !> @details This class manages the complete chemical system including:
     !>          - Water types and target waters at spatial locations
@@ -170,7 +167,6 @@ module chemistry_m
         !> @name Query and Retrieval Methods
         !> @{
         procedure :: get_num_aq_comps_chem_syst       !< Get number of aqueous components in chemical system
-        procedure :: get_num_aq_comps_tar_wat         !< Get number of aqueous components in a domain (target) water
         procedure :: get_num_wat_types                !< Get number of water types
         procedure :: get_conc_comp_wat_types          !< Get component concentrations of water types
         procedure :: get_num_aq_var_act_species       !< Get number of aqueous variable activity species
@@ -214,7 +210,6 @@ module chemistry_m
         procedure :: read_tar_gas                     !< Read target gas definitions
         procedure :: read_init_min_zones_CHEPROO      !< Read initial mineral zones (CHEPROO format)
         procedure :: read_chemistry                   !< Read complete chemistry setup
-        procedure :: read_chemistry_interface         !< Read chemistry setup for the reactive-mixing interface executable (optional CV_params, no comp/out options)
         procedure :: read_chemistry_CHEPROO           !< Read chemistry data in CHEPROO format
         procedure :: read_init_bd_wat_types_CHEPROO   !< Read initial boundary water types (CHEPROO)
         procedure :: read_init_cat_exch_zones_CHEPROO !< Read initial cation exchange zones (CHEPROO)
@@ -466,24 +461,6 @@ module chemistry_m
             character(len=*), intent(in) :: root          !< Root name for input/output files
             character(len=*), intent(in) :: path_pb       !< Path to problem directory
             character(len=*), intent(in) :: path_DB       !< Path to database files
-        end subroutine
-
-    !> @brief Read chemistry setup for the reactive-mixing interface executable
-    !> @details Same CHEPROO reading and reactive-zone linking as read_chemistry, but the
-    !>          convergence parameters file is optional (type defaults otherwise) and the
-    !>          computation / output options files are not read (the interface writes its own output).
-    !> @param[in,out] this Chemistry object to initialize
-    !> @param[in] root Root name for input/output files
-    !> @param[in] path_pb Path to problem directory
-    !> @param[in] path_DB Path to database files
-    !> @param[in] num_tar Number of target (domain) waters expected from the mesh
-        subroutine read_chemistry_interface(this,root,path_pb,path_DB,num_tar)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object to initialize
-            character(len=*), intent(in) :: root          !< Root name for input/output files
-            character(len=*), intent(in) :: path_pb       !< Path to problem directory
-            character(len=*), intent(in) :: path_DB       !< Path to database files
-            integer(kind=4), intent(in) :: num_tar        !< Expected number of target (domain) waters from the mesh
         end subroutine
                 
     !> @brief Read reactive zones in Lagrangian formulation from file
@@ -827,89 +804,22 @@ module chemistry_m
             integer(kind=4), intent(out) :: ngrz          !< Number of gas reactive zones
         end subroutine
         
-    !> @brief Interface for component concentrations (equilibrium + kinetic reactions) via file I/O
+    !> @brief Interface for component concentrations via file I/O
     !> @details Reads aqueous component concentrations from a file after conservative transport,
-    !>          solves the coupled equilibrium+kinetic step implicitly per target water
-    !>          (theta=1 backward Euler, lumped kinetic mixing ratio; the initial state has zero
-    !>          kinetic rates, so no previous-step term exists) with an explicit-Euler
-    !>          fallback for non-converging cells, and writes the resulting concentrations and
-    !>          end-of-step kinetic reaction rates to the output file.
-        subroutine interfaz_comps_arch_eq_kin(this,path,num_aq_comps,file_in,Delta_t,file_out)
+    !>          performs reactive chemistry step, and writes updated concentrations to output file.
+    !> @param[in,out] this Chemistry object
+    !> @param[in] path Path for input and output files
+    !> @param[in] num_aq_comps Number of aqueous components to process
+    !> @param[in] file_in Input filename with post-transport concentrations
+    !> @param[in] Delta_t Time step size for reactive chemistry
+    !> @param[in] file_out Output filename for post-reaction concentrations
+        subroutine interfaz_comps_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
             import chemistry_c
             class(chemistry_c) :: this                    !< Chemistry object
             character(len=*), intent(in) :: path          !< Path for input and output files
             integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
             character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
             real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for component concentrations (equilibrium reactions only) via file I/O
-    !> @details Reads aqueous component concentrations from a file after conservative transport,
-    !>          performs reactive chemistry step (eq only, no kinetics), and writes updated concentrations to output file.
-        subroutine interfaz_comps_arch_eq(this,path,num_aq_comps,file_in,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
-            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
-            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for component concentrations (equilibrium + kinetic reactions) via file I/O - transposed input
-    !> @details Same as interfaz_comps_arch_eq_kin (implicit theta=1 backward-Euler solve with
-    !>          explicit-Euler fallback, writes end-of-step kinetic reaction rates) but file_in has
-    !>          rows=targets and columns=components.
-        subroutine interfaz_comps_arch_eq_kin_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
-            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations (rows: targets, columns: components)
-            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for component concentrations (equilibrium reactions only) via file I/O - transposed input
-    !> @details Same as interfaz_comps_arch_eq but file_in has rows=targets and columns=components.
-        subroutine interfaz_comps_arch_eq_T(this,path,num_aq_comps,file_in,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
-            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations (rows: targets, columns: components)
-            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for component concentrations (equilibrium + optional kinetic) with internal conservative mixing
-    !> @details Reads aqueous component concentrations PRIOR to mixing and the mixing ratios, performs the
-    !>          conservative mixing internally and then the reactive chemistry step, and writes the updated
-    !>          concentrations to the output file. file_in has rows=components and columns=waters; file_mix
-    !>          stores the mixing ratios in row-major order (rows=target waters, columns=waters) and its
-    !>          column ordering must match file_in.
-        subroutine interfaz_comps_arch_eq_kin_mix(this,path,num_aq_comps,file_in,file_mix,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous components
-            character(len=*), intent(in) :: file_in       !< Input filename with concentrations PRIOR to mixing (rows: components, columns: waters)
-            character(len=*), intent(in) :: file_mix      !< Input filename with mixing ratios in row-major order (rows: target waters, columns: waters)
-            real(kind=8), intent(in) :: Delta_t           !< Time step size for reactive chemistry
-            character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
-        end subroutine
-
-    !> @brief Interface for aqueous species concentrations via file I/O (no equilibrium reactions)
-    !> @details Reads aqueous species concentrations from a file after conservative transport,
-    !>          performs reactive chemistry step (kinetic only), and writes updated concentrations to output file.
-        subroutine interfaz_esp_arch(this,path,num_aq_comps,file_in,Delta_t,file_out)
-            import chemistry_c
-            class(chemistry_c) :: this                    !< Chemistry object
-            character(len=*), intent(in) :: path          !< Path for input and output files
-            integer(kind=4), intent(in) :: num_aq_comps   !< Number of aqueous species
-            character(len=*), intent(in) :: file_in       !< Input filename with post-transport concentrations
-            real(kind=8), intent(in) :: Delta_t           !< Time step
             character(len=*), intent(in) :: file_out      !< Output filename for post-reaction concentrations
         end subroutine
         
@@ -2053,33 +1963,6 @@ module chemistry_m
         class(chemistry_c) :: this                        !< Chemistry object instance
         integer(kind=4) :: num_aq_comps                   !< Number of aqueous components in chemical system
         num_aq_comps=this%chem_syst%speciation_alg%num_aq_prim_species !< Retrieve count from chemical system's speciation algorithm object
-        end function
-        
-        !> @brief Get the number of aqueous components in a domain (target) water
-        !> @details Retrieves the number of primary aqueous species (components) from the
-        !> speciation algebra of the reactive zone of a domain water, which may differ from the
-        !> chemical system's count when constant-activity minerals eliminate components.
-        !> @param[in] this Chemistry object
-        !> @param[in] ind_tw Optional index into `tar_wat_indices` selecting the target water (default: first)
-        !> @return num_aq_comps Number of aqueous components in the selected target water
-        function get_num_aq_comps_tar_wat(this,ind_tw) result(num_aq_comps)
-        implicit none                                     !< Require explicit variable declarations
-        class(chemistry_c), intent(in) :: this            !< Chemistry object instance
-        integer(kind=4), intent(in), optional :: ind_tw   !< Optional index into tar_wat_indices
-        integer(kind=4) :: num_aq_comps                   !< Number of aqueous components in the target water
-        integer(kind=4) :: idx                            !< Resolved position in tar_wat_indices
-        if (present(ind_tw)) then                         !< Validate caller-provided index
-            if (ind_tw<1 .or. ind_tw>size(this%tar_wat_indices)) then
-                error stop "get_num_aq_comps_tar_wat: ind_tw out of range"
-            end if
-            idx=ind_tw                                    !< Use caller-provided index
-        else
-            if (.not. allocated(this%tar_wat_indices) .or. size(this%tar_wat_indices)<1) then
-                error stop "get_num_aq_comps_tar_wat: no target waters available"
-            end if
-            idx=1                                         !< Default to the first target water
-        end if
-        num_aq_comps=this%waters(this%tar_wat_indices(idx))%solid_chemistry%reactive_zone%speciation_alg%num_aq_prim_species !< Retrieve count from the local reactive zone's speciation algorithm
         end function
         
         !> @brief Get number of aqueous variable activity species in a target water

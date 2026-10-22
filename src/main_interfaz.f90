@@ -15,8 +15,8 @@ program main_interfaz
     !>   - interfaz_comps_arch_eq_T       : equilibrium-only, u_tilde transposed (rows=targets, cols=components).
     !>   - interfaz_comps_arch_eq_kin     : equilibrium + kinetic, u_tilde with rows=components, cols=targets.
     !>   - interfaz_comps_arch_eq_kin_T   : equilibrium + kinetic, u_tilde transposed (rows=targets, cols=components).
-    use chemistry_m, only: chemistry_c, interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch, &
-        interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T
+    use chemistry_interface_m, only: chemistry_c, interfaz_comps_arch_eq_kin, interfaz_comps_arch_eq, interfaz_esp_arch, &
+        interfaz_comps_arch_eq_kin_T, interfaz_comps_arch_eq_T, read_chemistry_interface, get_num_aq_comps_tar_wat
     !> Standard intrinsic module providing IEEE arithmetic helpers.
     use, intrinsic :: ieee_arithmetic
     !> Standard intrinsic module providing IEEE floating-point exception flags.
@@ -104,7 +104,7 @@ program main_interfaz
     !> we read chemistry
     !> Load the chemical system, water types and reactive zones from disk.
     !> num_tar is passed so that the target waters file can be validated against the mesh size.
-    call my_chem%read_chemistry_interface(root_files_trimmed,path_pb_trimmed,path_DB_trimmed,num_tar)
+    call read_chemistry_interface(my_chem,root_files_trimmed,path_pb_trimmed,path_DB_trimmed,num_tar)
     !> Ask whether the water-types concentration file has already been generated
     !> in a previous run. If yes (1) we just read its name to display it; if no
     !> (0) we generate it now via write_u_init.
@@ -138,7 +138,7 @@ program main_interfaz
     !> Query the first target water for its number of aqueous components.
     !> This value is passed to the reactive-mixing interface so it can correctly
     !> read the u_tilde input file (one entry per aqueous component per target).
-    num_aq_comps=my_chem%get_num_aq_comps_tar_wat()
+    num_aq_comps=get_num_aq_comps_tar_wat(my_chem)
     !> Echo the number of aqueous components for diagnostics.
     !print *, "Number of aqueous components: ", num_aq_comps
     !> Generate the water-types concentration file only when requested.

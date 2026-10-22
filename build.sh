@@ -90,6 +90,7 @@ SRCS=(
   aqueous_chemistry_m
   chem_out_options_m
   chemistry_m
+  chemistry_interface_m
   initialise_chemistry
   compare_react_zones
   compute_c_nc_from_u_Newton_ideal
